@@ -1071,6 +1071,7 @@ export function MapView({
       else map.easeTo({ pitch: 0, duration: 500 });
     } else {
       // Vista 1: ocultar MLS layers + barrio polygons, volver a comunas
+      flattenSkipRef.current = false;  // no dejar un skip colgado de un flyTo en listings
       mlsLastFlyToRef.current = null;
       for (const id of [...mlsLayers, "barrios-mls-fill", "barrios-mls-line", "barrios-mls-label"]) {
         if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", "none");
@@ -1361,7 +1362,13 @@ export function MapView({
     if (!flyToListingRef) return;
     flyToListingRef.current = (lat: number, lng: number, zoom = 16) => {
       const map = mapRef.current;
-      if (map && mapLoadedRef.current) map.flyTo({ center: [lng, lat], zoom, speed: 0.9 });
+      if (!map || !mapLoadedRef.current) return;
+      // Flatten as part of the fly: navigating zonas→barrio sets mapView="listings"
+      // in the same handler, and that effect's pitch easeTo would otherwise interrupt
+      // this flyTo mid-flight → camera froze below POLYGON_TIER_ZOOM → autoSelect fell
+      // back to the comuna (mlsBarrio cleared). flattenSkipRef tells it to stand down.
+      flattenSkipRef.current = true;
+      map.flyTo({ center: [lng, lat], zoom, pitch: 0, speed: 0.9 });
     };
   });
 
