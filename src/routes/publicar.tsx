@@ -807,11 +807,11 @@ function Step3({
             </Field>
           )}
 
-          <Field label="Dirección aproximada" hint="(no exacta, por seguridad)">
+          <Field label="Dirección exacta" required hint="(privada — no se muestra en el mapa público)">
             <Input
               value={data.direccion}
               onChange={(e) => setData({ direccion: e.target.value })}
-              placeholder="Ej: Cerca al Parque El Poblado"
+              placeholder="Ej: Carrera 35 #10A-25, apto 502"
             />
           </Field>
         </div>
@@ -1443,6 +1443,7 @@ function validateStep(step: number, data: FormData): string | null {
     if (parseCOP(data.precio_cop) < 100000) return "El precio parece muy bajo";
   }
   if (step === 2) {
+    if (!data.direccion.trim()) return "Ingresa la dirección exacta del inmueble";
     if (!data.lat || !data.lon) return "Marca la ubicación en el mapa";
     if (data.descripcion.length < 50) return "La descripción debe tener al menos 50 caracteres";
   }

@@ -247,6 +247,8 @@ async def crear_listing(
         raise HTTPException(400, "Debes aceptar los términos y confirmar propiedad")
     if lat is None or lon is None:
         raise HTTPException(400, "Falta la ubicación (pin en el mapa)")
+    if not (direccion or "").strip():
+        raise HTTPException(400, "La dirección exacta es obligatoria")
 
     pool = get_pool()
     operacion = _OPERACION_MAP.get(tipo_operacion)
