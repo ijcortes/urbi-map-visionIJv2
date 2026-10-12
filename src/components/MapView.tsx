@@ -122,7 +122,11 @@ function heroFit(): { bounds: [[number, number], [number, number]]; maxBounds: [
     : { bounds: VALLE_BOUNDS, maxBounds: [[-75.715, 6.128], [-75.475, 6.34]] };
 }
 // Zoom at which the polygon tier flips comuna → barrio (matches cluster→points). Knob.
-const POLYGON_TIER_ZOOM = 13;
+const POLYGON_TIER_ZOOM = 13;       // clusters → puntos (listings distribuidos de la comuna)
+const BARRIO_TIER_ZOOM = 15;        // puntos distribuidos → polígonos de barrio + auto-select barrio
+// ponytail: dos umbrales a propósito. A 13 aparecen los listings distribuidos de toda
+// la comuna; solo a 15 se baja a barrio (polígonos + narrow). Antes ambos caían en 13
+// = "pasaba a barrio directamente" sin fase intermedia. Tunear 15 si el salto se siente.
 // Synthetic barrio ids (non-API fallback) live at/above this — excluded from the layer.
 const _REAL_ID_MAX = 800_000;
 
@@ -1264,7 +1268,7 @@ export function MapView({
       if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", v);
     };
     const applyTier = () => {
-      const hi = map.getZoom() >= POLYGON_TIER_ZOOM;
+      const hi = map.getZoom() >= BARRIO_TIER_ZOOM;
       setVis("comunas-fill",  hi ? "none" : "visible");
       setVis("comunas-label", hi ? "none" : "visible");
       setVis("comunas-line",  "visible");
@@ -1287,7 +1291,7 @@ export function MapView({
     };
     const autoSelect = () => {
       const c = map.project(map.getCenter());
-      if (map.getZoom() < POLYGON_TIER_ZOOM) {
+      if (map.getZoom() < BARRIO_TIER_ZOOM) {
         if (lastAutoBarrioRef.current != null) { clearBarrioSel(); onAutoSelectBarrioRef.current?.(null); }
         const cfeats = map.queryRenderedFeatures([c.x, c.y], { layers: ["comunas-fill"] });
         const f = cfeats.length ? cfeats[0].properties : undefined;
