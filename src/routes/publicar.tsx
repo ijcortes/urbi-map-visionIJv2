@@ -165,17 +165,62 @@ function toggleArr(arr: string[], val: string): string[] {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
+// ⓘ con el "por qué" de cada campo — popover al click, cierra al clic afuera.
+function InfoDot({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [open]);
+  return (
+    <span style={{ position: "relative", display: "inline-flex", verticalAlign: "middle" }}>
+      <button
+        type="button"
+        aria-label="Por qué pedimos esto"
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        style={{
+          width: 15, height: 15, borderRadius: "50%", display: "grid", placeItems: "center",
+          fontSize: 10, fontWeight: 800, lineHeight: 1, cursor: "pointer",
+          border: `1px solid ${open ? K.teal : K.line}`, background: "#fff",
+          color: open ? K.teal : K.muted, fontStyle: "italic", fontFamily: "Georgia, serif",
+        }}
+      >
+        i
+      </button>
+      {open && (
+        <span
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: "absolute", bottom: "calc(100% + 8px)", left: -8, zIndex: 50,
+            width: "min(260px, 72vw)", background: "#111418", color: "rgba(255,255,255,0.86)",
+            padding: "10px 12px", borderRadius: 12, fontSize: 11.5, lineHeight: 1.5,
+            fontWeight: 400, boxShadow: "0 10px 30px rgba(0,0,0,0.28)",
+          }}
+        >
+          {text}
+          <span style={{ position: "absolute", bottom: -6, left: 12, width: 12, height: 6, background: "#111418", clipPath: "polygon(0 0, 100% 0, 50% 100%)" }} />
+        </span>
+      )}
+    </span>
+  );
+}
+
 function Field({
-  label, required, hint, children,
+  label, required, hint, info, children,
 }: {
-  label: string; required?: boolean; hint?: string; children: React.ReactNode;
+  label: string; required?: boolean; hint?: string; info?: string; children: React.ReactNode;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <label style={{ fontSize: 13, color: K.muted, fontWeight: 500 }}>
-        {label}
-        {required && <span style={{ color: K.coral }}> *</span>}
-        {hint && <span style={{ fontWeight: 400, marginLeft: 6 }}>{hint}</span>}
+      <label style={{ fontSize: 13, color: K.muted, fontWeight: 500, display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <span>
+          {label}
+          {required && <span style={{ color: K.coral }}> *</span>}
+          {hint && <span style={{ fontWeight: 400, marginLeft: 6 }}>{hint}</span>}
+        </span>
+        {info && <InfoDot text={info} />}
       </label>
       {children}
     </div>
@@ -533,14 +578,14 @@ function Step1({
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
-      <Field label="Tipo de operación" required>
+      <Field label="Tipo de operación" required info="Define si tu inmueble se busca para comprar o para arrendar — es el primer filtro que usan los interesados.">
         <Chips
           options={TIPOS_OP}
           value={data.tipo_operacion}
           onSelect={(v) => setData({ tipo_operacion: v })}
         />
       </Field>
-      <Field label="Tipo de inmueble" required>
+      <Field label="Tipo de inmueble" required info="Determina qué compradores lo ven y con qué propiedades se compara para estimar su precio.">
         <Chips
           options={TIPOS_IN}
           value={data.tipo_inmueble}
@@ -550,6 +595,7 @@ function Step1({
       <Field
         label={isArriendo ? "Precio mensual COP" : "Precio de venta COP"}
         required
+        info="El precio correcto define cuántos interesados llegan. Lo comparamos con inmuebles similares de la zona para ubicar el tuyo en el mapa de precios."
       >
         <div style={{ position: "relative" }}>
           <span
@@ -580,7 +626,7 @@ function Step1({
           </p>
         )}
       </Field>
-      <Field label="¿Tiene cuota de administración mensual?">
+      <Field label="¿Tiene cuota de administración mensual?" info="La administración es un costo mensual real en propiedad horizontal. El comprador la suma al precio para saber cuánto le cuesta vivir ahí; el inversionista la resta de su rentabilidad. Todos los portales la piden.">
         <div style={{ display: "flex", gap: 10 }}>
           {[{ l: "No", v: false }, { l: "Sí", v: true }].map((o) => (
             <button
@@ -636,43 +682,43 @@ function Step2({
   return (
     <div style={{ display: "grid", gap: 20 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Field label="Área construida m²">
+        <Field label="Área construida m²" info="Es la base del precio por m², la medida con la que comparamos tu inmueble con otros de la zona. Sin ella no se puede estimar bien su valor.">
           <Input inputMode="decimal" value={data.area_m2} onChange={(e) => setData({ area_m2: e.target.value })} placeholder="0" />
         </Field>
         {showLote && (
-          <Field label="Área del lote m²">
+          <Field label="Área del lote m²" info="En casas y lotes el valor del suelo suele pesar más que lo construido. Clave para tasar bien.">
             <Input inputMode="decimal" value={data.area_lote_m2} onChange={(e) => setData({ area_lote_m2: e.target.value })} placeholder="0" />
           </Field>
         )}
       </div>
 
       {showHab && (
-        <Field label="Habitaciones">
+        <Field label="Habitaciones" info="Uno de los filtros más usados en la búsqueda. Define el tipo de comprador: familia, pareja o inversión.">
           <Chips options={HABITAR.map((v) => ({ v, l: v }))} value={data.habitaciones} onSelect={(v) => setData({ habitaciones: v })} />
         </Field>
       )}
 
-      <Field label="Baños">
+      <Field label="Baños" info="Afecta el precio y el filtro de búsqueda, sobre todo en familias.">
         <Chips options={BANOS.map((v) => ({ v, l: v }))} value={data.banos} onSelect={(v) => setData({ banos: v })} />
       </Field>
 
-      <Field label="Parqueaderos">
+      <Field label="Parqueaderos" info="En Medellín suma valor real al inmueble y es de los filtros más frecuentes.">
         <Chips options={PARQS.map((v) => ({ v, l: v }))} value={data.parqueaderos} onSelect={(v) => setData({ parqueaderos: v })} />
       </Field>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Field label="Estrato">
+        <Field label="Estrato" info="Define servicios públicos, impuestos y el perfil socioeconómico de la zona. Filtro clave para el comprador y para el banco que da el crédito.">
           <Chips options={ESTRATOS.map((v) => ({ v, l: v }))} value={data.estrato} onSelect={(v) => setData({ estrato: v })} />
         </Field>
         {showPiso && (
-          <Field label="Piso">
+          <Field label="Piso" info="Un piso alto con vista o uno bajo sin ascensor cambian el valor y el interés. Dato relevante para el comprador.">
             <Input inputMode="numeric" value={data.piso} onChange={(e) => setData({ piso: e.target.value })} placeholder="Ej: 3" />
           </Field>
         )}
       </div>
 
       {showEdificio && (
-        <Field label="Nombre del edificio / conjunto">
+        <Field label="Nombre del edificio / conjunto" info="Nos deja agrupar y comparar unidades del mismo edificio, y evitar que el mismo inmueble aparezca duplicado desde varias fuentes.">
           <Input
             value={data.nombre_edificio}
             onChange={(e) => setData({ nombre_edificio: e.target.value })}
@@ -681,14 +727,14 @@ function Step2({
         </Field>
       )}
 
-      <Field label="Antigüedad">
+      <Field label="Antigüedad" info="El estado y los años inciden en el precio y en la aprobación del crédito hipotecario.">
         <Select value={data.antiguedad} onChange={(e) => setData({ antiguedad: e.target.value })}>
           <option value="">Seleccionar</option>
           {ANTIGUEDAD_OPTS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
         </Select>
       </Field>
 
-      <Field label="Amoblado">
+      <Field label="Amoblado" info="Cambia el canon de arriendo y habilita la renta corta o amoblada, que suele valer más.">
         <Chips
           options={[{ v: "si", l: "Amoblado" }, { v: "semi", l: "Semi-amoblado" }, { v: "no", l: "Sin amueblar" }]}
           value={data.amoblado}
@@ -696,7 +742,7 @@ function Step2({
         />
       </Field>
 
-      <Field label="Características interiores">
+      <Field label="Características interiores" info="Las amenidades justifican el precio y ayudan a destacar frente a inmuebles similares.">
         <Chips
           options={AMENIDADES_INT.map((v) => ({ v, l: v }))}
           value={data.amenidades_int}
@@ -705,7 +751,7 @@ function Step2({
         />
       </Field>
 
-      <Field label="Características externas / zonas comunes">
+      <Field label="Características externas / zonas comunes" info="Piscina, gimnasio o portería suben el valor percibido y filtran al comprador que busca esas comodidades.">
         <Chips
           options={AMENIDADES_EXT.map((v) => ({ v, l: v }))}
           value={data.amenidades_ext}
@@ -717,7 +763,7 @@ function Step2({
       {(esArriendo || esVenta) && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           {esArriendo && (
-            <Field label="Mascotas permitidas">
+            <Field label="Mascotas permitidas" info="Es de los primeros filtros de quien arrienda con mascota. Decirlo amplía tu universo de interesados.">
               <Select value={data.mascotas} onChange={(e) => setData({ mascotas: e.target.value })}>
                 <option value="">Seleccionar</option>
                 <option value="si">Sí</option>
@@ -726,7 +772,7 @@ function Step2({
             </Field>
           )}
           {esVenta && (
-            <Field label="Permite Airbnb" hint="(potencial renta corta)">
+            <Field label="Permite Airbnb" hint="(potencial renta corta)" info="Señal clave para el comprador-inversionista: saber si el edificio permite renta corta (Airbnb) cambia su decisión y el precio que paga.">
               <Select value={data.permite_airbnb} onChange={(e) => setData({ permite_airbnb: e.target.value })}>
                 <option value="si">Sí</option>
                 <option value="no">No</option>
@@ -779,7 +825,7 @@ function Step3({
           Ubicación
         </h3>
         <div style={{ display: "grid", gap: 12 }}>
-          <Field label="Municipio" required>
+          <Field label="Municipio" required info="Ubica tu inmueble en el mapa y lo compara con los precios reales de su zona.">
             <Select
               value={data.municipio}
               onChange={(e) => setData({ municipio: e.target.value, comuna: "", barrio_id: "", barrio_nombre: "" })}
@@ -791,7 +837,7 @@ function Step3({
           </Field>
 
           {data.municipio && (
-            <Field label="Comuna / Sector" required>
+            <Field label="Comuna / Sector" required info="Afina la ubicación y el grupo de inmuebles con el que se compara el tuyo.">
               <Select
                 value={data.comuna}
                 onChange={(e) => setData({ comuna: e.target.value, barrio_id: "", barrio_nombre: "" })}
@@ -803,7 +849,7 @@ function Step3({
           )}
 
           {data.comuna && (
-            <Field label="Barrio" required>
+            <Field label="Barrio" required info="El barrio define el precio de referencia y la seguridad y servicios que evalúa el comprador.">
               <Select
                 value={data.barrio_id}
                 onChange={(e) => {
@@ -817,7 +863,7 @@ function Step3({
             </Field>
           )}
 
-          <Field label="Dirección exacta" required hint="(privada — no se muestra en el mapa público)">
+          <Field label="Dirección exacta" required hint="(privada — no se muestra en el mapa público)" info="No se publica en el mapa. La usamos para identificar tu inmueble sin duplicarlo y construir su historial exacto — buscamos la base de datos más completa de cada propiedad de la ciudad.">
             <Input
               value={data.direccion}
               onChange={(e) => setData({ direccion: e.target.value })}
@@ -826,14 +872,14 @@ function Step3({
           </Field>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Field label="Matrícula inmobiliaria" hint="(opcional · en la escritura)">
+            <Field label="Matrícula inmobiliaria" hint="(opcional · en la escritura)" info="Es la cédula del inmueble en el registro público (ORIP). Nos deja seguir la MISMA propiedad entre portales y en el tiempo, sin confundirla con otra.">
               <Input
                 value={data.matricula_inmobiliaria}
                 onChange={(e) => setData({ matricula_inmobiliaria: e.target.value })}
                 placeholder="Ej: 001-123456"
               />
             </Field>
-            <Field label="Cédula catastral / CBML" hint="(opcional · en el predial)">
+            <Field label="Cédula catastral / CBML" hint="(opcional · en el predial)" info="Identifica el predio en catastro. Conecta tu inmueble con su avalúo, predial y datos oficiales.">
               <Input
                 value={data.cedula_catastral}
                 onChange={(e) => setData({ cedula_catastral: e.target.value })}
@@ -841,16 +887,13 @@ function Step3({
               />
             </Field>
           </div>
-          <p style={{ fontSize: 11, color: K.muted, marginTop: -4 }}>
-            Identifican el inmueble de forma única en registro y catastro — nos ayudan a
-            mantener un historial preciso de cada propiedad.
-          </p>
         </div>
       </div>
 
       <div>
-        <h3 style={{ fontFamily: K.serif, fontSize: "1rem", color: K.ink, fontWeight: 700, marginBottom: 8 }}>
-          Ubicación en el mapa <span style={{ color: K.coral, fontSize: 12 }}>*</span>
+        <h3 style={{ fontFamily: K.serif, fontSize: "1rem", color: K.ink, fontWeight: 700, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+          <span>Ubicación en el mapa <span style={{ color: K.coral, fontSize: 12 }}>*</span></span>
+          <InfoDot text="El pin fija el punto exacto para mostrar tu inmueble en el lugar correcto del mapa (al público se muestra aproximado). También ayuda a no duplicarlo con otros avisos." />
         </h3>
         <p style={{ fontSize: 13, color: K.muted, marginBottom: 12 }}>
           Haz clic en el mapa o arrastra el pin para marcar la ubicación exacta de la propiedad.
@@ -863,13 +906,14 @@ function Step3({
       </div>
 
       <div>
-        <h3 style={{ fontFamily: K.serif, fontSize: "1rem", color: K.ink, fontWeight: 700, marginBottom: 12 }}>
-          Fotos
+        <h3 style={{ fontFamily: K.serif, fontSize: "1rem", color: K.ink, fontWeight: 700, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+          <span>Fotos</span>
+          <InfoDot text="La primera foto es la portada. Más y mejores fotos = más clics y más contactos; es lo que más mueve una publicación." />
         </h3>
         <PhotoUpload photos={photos} onChange={setPhotos} />
       </div>
 
-      <Field label="Descripción" required>
+      <Field label="Descripción" required info="Es tu argumento de venta. Más detalle genera más confianza y más contactos de interesados serios.">
         <textarea
           className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#0F8A4F]/30 focus:border-[#0F8A4F] transition-colors resize-none"
           style={{ borderColor: K.line, color: K.ink, minHeight: 100 }}
@@ -883,7 +927,7 @@ function Step3({
         </p>
       </Field>
 
-      <Field label="Tour 3D / 360° (opcional)">
+      <Field label="Tour 3D / 360° (opcional)" info="Los inmuebles con tour reciben muchas más visitas y filtran curiosos — llegan interesados más decididos.">
         <input
           type="url"
           className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#0F8A4F]/30 focus:border-[#0F8A4F] transition-colors"
@@ -897,7 +941,7 @@ function Step3({
         </p>
       </Field>
 
-      <Field label="Video (opcional)">
+      <Field label="Video (opcional)" info="Un video corto aumenta los clics y el tiempo de atención sobre tu publicación.">
         <input
           type="url"
           className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#0F8A4F]/30 focus:border-[#0F8A4F] transition-colors"
@@ -919,12 +963,12 @@ function Step3({
 const SI_NO = [{ v: "si", l: "Sí" }, { v: "no", l: "No" }];
 
 function BoolQuestion({
-  label, required, value, onSelect,
+  label, required, info, value, onSelect,
 }: {
-  label: string; required?: boolean; value: string; onSelect: (v: string) => void;
+  label: string; required?: boolean; info?: string; value: string; onSelect: (v: string) => void;
 }) {
   return (
-    <Field label={label} required={required}>
+    <Field label={label} required={required} info={info}>
       <Chips options={SI_NO} value={value} onSelect={onSelect} />
     </Field>
   );
@@ -960,6 +1004,7 @@ function StepLegal({
           <BoolQuestion
             label="¿Es propiedad horizontal (edificio/condominio)?"
             required
+            info="Define si hay administración y reglamento de copropiedad — afecta trámites y costos de la venta."
             value={data.en_propiedad_horizontal}
             onSelect={(v) => setData({ en_propiedad_horizontal: v })}
           />
@@ -967,6 +1012,7 @@ function StepLegal({
             <BoolQuestion
               label="¿Al día con la administración?"
               required
+              info="Un comprador no quiere heredar deudas de administración; estar al día agiliza el cierre."
               value={data.al_dia_administracion}
               onSelect={(v) => setData({ al_dia_administracion: v })}
             />
@@ -974,28 +1020,32 @@ function StepLegal({
           <BoolQuestion
             label="¿Al día con el impuesto predial?"
             required
+            info="Las deudas de predial se trasladan con el inmueble; estar al día acelera la venta."
             value={data.al_dia_predial}
             onSelect={(v) => setData({ al_dia_predial: v })}
           />
           <BoolQuestion
             label="¿Tiene hipoteca?"
             required
+            info="Si hay hipoteca, hay que levantarla en la venta; el asesor lo prepara con tiempo."
             value={data.tiene_hipoteca}
             onSelect={(v) => setData({ tiene_hipoteca: v })}
           />
           <BoolQuestion
             label="¿Tiene escritura pública?"
             required
+            info="Sin escritura clara no hay venta. Confirma que el título está listo para transferir."
             value={data.tiene_escritura}
             onSelect={(v) => setData({ tiene_escritura: v })}
           />
           <BoolQuestion
             label="¿Servicios al día (agua, luz, gas)?"
             required
+            info="Servicios al día evitan sorpresas y trámites pendientes en el cierre."
             value={data.servicios_al_dia}
             onSelect={(v) => setData({ servicios_al_dia: v })}
           />
-          <Field label="Estado civil del propietario">
+          <Field label="Estado civil del propietario" info="En Colombia el estado civil define quién debe firmar la venta (sociedad conyugal). Evita trabas al cerrar.">
             <Select value={data.estado_civil} onChange={(e) => setData({ estado_civil: e.target.value })}>
               <option value="">Seleccionar</option>
               {["Soltero/a", "Casado/a", "Unión libre", "Divorciado/a", "Viudo/a"].map((s) => (
@@ -1005,6 +1055,7 @@ function StepLegal({
           </Field>
           <BoolQuestion
             label="¿Es persona jurídica / empresa?"
+            info="Si el dueño es una empresa, los documentos y el proceso de venta cambian."
             value={data.es_persona_juridica}
             onSelect={(v) => setData({ es_persona_juridica: v })}
           />
@@ -1012,12 +1063,13 @@ function StepLegal({
       ) : (
         <BoolQuestion
           label="¿Servicios al día (agua, luz, gas)?"
+          info="El arrendatario necesita recibir el inmueble con los servicios activos y al día."
           value={data.servicios_al_dia}
           onSelect={(v) => setData({ servicios_al_dia: v })}
         />
       )}
 
-      <Field label="Notas adicionales">
+      <Field label="Notas adicionales" info="Cualquier detalle que le ahorre tiempo al asesor en la verificación de tu propiedad.">
         <textarea
           className={inputCls}
           style={{ ...inputStyle, minHeight: 80, resize: "vertical" }}
@@ -1131,14 +1183,14 @@ function Step4({
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
-      <Field label="Nombre completo" required>
+      <Field label="Nombre completo" required info="Para que el asesor y los interesados sepan con quién están hablando.">
         <Input
           value={data.nombre_contacto}
           onChange={(e) => setData({ nombre_contacto: e.target.value })}
           placeholder="Tu nombre"
         />
       </Field>
-      <Field label="Teléfono / WhatsApp" required>
+      <Field label="Teléfono / WhatsApp" required info="Es el canal principal: la mayoría de interesados escribe por WhatsApp. Sin él no te pueden contactar.">
         <Input
           inputMode="tel"
           value={data.telefono}
@@ -1147,7 +1199,7 @@ function Step4({
         />
       </Field>
       {!esAgente && <OtpTelefono telefono={data.telefono} />}
-      <Field label="Email de contacto">
+      <Field label="Email de contacto" info="Respaldo de contacto y medio para enviarte el estado de tu publicación.">
         <Input
           type="email"
           value={data.email_contacto}
@@ -1155,7 +1207,7 @@ function Step4({
           placeholder="correo@ejemplo.com"
         />
       </Field>
-      <Field label="Horario de contacto preferido">
+      <Field label="Horario de contacto preferido" info="Evita llamadas en mal momento y mejora la tasa de respuesta a los interesados.">
         <Select value={data.horario_contacto} onChange={(e) => setData({ horario_contacto: e.target.value })}>
           <option value="">Seleccionar</option>
           {HORARIOS.map((h) => <option key={h} value={h}>{h}</option>)}
