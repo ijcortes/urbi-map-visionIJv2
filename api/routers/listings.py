@@ -1131,7 +1131,14 @@ ORDER BY
               OR (l.fuente = 'propio' AND _lp.owner_plan IN ('pro','agente'))
          THEN 0 ELSE 1 END,
     CASE WHEN l.fuente = 'casadolcecasa' THEN 0 ELSE 1 END,
-    l.fecha_scraping DESC NULLS LAST
+    -- Round-robin por tipo: el cap de 3000 llenaba con los más recientes y en comunas
+    -- densas (Poblado) los apartamentos tienen el fecha_scraping más nuevo → el mapa
+    -- solo mostraba aptos aunque hay miles de oficinas/casas/locales. Interleavear por
+    -- tipo (1º de cada tipo, 2º de cada tipo, ...) garantiza variedad dentro del cap.
+    -- Determinista (tiebreak url) para no romper el ETag/caché.
+    ROW_NUMBER() OVER (PARTITION BY lower(l.tipo_inmueble)
+                       ORDER BY l.fecha_scraping DESC NULLS LAST, l.url),
+    l.fecha_scraping DESC NULLS LAST, l.url
 """.format(usd=int(_USD), dm_join=_VIEWPORT_DM_JOIN, extra_where=_VIEWPORT_EXTRA_WHERE)
 
 
