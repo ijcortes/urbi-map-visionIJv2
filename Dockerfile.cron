@@ -16,6 +16,15 @@ COPY scraping/requirements.txt /tmp/scraping-requirements.txt
 RUN pip install --no-cache-dir -r /tmp/scraping-requirements.txt \
     && playwright install chromium --with-deps
 
+# psycopg3 — api/requirements.txt pinea SQLAlchemy==2.1.3, cuyo default para
+# un URL pelado "postgresql://" es el dialecto psycopg (v3), no psycopg2. Los
+# scripts de cron que usan create_engine(DATABASE_URL) sin forzar driver
+# (fetch_usd_rate, validate_listings_urls, etc.) crasheaban con
+# "ModuleNotFoundError: No module named 'psycopg'". Instalar psycopg3 cubre a
+# TODOS de una; reescribir el URL a +psycopg2 rompería los scripts que usan
+# psycopg2.connect() directo (loaders) y los de asyncpg (run_analytics_usuarios).
+RUN pip install --no-cache-dir "psycopg[binary]"
+
 # Traducción offline bidireccional es<->en (Opus-MT + CTranslate2). torch se usa
 # SOLO en build para convertir los modelos a CT2 int8; el runtime traduce con
 # ctranslate2 (torch queda instalado sin usarse — bloat aceptable en cron).
@@ -64,7 +73,13 @@ COPY dbt/ ./dbt/
 #     12:00 día 1 del mes  run_seguridad_mensual.py
 #     11:00 diario         fetch_usd_rate.py          (parametros_diario)
 #     11:15 lunes          fetch_trm.py               (trm_semanal)
+# PATH assignment — Debian cron runs jobs with a minimal PATH (/usr/bin:/bin) that
+# EXCLUDES /usr/local/bin, where python:3.12-slim installs python3. Without this
+# line every job died instantly with "/bin/sh: python3: not found" — cron fired on
+# schedule, scripts never ran, prod data froze. cron honors NAME=value lines in the
+# crontab file (both /etc/cron.d and user crontabs).
 RUN printf '%s\n' \
+    "PATH=/usr/local/bin:/usr/bin:/bin" \
     "0 3 * * * root cd /app && python3 scripts/refresh_data.py >> /var/log/refresh.log 2>&1" \
     "0 */6 * * * root cd /app && python3 scraping/run_comunidad.py >> /var/log/comunidad.log 2>&1" \
     "0 4 * * 0 root cd /app && python3 scripts/validate_listings_urls.py --batch 3000 >> /var/log/validate.log 2>&1" \
