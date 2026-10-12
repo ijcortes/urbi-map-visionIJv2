@@ -50,6 +50,7 @@ with todas_fuentes as (
         administracion
     from {{ source('fincaraiz', 'listings_fincaraiz') }}
     where activo = true
+      and url_activa is not false   -- validate_listings_urls marca URL muerta = FALSE; NULL = sin revisar = mostrar
       and precio > 0
       and area_m2 > 0
 
@@ -120,6 +121,7 @@ with todas_fuentes as (
         administracion
     from {{ source('metrocuadrado', 'listings_metrocuadrado') }}
     where activo = true
+      and url_activa is not false   -- validate_listings_urls marca URL muerta = FALSE; NULL = sin revisar = mostrar
       and precio > 0
       and area_m2 > 0
 

@@ -140,7 +140,7 @@ WITH todas_fuentes AS (
            NULL::boolean                             AS amoblado,
            antiguedad, amenidades, administracion,
            NULLIF(TRIM(raw_data::jsonb ->> 'mnombreproyecto'), '') AS nombre_edificio
-    FROM raw.listings_metrocuadrado WHERE activo = true AND precio > 0 AND area_m2 > 0
+    FROM raw.listings_metrocuadrado WHERE activo = true AND url_activa IS NOT FALSE AND precio > 0 AND area_m2 > 0
     UNION ALL
     SELECT id::text || '_fz', 'fincaraiz', 'standard',
            tipo_operacion, tipo_inmueble,
@@ -162,7 +162,7 @@ WITH todas_fuentes AS (
              THEN (REGEXP_MATCH(descripcion, '(?i)edificio\\s+([^\\s,\\.!\\?;:\\(\\)]{3,25}(?:\\s+[^\\s,\\.!\\?;:\\(\\)]{3,25}){0,2})'))[1]
              ELSE NULL
            END), '') AS nombre_edificio
-    FROM raw.listings_fincaraiz WHERE activo = true AND precio > 0 AND area_m2 > 0
+    FROM raw.listings_fincaraiz WHERE activo = true AND url_activa IS NOT FALSE AND precio > 0 AND area_m2 > 0
     UNION ALL
     SELECT id::text || '_habi', 'habi', 'standard',
            tipo_operacion, tipo_inmueble,
