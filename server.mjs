@@ -3,7 +3,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { join, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Readable } from 'node:stream';
-import { createGzip, createBrotliCompress } from 'node:zlib';
+import { createGzip, createBrotliCompress, constants } from 'node:zlib';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '8080', 10);
@@ -49,16 +49,20 @@ function tryServeStatic(pathname, req, res) {
   if (pathname.startsWith('/assets/')) {
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
   } else if (pathname.startsWith('/data/')) {
-    // Not immutable (barrios_stats.json refreshes on redeploy) — 1h matches
-    // the API's own hourly cache refresh cadence.
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+    // Not immutable (files change on redeploy) — 1h fresh window matches the API's
+    // hourly refresh; stale-while-revalidate serves instantly for up to a day while
+    // refetching in the background, so repeat map loads don't re-pay these bytes.
+    res.setHeader('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
   }
 
   const acceptEncoding = req.headers['accept-encoding'] || '';
   const source = createReadStream(filePath);
   if (COMPRESSIBLE.has(ext) && acceptEncoding.includes('br')) {
     res.setHeader('Content-Encoding', 'br');
-    source.pipe(createBrotliCompress()).pipe(res);
+    // Brotli quality 4 (not the default 11): ~95% of the compression at a fraction
+    // of the CPU. q11 on a 2MB geojson stalled TTFB 2–3.5s PER request (compressed
+    // on every hit, never cached); q4 drops that to ~150ms. Same for JS bundles.
+    source.pipe(createBrotliCompress({ params: { [constants.BROTLI_PARAM_QUALITY]: 4 } })).pipe(res);
   } else if (COMPRESSIBLE.has(ext) && acceptEncoding.includes('gzip')) {
     res.setHeader('Content-Encoding', 'gzip');
     source.pipe(createGzip()).pipe(res);

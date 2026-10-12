@@ -31,16 +31,17 @@ function statsKey(nombre: string, municipio: string): string {
   return geoKey(normalizeNombre(nombre), municipio);
 }
 
-// ── Static GeoJSON geometry cache — all municipios loaded in parallel ─────────
-// Individual files per municipio (vs 16MB monolithic). All fetched concurrently
-// so the query returns complete data on first render.
+// ── Barrio → comuna membership (cd_comuna + nombre_comuna) ────────────────────
+// Geometry now comes 100% from the API (/barrios?fields=map) — it returns valid
+// geometry for all 610 barrios. The old per-municipio barrios_*.geojson (~10.5MB)
+// were fetched only to ALSO carry Medellín comuna membership; their polygons were
+// downloaded and discarded (the merge below always keeps API geometry). We now
+// fetch a ~19KB JSON map instead (geoKey → {cd_comuna, nombre_comuna}).
 
 type StaticFeature = {
   properties: { nombre: string; municipio: string; cd_comuna?: number | null; nombre_comuna?: string | null };
   geometry: ApiBarrio["geometry"];
 };
-
-const ALL_MUNICIPIOS = ["medellin", "bello", "envigado", "itagui", "sabaneta", "la_estrella"] as const;
 
 // Maps GeoJSON "municipio" property (uppercase, no accents) → static listings slug
 const MUNICIPIO_TO_SLUG: Record<string, string> = {
@@ -52,40 +53,34 @@ const MUNICIPIO_TO_SLUG: Record<string, string> = {
   "LA ESTRELLA": "la_estrella",
 };
 
-async function _fetchMunicipioFeatures(municipio: string): Promise<StaticFeature[]> {
-  try {
-    const r = await fetch(`/data/barrios_${municipio}.geojson`);
-    const fc = await r.json();
-    return fc.features ?? [];
-  } catch {
-    return [];
-  }
-}
-
-const _geoMap = new Map<string, ApiBarrio["geometry"]>();
+const _geoMap = new Map<string, ApiBarrio["geometry"]>();      // stays empty — API carries all geometry
 const _comunaMap = new Map<string, number | null>();
-const _nombreComunaMap = new Map<string, string>(); // barrio key → nombre_comuna from GeoJSON
-let _featuresPromise: Promise<StaticFeature[]> | null = null;
+const _nombreComunaMap = new Map<string, string>(); // barrio key → nombre_comuna
+let _comunaMapPromise: Promise<StaticFeature[]> | null = null;
 
-// Single fetch of the 6 barrios_*.geojson files, shared by both consumers below.
-// Was two independent module-level caches each re-fetching all 6 files (~13MB
-// doubled to ~26MB on every map load) — geometry/comuna maps are now derived
-// from this one result instead of re-fetching.
+// Fetch the tiny barrios_comunas.json (~19KB) and populate the comuna maps.
+// Replaces the old 10.5MB per-municipio GeoJSON fetch. Returns [] so the
+// "extras" path in useBarriosRaw (barrios not in the API — currently none)
+// naturally yields nothing. Degrades to "no Medellín comuna grouping" on a 404
+// instead of breaking the map.
 function loadStaticFeatures(): Promise<StaticFeature[]> {
-  if (!_featuresPromise) {
-    _featuresPromise = (async () => {
-      const all = await Promise.all(ALL_MUNICIPIOS.map(_fetchMunicipioFeatures));
-      const flat = all.flat();
-      for (const f of flat) {
-        const key = geoKey(f.properties.nombre, f.properties.municipio);
-        _geoMap.set(key, f.geometry);
-        _comunaMap.set(key, f.properties.cd_comuna ?? null);
-        if (f.properties.nombre_comuna) _nombreComunaMap.set(key, f.properties.nombre_comuna);
+  if (!_comunaMapPromise) {
+    _comunaMapPromise = (async () => {
+      try {
+        const r = await fetch("/data/barrios_comunas.json");
+        const m: Record<string, { cd_comuna: number | null; nombre_comuna: string | null }> =
+          await r.json();
+        for (const [key, v] of Object.entries(m)) {
+          _comunaMap.set(key, v.cd_comuna ?? null);
+          if (v.nombre_comuna) _nombreComunaMap.set(key, v.nombre_comuna);
+        }
+      } catch {
+        // degrade gracefully — map still renders from API geometry
       }
-      return flat;
+      return [];
     })();
   }
-  return _featuresPromise;
+  return _comunaMapPromise;
 }
 
 async function loadStaticGeometry(): Promise<Map<string, ApiBarrio["geometry"]>> {

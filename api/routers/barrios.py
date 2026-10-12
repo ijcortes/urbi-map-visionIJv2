@@ -4,7 +4,7 @@ import asyncio
 import json
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 
 from api.config import USD_TO_COP
@@ -823,6 +823,7 @@ def _build_amenidades(row: dict) -> Optional[Amenidades]:
 
 @router.get("", response_model=list[BarrioResponse])
 async def list_barrios(
+    response: Response,
     perfil: Optional[str] = Query(default=None, description="airbnb | mediano_plazo | largo_plazo"),
     score_min: int = Query(default=0, ge=0, le=100),
     municipio: Optional[str] = Query(default=None),
@@ -865,6 +866,10 @@ async def list_barrios(
     """
     rows = await pool.fetch(sql, municipio, estrato, score_min)
     use_max = not effective_perfil
+    # Browser cache: polygons/scores change hourly at most. `private` when the
+    # response is personalized (logged-in user's perfil), `public` otherwise so
+    # the shared CDN/proxy can serve anonymous map loads.
+    response.headers["Cache-Control"] = "private, max-age=120" if current_user else "public, max-age=300"
     return [_build_response(dict(r), score_col, effective_perfil, perfil_full, use_max_score=use_max) for r in rows]
 
 
