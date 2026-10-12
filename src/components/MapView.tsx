@@ -1329,8 +1329,12 @@ export function MapView({
       map.off("moveend", onMove);
       map.off("zoomend", onMove);
     };
+  // mapLoaded en deps: la geometría de barrios ahora llega rápido (API 168KB, ya no
+  // 10.5MB de geojson estáticos). En conexiones rápidas barriosRaw gana la carrera al
+  // evento "load" del mapa → este efecto salía por !mapLoadedRef y NO re-corría
+  // (barriosRaw/mapView estables) → barrios-mls vacío → sin polígonos al hacer zoom.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapView, barriosRaw]);
+  }, [mapView, barriosRaw, mapLoaded]);
 
   // ── Highlight listing seleccionado ───────────────────────────────────────────
   useEffect(() => {
