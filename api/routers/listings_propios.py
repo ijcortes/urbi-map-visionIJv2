@@ -34,9 +34,8 @@ router = APIRouter()
 _APP_URL = os.getenv("APP_URL", "https://medellin.social")
 _COP_TO_USD = 4200.0
 
-# Enum listing_operacion solo tiene venta|arriendo. 'venta_arriendo' del form se
-# trata como venta (set legal más estricto). El flag combinado se pierde por ahora.
-_OPERACION_MAP = {"venta": "venta", "arriendo": "arriendo", "venta_arriendo": "venta"}
+# Enum listing_operacion solo tiene venta|arriendo.
+_OPERACION_MAP = {"venta": "venta", "arriendo": "arriendo"}
 
 
 def _to_bool(v: Optional[str]) -> Optional[bool]:
@@ -224,6 +223,8 @@ async def crear_listing(
     # Paso 3
     barrio_id:         Optional[int]   = Form(None),
     direccion:         Optional[str]   = Form(None),
+    matricula_inmobiliaria: Optional[str] = Form(None),  # folio ORIP — llave de registro
+    cedula_catastral:  Optional[str]   = Form(None),      # CBML / catastro — llave de parcela
     lat:               Optional[float] = Form(None),
     lon:               Optional[float] = Form(None),
     descripcion:       Optional[str]   = Form(None),
@@ -329,6 +330,7 @@ async def crear_listing(
                     titulo, descripcion,
                     nombre_contacto, telefono, email_contacto, horario_contacto,
                     declaraciones, destacado, tour_url, video_url, nombre_edificio,
+                    matricula_inmobiliaria, cedula_catastral,
                     published_at, created_at, updated_at
                 ) VALUES (
                     $1, $2, $3, NULL, NULL,
@@ -341,7 +343,7 @@ async def crear_listing(
                     $20, $21, $22, $23,
                     $24, $25,
                     $26, $27, $28, $29,
-                    $30::jsonb, $31, $32, $33, $35, NOW(), NOW(), NOW()
+                    $30::jsonb, $31, $32, $33, $35, $36, $37, NOW(), NOW(), NOW()
                 )
                 """,
                 listing_id, slug, owner_id,
@@ -357,6 +359,8 @@ async def crear_listing(
                 _safe_embed_url(tour_url), _safe_embed_url(video_url),
                 es_agente,  # $34: estado/verificado CASE
                 nombre_edificio,  # $35
+                (matricula_inmobiliaria or "").strip() or None,  # $36
+                (cedula_catastral or "").strip() or None,        # $37
             )
             for i, url in enumerate(foto_urls):
                 await conn.execute(
