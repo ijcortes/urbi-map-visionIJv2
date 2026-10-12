@@ -66,6 +66,8 @@ type FormData = {
   municipio: string;
   comuna: string;
   direccion: string;
+  matricula_inmobiliaria: string;
+  cedula_catastral: string;
   lat: number | null;
   lon: number | null;
   descripcion: string;
@@ -96,10 +98,11 @@ const INITIAL_FORM: FormData = {
   tiene_admin: false, administracion_cop: "",
   area_m2: "", area_lote_m2: "", habitaciones: "", banos: "",
   parqueaderos: "", estrato: "", piso: "", nombre_edificio: "", antiguedad: "",
-  amoblado: "", mascotas: "consultar", permite_airbnb: "no_se",
+  amoblado: "", mascotas: "", permite_airbnb: "no_se",
   amenidades_int: [], amenidades_ext: [],
   barrio_id: "", barrio_nombre: "", municipio: "", comuna: "",
-  direccion: "", lat: null, lon: null, descripcion: "", tour_url: "", video_url: "",
+  direccion: "", matricula_inmobiliaria: "", cedula_catastral: "",
+  lat: null, lon: null, descripcion: "", tour_url: "", video_url: "",
   en_propiedad_horizontal: "", al_dia_administracion: "", al_dia_predial: "",
   tiene_hipoteca: "", tiene_escritura: "", servicios_al_dia: "",
   estado_civil: "", es_persona_juridica: "", notas_owner: "",
@@ -115,7 +118,6 @@ const STEPS = ["Información básica", "Características", "Ubicación y fotos",
 const TIPOS_OP = [
   { v: "venta", l: "Venta" },
   { v: "arriendo", l: "Arriendo" },
-  { v: "venta_arriendo", l: "Venta o Arriendo" },
 ];
 const TIPOS_IN = [
   { v: "apartamento", l: "Apartamento" }, { v: "casa", l: "Casa" },
@@ -527,7 +529,7 @@ function Step1({
 }) {
   const precioCOP = parseCOP(data.precio_cop);
   const precioUSD = precioCOP ? Math.round(precioCOP / COP_USD_RATE).toLocaleString("en-US") : null;
-  const isArriendo = data.tipo_operacion === "arriendo" || data.tipo_operacion === "venta_arriendo";
+  const isArriendo = data.tipo_operacion === "arriendo";
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
@@ -628,6 +630,8 @@ function Step2({
   const showHab      = !["lote", "local", "bodega", "oficina"].includes(data.tipo_inmueble);
   const showPiso     = !["lote", "casa"].includes(data.tipo_inmueble);
   const showEdificio = !["lote", "casa", "bodega"].includes(data.tipo_inmueble);
+  const esVenta      = data.tipo_operacion === "venta";
+  const esArriendo   = data.tipo_operacion === "arriendo";
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
@@ -710,22 +714,28 @@ function Step2({
         />
       </Field>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Field label="Mascotas permitidas">
-          <Select value={data.mascotas} onChange={(e) => setData({ mascotas: e.target.value })}>
-            <option value="si">Sí</option>
-            <option value="no">No</option>
-            <option value="consultar">Consultar</option>
-          </Select>
-        </Field>
-        <Field label="Permite Airbnb">
-          <Select value={data.permite_airbnb} onChange={(e) => setData({ permite_airbnb: e.target.value })}>
-            <option value="si">Sí</option>
-            <option value="no">No</option>
-            <option value="no_se">No sé</option>
-          </Select>
-        </Field>
-      </div>
+      {(esArriendo || esVenta) && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {esArriendo && (
+            <Field label="Mascotas permitidas">
+              <Select value={data.mascotas} onChange={(e) => setData({ mascotas: e.target.value })}>
+                <option value="">Seleccionar</option>
+                <option value="si">Sí</option>
+                <option value="no">No</option>
+              </Select>
+            </Field>
+          )}
+          {esVenta && (
+            <Field label="Permite Airbnb" hint="(potencial renta corta)">
+              <Select value={data.permite_airbnb} onChange={(e) => setData({ permite_airbnb: e.target.value })}>
+                <option value="si">Sí</option>
+                <option value="no">No</option>
+                <option value="no_se">No sé</option>
+              </Select>
+            </Field>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -814,6 +824,27 @@ function Step3({
               placeholder="Ej: Carrera 35 #10A-25, apto 502"
             />
           </Field>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Field label="Matrícula inmobiliaria" hint="(opcional · en la escritura)">
+              <Input
+                value={data.matricula_inmobiliaria}
+                onChange={(e) => setData({ matricula_inmobiliaria: e.target.value })}
+                placeholder="Ej: 001-123456"
+              />
+            </Field>
+            <Field label="Cédula catastral / CBML" hint="(opcional · en el predial)">
+              <Input
+                value={data.cedula_catastral}
+                onChange={(e) => setData({ cedula_catastral: e.target.value })}
+                placeholder="Ej: 14080010001"
+              />
+            </Field>
+          </div>
+          <p style={{ fontSize: 11, color: K.muted, marginTop: -4 }}>
+            Identifican el inmueble de forma única en registro y catastro — nos ayudan a
+            mantener un historial preciso de cada propiedad.
+          </p>
         </div>
       </div>
 
@@ -904,7 +935,7 @@ function StepLegal({
 }: {
   data: FormData; setData: (p: Partial<FormData>) => void;
 }) {
-  const esVenta = data.tipo_operacion === "venta" || data.tipo_operacion === "venta_arriendo";
+  const esVenta = data.tipo_operacion === "venta";
   const esPH = data.en_propiedad_horizontal === "si";
 
   return (
@@ -1096,7 +1127,7 @@ function Step4({
 }: {
   data: FormData; setData: (p: Partial<FormData>) => void; esAgente: boolean;
 }) {
-  const esVenta = data.tipo_operacion === "venta" || data.tipo_operacion === "venta_arriendo";
+  const esVenta = data.tipo_operacion === "venta";
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
@@ -1449,7 +1480,7 @@ function validateStep(step: number, data: FormData): string | null {
   }
   if (step === 3) {
     // Declaraciones legales obligatorias (espejo del cuestionario backend).
-    const esVenta = data.tipo_operacion === "venta" || data.tipo_operacion === "venta_arriendo";
+    const esVenta = data.tipo_operacion === "venta";
     if (esVenta) {
       if (!data.en_propiedad_horizontal) return "Indica si es propiedad horizontal";
       if (data.en_propiedad_horizontal === "si" && !data.al_dia_administracion)
@@ -1465,7 +1496,7 @@ function validateStep(step: number, data: FormData): string | null {
     if (!data.telefono.trim()) return "Ingresa tu teléfono";
     if (!data.acepta_terminos) return "Debes aceptar los términos y condiciones";
     if (!data.acepta_propietario) return "Debes confirmar que eres propietario o tienes autorización";
-    const esVenta = data.tipo_operacion === "venta" || data.tipo_operacion === "venta_arriendo";
+    const esVenta = data.tipo_operacion === "venta";
     if (esVenta && !data.acepta_comision) return "Debes aceptar el modelo de comisión";
   }
   return null;
@@ -1546,6 +1577,8 @@ function PublicarPage() {
       fd.append("permite_airbnb", form.permite_airbnb);
       if (form.barrio_id)  fd.append("barrio_id",  form.barrio_id);
       if (form.direccion)  fd.append("direccion",  form.direccion);
+      if (form.matricula_inmobiliaria.trim()) fd.append("matricula_inmobiliaria", form.matricula_inmobiliaria.trim());
+      if (form.cedula_catastral.trim())        fd.append("cedula_catastral",        form.cedula_catastral.trim());
       if (form.lat != null) fd.append("lat", String(form.lat));
       if (form.lon != null) fd.append("lon", String(form.lon));
       if (form.descripcion) fd.append("descripcion", form.descripcion);
