@@ -536,6 +536,8 @@ export function MapView({
       bearing: initBearing,
       antialias: true,
       cooperativeGestures,
+      // Atribución la re-agregamos abajo en modo compacto (ver addControl).
+      attributionControl: false,
     });
     mapRef.current = map;
 
@@ -545,6 +547,9 @@ export function MapView({
     }
 
     map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true, showCompass: true }), "bottom-right");
+    // Atribución compacta: solo una ⓘ que expande al tocar (colapsa "OpenStreetMap ·
+    // Improve this map"). Mapbox/OSM exigen mostrarla — compact es el mínimo permitido.
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }), "bottom-right");
 
     const ro = new ResizeObserver(() => map.resize());
     ro.observe(containerRef.current!);
@@ -888,10 +893,10 @@ export function MapView({
             ["==", ["get", "tipo_inmueble"], "casa"],               "#CE1126",
             ["==", ["get", "tipo_inmueble"], "casa_lote"],          "#CE1126",
             ["==", ["get", "tipo_inmueble"], "finca"],              "#CE1126",
-            ["==", ["get", "tipo_inmueble"], "apartaestudio"],      "#5BBE8A",
+            ["==", ["get", "tipo_inmueble"], "apartaestudio"],      "#C2410C",
             ["==", ["get", "tipo_inmueble"], "lote"],               "#8A6A00",
             ["==", ["get", "tipo_inmueble"], "local"],              "#1F5BC6",
-            ["==", ["get", "tipo_inmueble"], "oficina"],            "#003893",
+            ["==", ["get", "tipo_inmueble"], "oficina"],            "#6D4AA8",
             ["==", ["get", "tipo_inmueble"], "bodega"],             "#6E726E",
             ["==", ["get", "tipo_inmueble"], "consultorio"],        "#6E726E",
             "#0F8A4F",
@@ -1414,10 +1419,10 @@ export function MapView({
   const LEGEND_ITEMS = [
     { color: "#0F8A4F", label: "Apto" },
     { color: "#CE1126", label: "Casa" },
-    { color: "#5BBE8A", label: "Aptaestudio" },
+    { color: "#C2410C", label: "Aptaestudio" },
     { color: "#8A6A00", label: "Lote" },
     { color: "#1F5BC6", label: "Local" },
-    { color: "#003893", label: "Oficina" },
+    { color: "#6D4AA8", label: "Oficina" },
     { color: "#6E726E", label: "Bodega" },
   ];
 

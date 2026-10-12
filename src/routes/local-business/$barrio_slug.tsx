@@ -482,12 +482,13 @@ function NegociosMap({ barrio, barrios, visible = true, isMobile }: { barrio: Ba
 
 // ── Filtros — pills reutilizables (mismo lenguaje visual que /eventos) ─────────
 
-function Pill({ active, onClick, label }: { active: boolean; onClick: () => void; label: ReactNode }) {
+function Pill({ active, onClick, label, activeBg, activeColor }: { active: boolean; onClick: () => void; label: ReactNode; activeBg?: string; activeColor?: string }) {
+  const bg = activeBg ?? K.teal
   return (
     <button onClick={onClick} style={{
-      border: active ? `1.5px solid ${K.teal}` : `1.5px solid ${K.line}`,
-      background: active ? K.teal : '#fff',
-      color: active ? '#fff' : K.muted,
+      border: active ? `1.5px solid ${bg}` : `1.5px solid ${K.line}`,
+      background: active ? bg : '#fff',
+      color: active ? (activeColor ?? '#fff') : K.muted,
       fontWeight: 600, fontSize: 13, padding: '7px 14px',
       borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit',
       whiteSpace: 'nowrap', flexShrink: 0, transition: 'border-color .12s, background .12s, color .12s',
@@ -565,7 +566,7 @@ function LocalBusinessPage() {
   return (
     <>
       {/* ── Header ── */}
-      <div style={{ padding: '2rem 2rem 1.5rem', background: '#FAF8F3', borderBottom: '0.5px solid #E5E0D5' }}>
+      <div style={{ padding: isMobile ? '1.25rem 1rem 1rem' : '2rem 2rem 1.5rem', background: '#FAF8F3', borderBottom: '0.5px solid #E5E0D5' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
           <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6E726E', margin: '0 0 4px' }}>
             {barrio.nombre} · Medellín
@@ -596,7 +597,7 @@ function LocalBusinessPage() {
 
       {/* ── Destacados — negocios patrocinados, misma tarjeta que los filtros ── */}
       {featured.length > 0 && (
-        <div style={{ padding: '1.5rem 2rem 0', background: '#FAF8F3' }}>
+        <div style={{ padding: isMobile ? '1rem 1rem 0' : '1.5rem 2rem 0', background: '#FAF8F3' }}>
           <div style={{ maxWidth: 1200, margin: '0 auto' }}>
             <div style={{
               background: '#fff', border: `1px solid ${K.line}`, borderTop: `3px solid ${K.amarillo}`,
@@ -627,12 +628,12 @@ function LocalBusinessPage() {
       )}
 
       {/* ── Filtros ── */}
-      <div style={{ padding: '1rem 2rem', borderBottom: '0.5px solid #E5E0D5', background: '#FAF8F3' }}>
+      <div style={{ padding: isMobile ? '0.75rem 1rem' : '1rem 2rem', borderBottom: '0.5px solid #E5E0D5', background: '#FAF8F3' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-          <div style={{
-            background: '#fff', border: `1px solid ${K.line}`, borderRadius: 14,
-            padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 16,
-          }}>
+          <div style={isMobile
+            ? { display: 'flex', flexDirection: 'column', gap: 12 }
+            : { background: '#fff', border: `1px solid ${K.line}`, borderRadius: 14, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 16 }
+          }>
             {/* Categoría — grupos + subcategorías */}
             <div>
               <GroupLabel>{t('Categoría', 'Category')}</GroupLabel>
@@ -654,14 +655,7 @@ function LocalBusinessPage() {
                   {[{ key: undefined as string | undefined, label: t('Todos', 'All') },
                     ...grupoActual.categorias.map(c => ({ key: c.key, label: `${c.emoji} ${lang === 'es' ? c.label : c.labelEn}` }))
                   ].map(({ key, label }) => (
-                    <button key={key ?? '__all'} onClick={() => { setCategoria(key); reset() }} style={{
-                      background: categoria === key ? K.tealDeep : '#F3F0E8', color: categoria === key ? '#fff' : K.muted,
-                      border: `1px solid ${categoria === key ? K.tealDeep : K.line}`, borderRadius: 999,
-                      padding: '4px 12px', fontSize: 12, fontWeight: categoria === key ? 600 : 400,
-                      cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit',
-                    }}>
-                      {label}
-                    </button>
+                    <Pill key={key ?? '__all'} active={categoria === key} onClick={() => { setCategoria(key); reset() }} label={label} activeBg={K.tealDeep} />
                   ))}
                 </div>
               )}
@@ -673,22 +667,10 @@ function LocalBusinessPage() {
               paddingTop: 14, borderTop: `1px solid ${K.line}`,
             }}>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button onClick={() => { setSoloTop(v => !v); reset() }} style={{
-                  background: soloTop ? K.amarillo : '#fff', color: soloTop ? '#111418' : K.muted,
-                  border: `1.5px solid ${soloTop ? K.amarillo : K.line}`, borderRadius: 999,
-                  padding: '7px 14px', fontSize: 13, fontWeight: soloTop ? 700 : 600,
-                  cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit',
-                }}>
-                  ⭐ {t('Solo 5 estrellas', '5-star only')}
-                </button>
-                <button onClick={() => { setConWhatsapp(v => !v); reset() }} style={{
-                  background: conWhatsapp ? '#25D366' : '#fff', color: conWhatsapp ? '#fff' : K.muted,
-                  border: `1.5px solid ${conWhatsapp ? '#25D366' : K.line}`, borderRadius: 999,
-                  padding: '7px 14px', fontSize: 13, fontWeight: conWhatsapp ? 700 : 600,
-                  cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit',
-                }}>
-                  💬 {t('Con WhatsApp', 'Has WhatsApp')}
-                </button>
+                <Pill active={soloTop} onClick={() => { setSoloTop(v => !v); reset() }}
+                  label={`⭐ ${t('Solo 5 estrellas', '5-star only')}`} activeBg={K.amarillo} activeColor="#111418" />
+                <Pill active={conWhatsapp} onClick={() => { setConWhatsapp(v => !v); reset() }}
+                  label={`💬 ${t('Con WhatsApp', 'Has WhatsApp')}`} activeBg="#25D366" activeColor="#fff" />
               </div>
               {anyFilterActive && (
                 <button onClick={clearAllFilters} style={{

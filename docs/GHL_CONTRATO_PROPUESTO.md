@@ -367,6 +367,61 @@ había asumido por el simple hecho de que hoy no tiene ningún código.
 
 ---
 
+## 6b. Visita (Agendar cita a un listing) → Appointment / Calendar
+
+🆕 **Esqueleto montado 2026-10-11.** Entidad nueva, **no estaba en el contrato
+antes de esta sesión.**
+
+**Flujo pedido por negocio:** el botón "Agendar visita" (hoy abre un modal que
+captura nombre/teléfono → `POST /visitas` → `public.visita_solicitud`) debe
+llevar al comprador a la **página de disponibilidad del agente** (booking de
+GHL Calendar), para que vea los horarios libres del realtor y reserve ahí.
+
+**Nuestro lado — ya construido:**
+- Captura de solicitud (lead): `POST /visitas` en producción, rutea a
+  `agent_id` por el listing + email fallback si la zona no tiene agente.
+  DB lista: `visita_solicitud` (migr 0055/0056/0064 — id, listing_url,
+  nombre, telefono, fecha_visita, estado, resultado, agent_id).
+- Salida stub: `ghl_client.sync_visita` / `push_visita_to_ghl` (levanta
+  `NotImplementedError` hasta el contrato). Wired best-effort en `POST /visitas`.
+- Entrada stub: `object_type: "visita"` registrado en `_HANDLERS`
+  (`api/routers/ghl_webhook.py`), handler `_upsert_visita_from_ghl` en stub.
+- **Deliberadamente SIN mapeo de campos** (a diferencia de evento/deal): no se
+  inventa la forma del Appointment sin el contrato real.
+
+### Pendiente de Talal, específico de esta entidad
+
+- [ ] Modelo de Calendars en GHL: ¿un Calendar por agent? ¿cómo se crea/asocia
+      al Contact del realtor? ¿el agent trae una **booking URL** pública que
+      el botón pueda abrir directo?
+- [ ] API de Appointments: endpoint para crear/leer/cancelar una cita +
+      nombres de campo (fecha, duración, contacto, listing asociado, estado).
+- [ ] ¿La reserva ocurre dentro del widget de GHL (comprador reserva allá →
+      GHL nos avisa por webhook = dirección **entrada**), o la creamos nosotros
+      desde `POST /visitas` (dirección **salida**)? Define cuál de los dos
+      stubs se implementa primero.
+- [ ] Cómo mapea `visita_solicitud.estado`
+      (pendiente/confirmada/realizada/cancelada) ↔ estado del Appointment GHL.
+- [ ] Firma del webhook — mismo bloqueador que el resto (§0).
+
+---
+
+## 6c. Agent (Realtor) → Contact — estado del wiring de salida
+
+🆕 **Wiring de salida montado 2026-10-11.** El objeto (Contact) está
+confirmado desde §4a; lo nuevo es que ahora el realtor se empuja al crearse:
+
+- `ghl_client.sync_agent` / `push_agent_to_ghl` (stub — levanta hasta el JSON
+  de `POST /contacts` de Talal, ver §4a / `find_or_create_contact`).
+- Wired best-effort donde nace un realtor: `POST /suscripciones/agente/registro`
+  y `agency.aceptar_invite` (solo si el agent es nuevo).
+- Entrada stub: `object_type: "agent"` en `_HANDLERS` + `_upsert_agent_from_ghl`.
+- **Bloqueador único:** el payload exacto de `POST /contacts` (Talal ya lo
+  probó → 201, falta recibir el JSON de Postman). Con eso se implementa
+  `find_or_create_contact` y `push_agent_to_ghl` deja de ser stub.
+
+---
+
 ## 7. Precios — ⚠️ nada de esto es fuente de verdad todavía
 
 🔧 **Corregido 2026-09-24:** el doc anterior presentaba estos números como

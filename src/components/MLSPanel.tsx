@@ -78,10 +78,10 @@ const TIPO_INMUEBLE_COLOR: Record<string, string> = {
   casa:          '#CE1126',
   casa_lote:     '#CE1126',
   finca:         '#CE1126',
-  apartaestudio: '#5BBE8A',
+  apartaestudio: '#C2410C',
   lote:          '#8A6A00',
   local:         '#1F5BC6',
-  oficina:       '#1F5BC6',
+  oficina:       '#6D4AA8',
   bodega:        '#6E726E',
   consultorio:   '#6E726E',
 };

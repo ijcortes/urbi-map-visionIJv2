@@ -217,8 +217,8 @@ function ListingMini({ l, cerrado }: { l: PerfilListing; cerrado?: boolean }) {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl px-3 py-2.5 text-center" style={{ background: K.paper, border: `1px solid ${K.line}` }}>
-      <div className="text-lg font-bold" style={{ color: K.tealDeep, fontFamily: K.serif }}>{value}</div>
-      <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: K.muted }}>{label}</div>
+      <div className="text-base font-bold leading-tight break-words sm:text-lg" style={{ color: K.tealDeep, fontFamily: K.serif }}>{value}</div>
+      <div className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: K.muted }}>{label}</div>
     </div>
   );
 }
@@ -270,7 +270,7 @@ function AgentePerfilModal({ agentId, onClose }: { agentId: string; onClose: () 
                   : <span className="text-2xl font-bold" style={{ color: K.tealDeep, fontFamily: K.serif }}>{iniciales}</span>}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-2xl font-bold leading-tight tracking-tight" style={{ color: K.ink, fontFamily: K.serif }}>{p.nombre}</div>
+                <div className="text-2xl font-bold leading-tight tracking-tight break-words" style={{ color: K.ink, fontFamily: K.serif }}>{p.nombre}</div>
                 {p.rating_promedio != null ? (
                   <div className="mt-0.5 flex items-center gap-1.5">
                     <Stars value={p.rating_promedio} />
@@ -303,11 +303,14 @@ function AgentePerfilModal({ agentId, onClose }: { agentId: string; onClose: () 
               {p.bio || "Este agente aún no agregó una descripción."}
             </p>
 
-            {/* Stats */}
-            <div className="mt-4 grid grid-cols-3 gap-2">
+            {/* Stats — Cierres/Activos son contadores (2 col); Rango es una cadena
+                larga (p.ej. "$450M – $1.200M"), va a ancho completo para no desbordar. */}
+            <div className="mt-4 grid grid-cols-2 gap-2">
               <Stat label="Cierres" value={String(p.n_cierres)} />
               <Stat label="Activos" value={String(p.n_activos)} />
-              <Stat label="Rango" value={rango} />
+            </div>
+            <div className="mt-2">
+              <Stat label="Rango de precios" value={rango} />
             </div>
 
             {/* Zonas */}
@@ -401,7 +404,7 @@ function AgenteRow({ a, onOpen }: { a: Agente; onOpen: () => void }) {
         </button>
 
         <div className="min-w-0 flex-1">
-          <button onClick={onOpen} className="text-left text-2xl font-bold leading-tight tracking-tight transition hover:opacity-70" style={{ color: K.ink, fontFamily: K.serif }}>{a.nombre}</button>
+          <button onClick={onOpen} className="max-w-full break-words text-left text-2xl font-bold leading-tight tracking-tight transition hover:opacity-70" style={{ color: K.ink, fontFamily: K.serif }}>{a.nombre}</button>
 
           {a.rating_promedio != null ? (
             <div className="mt-0.5 flex items-center gap-1.5">

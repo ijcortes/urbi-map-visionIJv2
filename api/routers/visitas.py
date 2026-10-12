@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from api.db import get_pool
 from api.dependencies import get_optional_user
 from api.limiter import limiter
+from api.utils import ghl_client
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -102,4 +103,10 @@ async def crear_visita(
     # Sin agente de zona → notificar al buzón interno (fuera del event loop; best-effort).
     if req.sin_agente:
         await asyncio.to_thread(_send_visita_email, req, fecha)
+    # Nueva visita → GHL (Appointment en el calendar del agente). Best-effort:
+    # hoy sync_visita levanta (stub sin contrato de Talal) → se loguea y sigue.
+    try:
+        await ghl_client.sync_visita(row["id"])
+    except Exception:
+        log.exception("sync_visita(%s) falló", row["id"])  # best-effort, no bloquea la solicitud
     return {"id": str(row["id"]), "estado": "pendiente"}

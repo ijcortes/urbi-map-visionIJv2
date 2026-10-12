@@ -605,3 +605,77 @@ async def sync_referidor(referidor_id: int) -> Optional[str]:
     if row is None:
         return None
     return await push_referidor_to_ghl(referidor_id, dict(row))
+
+
+# ── Agent (Realtor) → Contact ───────────────────────────────────────────────
+# Tipo de objeto confirmado por Talal 2026-10-03 (Agent = Contact). El push
+# real sigue bloqueado: depende de find_or_create_contact() (arriba, stub),
+# que necesita el JSON exacto de POST /contacts (Talal ya lo probó → 201,
+# falta recibir el payload de Postman). Mapeo propuesto en §4a del contrato
+# (docs/GHL_CONTRATO_PROPUESTO.md): firstName/lastName (split de nombre),
+# email, phone=telefono, contact_type="agent", agent_internal_id=id,
+# agent_status=estado, agent_status_reason=motivo_estado, profile_photo_url=
+# foto_url. NO se arma el payload acá todavía: sin el JSON real sería adivinar
+# la forma de los custom fields (mismo criterio que _map_choice).
+
+async def push_agent_to_ghl(agent_id: str, campos: dict) -> Optional[str]:
+    """agent_id = public.agent.id (uuid). Target: Contact. Stub hasta el JSON
+    de /contacts de Talal (ver find_or_create_contact)."""
+    raise NotImplementedError(
+        "ghl_client.push_agent_to_ghl: falta JSON de POST /contacts de Talal (find_or_create_contact)"
+    )
+
+
+_AGENT_SELECT = """
+    SELECT nombre, email, telefono, estado::text AS estado, motivo_estado, foto_url
+    FROM public.agent WHERE id = $1
+"""
+
+
+async def sync_agent(agent_id: str) -> Optional[str]:
+    """Lee public.agent y lo empuja a GHL como Contact. Mismo patrón que
+    sync_referidor: no-op sin credenciales (caso de prod hoy). En local SÍ hay
+    creds → llega al stub y levanta, por eso los call sites envuelven en
+    try/except (como afiliados/embajadores)."""
+    if not is_configured():
+        return None
+    pool = get_pool()
+    row = await pool.fetchrow(_AGENT_SELECT, agent_id)
+    if row is None:
+        return None
+    return await push_agent_to_ghl(agent_id, dict(row))
+
+
+# ── Visita (solicitud de cita a un listing) → Appointment / Calendar ────────
+# NO está en el contrato de Talal todavía — ningún §lo cubre. Flujo pedido por
+# negocio: el botón "Agendar visita" lleva al comprador a la página de
+# disponibilidad del agente (GHL Calendar booking). Eso implica que cada agent
+# tenga un Calendar en GHL + booking URL — nada de eso existe ni se ha hablado
+# con Talal. Sin contrato NO se arma mapeo de campos (a diferencia de evento/
+# deal/referidor, que sí tenían mapeo propuesto). Ver §7 Visita del contrato.
+
+async def push_visita_to_ghl(visita_id: str, campos: dict) -> Optional[str]:
+    """visita_id = public.visita_solicitud.id (uuid). Target propuesto:
+    Appointment en el Calendar del agente. Stub: falta todo el contrato de
+    Calendars/Appointments de Talal (calendar por agente, endpoint, campos)."""
+    raise NotImplementedError(
+        "ghl_client.push_visita_to_ghl: falta contrato GHL Calendars/Appointments de Talal"
+    )
+
+
+_VISITA_SELECT = """
+    SELECT listing_url, nombre, telefono, fecha_visita, mensaje, agent_id
+    FROM public.visita_solicitud WHERE id = $1
+"""
+
+
+async def sync_visita(visita_id: str) -> Optional[str]:
+    """Lee public.visita_solicitud y la empuja a GHL. Mismo patrón que
+    sync_agent/sync_referidor."""
+    if not is_configured():
+        return None
+    pool = get_pool()
+    row = await pool.fetchrow(_VISITA_SELECT, visita_id)
+    if row is None:
+        return None
+    return await push_visita_to_ghl(visita_id, dict(row))

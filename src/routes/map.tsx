@@ -285,6 +285,25 @@ function MapPageInner() {
       const id = Number(lid);
       if (!Number.isNaN(id)) setListingDetailId(id);
     }
+    // ?cd_comuna=N (Medellín) o ?municipio=X (Valle) → entrar directo a los listings
+    // de esa comuna (botón "Listings" del mapa del home). Sin esto el fly de lat/lng
+    // solo mueve la cámara en vista zonas y nunca se ven listings.
+    const cdComunaParam = params.get("cd_comuna");
+    const municipioParam = params.get("municipio");
+    if (cdComunaParam || municipioParam) {
+      setGlobalSearch(false);
+      setMapView("listings");
+      setViewLevel("barrios");
+      if (municipioParam) {
+        setActiveMunicipio(municipioParam);
+        setActiveComuna(null);
+        setActiveComunaCd(null);
+      } else {
+        setActiveComunaCd(Number(cdComunaParam));
+        setActiveComuna(params.get("nombre"));
+        setActiveMunicipio(null);
+      }
+    }
     const lat = Number(params.get("lat"));
     const lng = Number(params.get("lng"));
     const zoom = Number(params.get("zoom") ?? "14");

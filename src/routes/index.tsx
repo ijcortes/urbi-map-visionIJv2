@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useState, useCallback, useRef } from 'react'
 import { MapView } from '@/components/MapView'
 import { ComunidadLayout } from '@/components/comunidad/ComunidadLayout'
-import { useBarrio, BARRIOS } from '@/components/comunidad/BarrioContext'
+import { useBarrio, BARRIOS, type Barrio } from '@/components/comunidad/BarrioContext'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useDeals } from '@/hooks/useDeals'
 import { useDirectorio } from '@/hooks/useDirectorio'
@@ -85,119 +85,94 @@ const CATEGORIA_EMOJI: Record<string, string> = {
   yoga: '🧘',
 }
 
-type MapPhase = 'chooser' | 'barrios' | 'barrio_action'
-
-function toSlug(nombre: string): string {
-  return nombre
-    .toLowerCase()
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, '')
+// Resuelve la comuna/municipio clickeado en el mapa a su representante en BARRIOS
+// (slug + centroide): comunas de Medellín por cd_comuna, municipios del Valle por
+// nombre. Ese slug es el que ya consumen /eventos, /local-business y el filtro de
+// la home — todos comuna-level, no barrio-level.
+function comunaRep(cd: number | null, municipio: string | null): Barrio | undefined {
+  return (cd != null ? BARRIOS.find((b) => b.cd_comuna === cd) : undefined)
+    ?? (municipio ? BARRIOS.find((b) => b.municipio_nombre?.toUpperCase() === municipio.toUpperCase()) : undefined)
 }
 
-// Resuelve el slug de la COMUNA a la que pertenece el barrio clickeado: primero
-// por barrio_id exacto (si es uno de los 16 representantes), si no por cd_comuna
-// (cualquier barrio real, ej. Manila → cd_comuna 14 → 'el-poblado'). Sin esto,
-// un barrio fuera de la lista caía a toSlug(nombre) ('manila'), que BarrioContext
-// no reconoce y silenciosamente resuelve a BARRIOS[0] (el-poblado) sin filtrar
-// ni hacer zoom a la comuna real.
-function barrioSlug(id: number, nombre: string, cdComuna: number | null, municipio: string | null): string {
-  const found = BARRIOS.find((b) => b.barrio_id === id)
-    ?? (cdComuna != null ? BARRIOS.find((b) => b.cd_comuna === cdComuna) : undefined)
-    ?? (municipio ? BARRIOS.find((b) => b.municipio_nombre === municipio) : undefined)
-  return found?.slug ?? toSlug(nombre)
-}
+type PickedComuna = { nombre: string; slug: string; lat: number; lon: number; cd: number | null; municipio: string | null }
 
-type PickedBarrio = { id: number; nombre: string; slug: string; lat: number; lng: number }
-
-function PillButton({ href, onClick, icon, iconBg, label }: {
-  href?: string; onClick?: () => void; icon: string; iconBg: string; label: string
-}) {
-  const inner = (
-    <>
-      <span style={{
-        width: 26, height: 26, borderRadius: '50%', background: iconBg,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0,
-      }}>
-        {icon}
-      </span>
-      {label}
-    </>
-  )
-  const style: React.CSSProperties = {
-    display: 'inline-flex', alignItems: 'center', gap: 9,
-    padding: '7px 16px 7px 7px', borderRadius: 999,
-    background: '#fff', border: `1px solid ${K.line}`,
-    fontWeight: 700, fontSize: 13.5, color: K.ink, cursor: 'pointer', fontFamily: 'inherit',
-    textDecoration: 'none', boxShadow: '0 4px 14px rgba(20,32,29,.14)', whiteSpace: 'nowrap',
-  }
-  return href
-    ? <a href={href} style={style}>{inner}</a>
-    : <button onClick={onClick} style={style}>{inner}</button>
-}
-
-function HeroOverlay({ phase, barrio, onChoose, onClose }: {
-  phase: MapPhase
-  barrio: PickedBarrio | null
-  onChoose: (choice: 'barrios' | 'comunidad') => void
+function HeroOverlay({ comuna, onClose, t }: {
+  comuna: PickedComuna
   onClose: () => void
+  t: (es: string, en: string) => string
 }) {
-  if (phase === 'chooser') {
-    return (
-      <div style={{
-        position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-        display: 'flex', gap: 10, zIndex: 10,
-      }}>
-        <PillButton icon="🗺" iconBg={K.coralLight} label="Ver barrios" onClick={() => onChoose('barrios')} />
-        <PillButton icon="🎉" iconBg="#FFF6D6" label="Ver comunidad" onClick={() => onChoose('comunidad')} />
-      </div>
-    )
-  }
+  // "Listings" entra a los listings de ESTA comuna (cd_comuna / municipio), no a un
+  // barrio. zoom=12 = tier comuna en /map (>=13 re-scopea a un solo barrio).
+  const geo = comuna.municipio
+    ? `municipio=${encodeURIComponent(comuna.municipio)}`
+    : `cd_comuna=${comuna.cd}`
+  const listingsHref = `/map?${geo}&nombre=${encodeURIComponent(comuna.nombre)}&lat=${comuna.lat.toFixed(5)}&lng=${comuna.lon.toFixed(5)}&zoom=12`
 
-  if (phase === 'barrios') {
-    return (
-      <div style={{
-        position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-        background: 'rgba(20,32,29,.82)', backdropFilter: 'blur(6px)',
-        color: '#fff', borderRadius: 999, padding: '9px 8px 9px 18px',
-        fontSize: 13, fontWeight: 600, zIndex: 10, display: 'flex', alignItems: 'center', gap: 10,
-        boxShadow: '0 4px 16px rgba(20,32,29,.2)',
-      }}>
-        <span>Selecciona un barrio en el mapa</span>
-        <button onClick={onClose} style={{
-          background: 'rgba(255,255,255,.12)', border: 'none', color: '#fff', cursor: 'pointer',
-          fontSize: 15, lineHeight: 1, width: 22, height: 22, borderRadius: '50%',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-        }}>×</button>
-      </div>
-    )
-  }
+  const actions = [
+    { href: listingsHref,                       icon: '🏠', bg: K.azulLight,  label: t('Listings', 'Listings'),   sub: t('Propiedades en venta y arriendo', 'Homes for sale and rent') },
+    { href: `/local-business/${comuna.slug}`,   icon: '🏪', bg: K.tealLight,  label: t('Negocios', 'Businesses'), sub: t('Comercios y servicios locales', 'Local shops and services') },
+    { href: `/eventos/${comuna.slug}`,          icon: '📅', bg: K.coralLight, label: t('Eventos', 'Events'),      sub: t('Qué hacer esta semana', 'What to do this week') },
+  ]
 
-  if (phase === 'barrio_action' && barrio) {
-    return (
-      <div style={{
-        position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-        background: K.paper, borderRadius: 18, padding: '14px 16px',
-        boxShadow: '0 10px 36px rgba(20,32,29,.22)', zIndex: 10, minWidth: 300,
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <span style={{ fontFamily: K.serif, fontWeight: 800, fontSize: 16, color: K.ink }}>{barrio.nombre}</span>
-          <button onClick={onClose} style={{
+  return (
+    <div style={{
+      position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
+      width: 'min(340px, calc(100% - 32px))',
+      background: K.paper, borderRadius: 16, overflow: 'hidden', zIndex: 10,
+      border: `1px solid ${K.line}`,
+      boxShadow: '0 18px 48px rgba(17,20,24,.28), 0 2px 8px rgba(17,20,24,.10)',
+    }}>
+      {/* Firma: franja tricolor Colombia (misma identidad que logo/favicon). */}
+      <div style={{ display: 'flex', height: 4 }} aria-hidden>
+        <div style={{ flex: 1, background: K.amarillo }} />
+        <div style={{ flex: 1, background: K.azul }} />
+        <div style={{ flex: 1, background: K.rojo }} />
+      </div>
+
+      <div style={{ padding: '13px 15px 14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 11 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '1.4px', textTransform: 'uppercase', color: K.teal, marginBottom: 3 }}>
+              {t('Explora la comuna', 'Explore the comuna')}
+            </div>
+            <div style={{ fontFamily: K.serif, fontWeight: 800, fontSize: 21, lineHeight: 1.08, color: K.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {comuna.nombre}
+            </div>
+          </div>
+          <button onClick={onClose} aria-label={t('Cerrar', 'Close')} style={{
             background: K.surface, border: 'none', color: K.muted, cursor: 'pointer',
-            fontSize: 16, lineHeight: 1, width: 24, height: 24, borderRadius: '50%',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            fontSize: 17, lineHeight: 1, width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>×</button>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <PillButton href={`/eventos/${barrio.slug}`} icon="📅" iconBg={K.coralLight} label="Eventos" />
-          <PillButton href={`/local-business/${barrio.slug}`} icon="🏪" iconBg="#D9F0E7" label="Negocios" />
-          <PillButton href={`/map?lat=${barrio.lat.toFixed(5)}&lng=${barrio.lng.toFixed(5)}&zoom=14`} icon="🏠" iconBg="#FFF6D6" label="Listings" />
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {actions.map((a) => (
+            <a key={a.label} href={a.href} className="comuna-action-row" style={{
+              display: 'flex', alignItems: 'center', gap: 11, padding: '9px 10px', borderRadius: 11,
+              textDecoration: 'none', color: K.ink,
+            }}>
+              <span style={{
+                width: 34, height: 34, borderRadius: 9, background: a.bg, flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16,
+              }}>{a.icon}</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', fontWeight: 700, fontSize: 14, color: K.ink }}>{a.label}</span>
+                <span style={{ display: 'block', fontSize: 11.5, color: K.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.sub}</span>
+              </span>
+              <span className="comuna-action-chev" style={{ color: K.tertiary, fontSize: 18, flexShrink: 0, transition: 'transform .14s ease' }}>›</span>
+            </a>
+          ))}
         </div>
       </div>
-    )
-  }
 
-  return null
+      <style>{`
+        .comuna-action-row { transition: background .14s ease; }
+        .comuna-action-row:hover { background: ${K.surface}; }
+        .comuna-action-row:hover .comuna-action-chev { transform: translateX(2px); color: ${K.ink}; }
+      `}</style>
+    </div>
+  )
 }
 
 function SecTitle({ children, link, linkLabel }: { children: string; link?: string; linkLabel?: string }) {
@@ -298,45 +273,41 @@ function HomeContent() {
     }
   }, [nombre, email, barrio.barrio_id])
 
-  const [mapPhase, setMapPhase] = useState<MapPhase | null>(null)
-  const [pickedBarrio, setPickedBarrio] = useState<PickedBarrio | null>(null)
-  const flyToBarriosRef = useRef<(() => void) | null>(null)
+  const [pickedComuna, setPickedComuna] = useState<PickedComuna | null>(null)
+  const returnToComunasRef = useRef<((speed?: number) => void) | null>(null)
 
-  const handleMapClick = useCallback(() => {
-    if (mapPhase === null) setMapPhase('chooser')
-  }, [mapPhase])
-
-  const handleChoose = useCallback((choice: 'barrios' | 'comunidad') => {
-    if (choice === 'comunidad') {
-      window.location.href = '/eventos/el-poblado'
-      return
-    }
-    setMapPhase('barrios')
-    flyToBarriosRef.current?.()
-  }, [])
-
-  const handleBarrioClick = useCallback((id: number, nombre: string, lat: number, lng: number, cdComuna: number | null, municipio: string | null) => {
-    if (mapPhase !== 'barrios' && mapPhase !== 'barrio_action') return
-    const slug = barrioSlug(id, nombre, cdComuna, municipio)
-    setPickedBarrio({ id, nombre: nombre.replace(/_/g, ' '), slug, lat, lng })
-    setMapPhase('barrio_action')
-    setBarrioSlug(slug) // filtra deals/directorio/eventos de toda la página en vivo
-  }, [mapPhase, setBarrioSlug])
+  // Click en comuna/municipio del mapa → tarjeta con sus 3 accesos (listings /
+  // negocios / eventos de ESA comuna). Sin paso intermedio de elegir barrio: no
+  // tenemos datos lo bastante segmentados para filtrar por barrio todavía.
+  const handleComunaSelect = useCallback((level: 'comunas' | 'barrios', _nombre: string | null, municipio?: string | null, cd?: number | null) => {
+    if (level !== 'barrios') return // "comunas" = volver al valle; ignorar
+    const rep = comunaRep(cd ?? null, municipio ?? null)
+    if (!rep || rep.lat == null || rep.lon == null) return // comuna sin representante (sin datos) → no-op
+    setPickedComuna({
+      nombre: rep.nombre, slug: rep.slug, lat: rep.lat, lon: rep.lon,
+      cd: rep.cd_comuna ?? null, municipio: rep.municipio_nombre ?? null,
+    })
+    setBarrioSlug(rep.slug) // filtra deals/directorio/eventos de toda la página en vivo
+  }, [setBarrioSlug])
 
   const handleOverlayClose = useCallback(() => {
-    setMapPhase(null)
-    setPickedBarrio(null)
+    setPickedComuna(null)
+    returnToComunasRef.current?.() // zoom-out de vuelta al valle
   }, [])
 
   const isTodos  = barrio.slug === 'todos'
   const noBarrio = !barrio.barrio_id && !isTodos
 
+  // Comuna de Medellín: filtra deals/directorio/noticias por TODA la comuna
+  // (cd_comuna), no por el barrio representante. Valle (sin cd_comuna) → municipio.
+  const comunaFilter = isTodos ? null : (barrio.cd_comuna ?? null)
   const barrioFilter = isTodos ? null : (barrio.barrio_id ?? null)
   const municipioFilter = isTodos ? undefined : barrio.municipio_nombre
 
-  const { data: noticias   = [], isLoading: noticiasLoading } = useNoticias(4, barrioFilter, municipioFilter)
-  const { data: deals      = [], isLoading: dealsLoading }  = useDeals(1, barrioFilter, municipioFilter)
-  const { data: directorio = [], isLoading: dirLoading }    = useDirectorio(1, barrioFilter, municipioFilter)
+  const { data: noticias   = [], isLoading: noticiasLoading } = useNoticias(4, barrioFilter, municipioFilter, comunaFilter)
+  const { data: deals      = [], isLoading: dealsLoading }  = useDeals(1, barrioFilter, municipioFilter, comunaFilter)
+  const { data: directorio = [], isLoading: dirLoading }    = useDirectorio(1, barrioFilter, municipioFilter, comunaFilter)
+  // Eventos ya expanden a la comuna del barrio_id vía raw.barrios.comuna — sin cambio.
   const { data: eventosTop = [] }                           = useEventosTop(barrioFilter, municipioFilter, 3)
   const { data: eventosSemana = [] }                        = useEventosSemana(barrioFilter, municipioFilter, 4)
 
@@ -352,17 +323,15 @@ function HomeContent() {
             style={{
               position: 'relative', overflow: 'hidden', borderRadius: 16,
               width: isMobile ? '100%' : '60%', height: isMobile ? '42vh' : '58vh', minHeight: isMobile ? 280 : 380,
-              cursor: mapPhase === null ? 'pointer' : 'default',
               boxShadow: '0 8px 30px rgba(20,32,29,.12)',
             }}
-            onClick={mapPhase === null ? handleMapClick : undefined}
           >
             <MapView
               mapView="zonas"
               selectedId={null}
               onSelect={() => {}}
-              onBarrioClick={(mapPhase === 'barrios' || mapPhase === 'barrio_action') ? handleBarrioClick : undefined}
-              flyToBarriosRef={flyToBarriosRef}
+              onViewLevelChange={handleComunaSelect}
+              returnToComunasRef={returnToComunasRef}
               cooperativeGestures={isMobile}
               // ponytail: constante por breakpoint, no medida en vivo — alcanza pa
               // que la tarjeta de barrio_action (la más alta) no tape la zona
@@ -375,13 +344,8 @@ function HomeContent() {
               pitch={0}
               bearing={0}
             />
-            {mapPhase !== null && (
-              <HeroOverlay
-                phase={mapPhase}
-                barrio={pickedBarrio}
-                onChoose={handleChoose}
-                onClose={handleOverlayClose}
-              />
+            {pickedComuna && (
+              <HeroOverlay comuna={pickedComuna} onClose={handleOverlayClose} t={t} />
             )}
           </div>
 
@@ -516,18 +480,18 @@ function HomeContent() {
                 const month = valid ? d.toLocaleDateString(lang === 'es' ? 'es-CO' : 'en-US', { month: 'short' }).replace('.', '').toUpperCase() : ''
                 return (
                   <a key={evt.id} href={safeHref(evt.url_externo) ?? `/eventos/${barrio.slug}`} target="_blank" rel="noopener noreferrer" style={{
-                    display: 'block', background: 'rgba(255,255,255,.13)', border: '1px solid rgba(255,255,255,.22)',
+                    display: 'block', minWidth: 0, background: 'rgba(255,255,255,.13)', border: '1px solid rgba(255,255,255,.22)',
                     borderRadius: 14, padding: 18, backdropFilter: 'blur(8px)', textDecoration: 'none', color: '#fff',
                   }}>
                     <div style={{ fontFamily: K.serif, fontSize: '2.1rem', fontWeight: 900, lineHeight: 1, color: K.amarillo }}>{day}</div>
                     <div style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '1.2px', opacity: .88, marginTop: 3 }}>{month}</div>
                     <h4 style={{
-                      fontSize: '1.02rem', margin: '11px 0 5px', fontWeight: 700, lineHeight: 1.25,
+                      fontSize: '1.02rem', margin: '11px 0 5px', fontWeight: 700, lineHeight: 1.25, overflowWrap: 'anywhere',
                       overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const,
                     }}>
                       {evt.titulo}
                     </h4>
-                    <div style={{ fontSize: '.82rem', opacity: .85 }}>{evt.barrio_nombre || evt.organizador || 'Medellín'}</div>
+                    <div style={{ fontSize: '.82rem', opacity: .85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{evt.barrio_nombre || evt.organizador || 'Medellín'}</div>
                   </a>
                 )
               })}

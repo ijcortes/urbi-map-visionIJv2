@@ -64,6 +64,11 @@ function useScrollReveal(path: string) {
       document.querySelectorAll<HTMLElement>('main > *, main > * > section').forEach(el => {
         if (el.dataset.msReveal) return
         el.dataset.msReveal = '1'
+        // Overlays fijos (botón tutorial, FABs) no son contenido de flujo: el reveal
+        // los dejaría en opacity:0 para siempre (un elemento fixed nunca intersecta
+        // la zona muerta del observer ni se mueve al scrollear). No ocultarlos.
+        const pos = getComputedStyle(el).position
+        if (pos === 'fixed' || pos === 'sticky') return
         // Lo que ya está en pantalla al cargar no se anima (evita parpadeo arriba).
         if (el.getBoundingClientRect().top < window.innerHeight * 0.9) return
         el.classList.add('ms-reveal')

@@ -1042,6 +1042,7 @@ export function MapFilterBar({
   const areaMaxField = useAreaFieldText(filters.areaMax, unit, (m2) => onFiltersChange({ areaMax: m2 }));
   const [open, setOpen] = useState<DropdownId | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileMore, setMobileMore] = useState(false);
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -1493,6 +1494,126 @@ export function MapFilterBar({
             })}
           </div>
         </div>
+
+        {/* Más filtros — expandible (Área, Estrato, Tiempo en mercado, Amenidades) */}
+        <button
+          onClick={() => setMobileMore((v) => !v)}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+            background: "none", border: "none", padding: "2px 0 16px", cursor: "pointer",
+            color: C.teal, fontSize: 13, fontWeight: 700,
+          }}
+        >
+          <span>{mobileMore ? "Menos filtros" : "Más filtros"}</span>
+          <ChevronDown size={16} style={{ transform: mobileMore ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+        </button>
+
+        {mobileMore && (
+          <>
+            {/* Área */}
+            <div style={{ marginBottom: 20 }}>
+              <span style={labelSm}>Área {areaUnitLabel}</span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  type="number" placeholder="Mínimo" aria-label="Área mínima" value={areaMinField.text}
+                  onChange={(e) => areaMinField.handleChange(e.target.value)}
+                  style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 13, outline: "none", color: C.ink, background: "#fff" }}
+                />
+                <input
+                  type="number" placeholder="Máximo" aria-label="Área máxima" value={areaMaxField.text}
+                  onChange={(e) => areaMaxField.handleChange(e.target.value)}
+                  style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 13, outline: "none", color: C.ink, background: "#fff" }}
+                />
+              </div>
+            </div>
+
+            {/* Estrato */}
+            <div style={{ marginBottom: 20 }}>
+              <span style={labelSm}>Estrato</span>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {[1, 2, 3, 4, 5, 6].map((e) => {
+                  const active = (filters.estrato ?? []).includes(e);
+                  return (
+                    <button
+                      key={e}
+                      onClick={() => {
+                        const cur = filters.estrato ?? [];
+                        const next = active ? cur.filter((x) => x !== e) : [...cur, e];
+                        onFiltersChange({ estrato: next.length === 0 ? null : next });
+                      }}
+                      style={{
+                        flex: 1, minWidth: 40, padding: "8px 0", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                        border: `1px solid ${active ? C.teal : C.border}`,
+                        background: active ? C.teal : C.white, color: active ? "#fff" : C.ink, cursor: "pointer",
+                      }}
+                    >
+                      {e}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Tiempo en mercado */}
+            <div style={{ marginBottom: 20 }}>
+              <span style={labelSm}>{isRent ? "Tiempo publicado" : "Tiempo en mercado"}</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                {(isRent
+                  ? ([{ val: "nuevo", label: "Reciente" }, { val: "mas30", label: "+30 días" }, { val: "mas60", label: "+60 días" }] as const)
+                  : ([{ val: "nuevo", label: "Nuevo" }, { val: "reciente", label: "Reciente" }, { val: "demorado", label: "Demorado" }] as const)
+                ).map((opt) => {
+                  const active = filters.diasMercado === opt.val;
+                  return (
+                    <button
+                      key={opt.val}
+                      onClick={() => onFiltersChange({ diasMercado: active ? null : opt.val })}
+                      style={{
+                        flex: 1, padding: "8px 4px", borderRadius: 8, fontSize: 12,
+                        border: `1px solid ${active ? C.teal : C.border}`,
+                        background: active ? C.teal : C.white, color: active ? "#fff" : C.ink, cursor: "pointer",
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Amenidades */}
+            <div style={{ marginBottom: 20 }}>
+              <span style={labelSm}>Amenidades</span>
+              {(() => {
+                const merged = [...(filters.amenidades ?? []), ...(filters.amoblado ? ["amoblado"] : [])];
+                return (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {AMENIDADES_GROUPS.flatMap((g) => g.items).map(({ key, label }) => {
+                      const active = merged.includes(key);
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => {
+                            const next = active ? merged.filter((k) => k !== key) : [...merged, key];
+                            const hasAmoblado = next.includes("amoblado");
+                            const rest = next.filter((k) => k !== "amoblado");
+                            onFiltersChange({ amenidades: rest.length === 0 ? null : rest, amoblado: hasAmoblado ? true : null });
+                          }}
+                          style={{
+                            padding: "6px 12px", borderRadius: 8, fontSize: 12,
+                            border: `1px solid ${active ? C.teal : C.border}`,
+                            background: active ? C.teal : C.white, color: active ? "#fff" : C.ink, cursor: "pointer",
+                          }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+          </>
+        )}
 
         <div style={{ display: "flex", gap: 10, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
           <button

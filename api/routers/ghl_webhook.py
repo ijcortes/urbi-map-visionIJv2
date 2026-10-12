@@ -89,12 +89,31 @@ async def _upsert_referidor_from_ghl(payload: dict) -> None:
     raise NotImplementedError("ghl_webhook: falta contrato de payload para referidor")
 
 
+async def _upsert_agent_from_ghl(payload: dict) -> None:
+    """Target: public.agent. Agent = Contact (confirmado 2026-10-03). Entrada
+    GHL→nosotros: cuando el realtor se crea/edita/aprueba del lado GHL. Falta
+    el contrato: nombres de campo del lado GHL (custom fields §4a) y si GHL
+    identifica el agent por agent_internal_id (uuid nuestro) o por su contact
+    id propio."""
+    raise NotImplementedError("ghl_webhook: falta contrato de payload para agent")
+
+
+async def _upsert_visita_from_ghl(payload: dict) -> None:
+    """Target: public.visita_solicitud. Entrada GHL→nosotros: cuando un
+    comprador reserva / reprograma / cancela en el Calendar del agente (GHL),
+    se refleja acá (estado + fecha_visita). Falta TODO el contrato de
+    Calendars/Appointments de Talal — ver §7 Visita del contrato."""
+    raise NotImplementedError("ghl_webhook: falta contrato de payload para visita")
+
+
 _HANDLERS = {
     "listing": _upsert_listing_from_ghl,
     "deal": _upsert_deal_from_ghl,
     "evento": _upsert_evento_from_ghl,
     "tienda": _upsert_tienda_from_ghl,
     "referidor": _upsert_referidor_from_ghl,
+    "agent": _upsert_agent_from_ghl,
+    "visita": _upsert_visita_from_ghl,
 }
 
 

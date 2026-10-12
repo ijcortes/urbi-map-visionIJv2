@@ -44,18 +44,65 @@ GLOS = [
 
 
 def clean(t: str) -> str:
-    """Port de cleanDescripcion (ListingDrawer.tsx) — mojibake, símbolos, backslashes."""
+    """Port de cleanDescripcion (ListingDrawer.tsx) — mojibake, símbolos, backslashes.
+    Espejo exacto del TS; cambiar los dos a la vez."""
     t = t.replace("�", "")
-    t = re.sub(r"^[\s]*[?*•·▪◦‣−–—-]+[\s]+", "• ", t, flags=re.M)
+    t = t.replace("\r\n", "\n").replace("\r", "\n")  # CR real → salto
+    # Mojibake del scraper: "\r"/"\n"/"\t" quedaron como texto literal (backslash+letra);
+    # el modelo los emitía como "r"/"n"/"t" sueltos. Mapear a su whitespace ANTES de
+    # colapsar backslashes. En descripciones inmobiliarias nunca hay backslash legítimo.
+    t = re.sub(r"\\+[rn]", "\n", t)
+    t = re.sub(r"\\+t", " ", t)
+    t = re.sub(r"\\+", " ", t)  # backslashes sueltos restantes ("\ \")
+    t = re.sub(r"^[\s]*[?*•·▪◦‣▶►➤/−–—-]+[\s]+", "• ", t, flags=re.M)
     t = re.sub(r"(^|\n)\s*\?\s+", r"\1", t)
     t = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", t)
-    # Backslashes sueltos = mojibake del scraper ("\ \") — el modelo los alucina
-    # como ♪. En descripciones inmobiliarias nunca hay backslash legítimo.
-    t = re.sub(r"\\+", " ", t)
+    # Asteriscos de énfasis/markdown sueltos ("**Piscina**"); bullets ya convertidos
+    t = re.sub(r"\*+", "", t)
+    # Slashes decorativos: solo runs de 2+; se conservan 3/4, y/o, N/A
+    t = re.sub(r"/{2,}", " ", t)
+    t = re.sub(r"^[ \t]*•[ \t]*$", "", t, flags=re.M)
     t = re.sub(r"\n{3,}", "\n\n", t)
     t = re.sub(r"[ \t]{2,}", " ", t)
     t = re.sub(r"[ \t]+\n", "\n", t)
     return t.strip()
+
+
+# Nombres propios que el NMT genérico traduce como sustantivos comunes
+# (observado: "Girardota" -> "turnover"). Se enmascaran antes de traducir y se
+# restauran después — misma idea que GLOS, pero protege en vez de reescribir.
+# ponytail: lista de municipios/comunas del Valle de Aburrá; crece si aparecen más.
+_KEEP_NAMES = [
+    "Medellín", "Bello", "Envigado", "Itagüí", "Sabaneta", "Girardota",
+    "Copacabana", "Barbosa", "Caldas", "La Estrella", "El Poblado", "Laureles",
+    "Belén", "Robledo", "Guayabal", "Castilla", "Aranjuez", "Buenos Aires",
+    "La América", "San Javier", "Villa Hermosa", "Manrique", "Santa Cruz",
+    "Doce de Octubre", "Antioquia",
+]
+_KEEP_RX = re.compile(
+    r"\b(" + "|".join(re.escape(n) for n in sorted(_KEEP_NAMES, key=len, reverse=True)) + r")\b"
+)
+
+
+def _mask_names(t: str):
+    """Reemplaza nombres propios por centinelas ' NMTK<i> ' antes de traducir.
+    ponytail: supervivencia del centinela a Opus-MT NO verificada en dev (sin
+    modelos); validar en el build de Dockerfile.cron antes de activar en prod."""
+    found = []
+
+    def repl(m):
+        found.append(m.group(0))
+        return f" NMTK{len(found) - 1} "
+
+    return _KEEP_RX.sub(repl, t), found
+
+
+def _unmask_names(t: str, found) -> str:
+    for i, name in enumerate(found):
+        # tolera que el modelo meta/quite espacios o cambie may/min del centinela
+        t = re.sub(rf"\bNMTK\s*{i}\b", name, t, flags=re.I)
+    t = re.sub(r"\s+([,.;:)])", r"\1", t)  # "Girardota ," -> "Girardota," (espacio del centinela)
+    return re.sub(r"[ \t]{2,}", " ", t).strip()  # colapsa el espacio del centinela
 
 
 def detect_lang(text: str) -> str:
@@ -105,9 +152,16 @@ def _load(src: str, tgt: str):
 
 
 def _translate_batch(texts, src: str, tgt: str):
-    """Traduce una lista de textos ya limpios en la dirección src->tgt (batch real)."""
+    """Traduce una lista de textos ya limpios en la dirección src->tgt (batch real).
+    Solo es->en: glosario + enmascarado de nombres propios antes de traducir."""
     tok, tr = _load(src, tgt)
-    seg_lists = [_segments(_glos(t) if src == "es" else t) for t in texts]
+    masks = [[] for _ in texts]
+    prepared = []
+    for i, t in enumerate(texts):
+        if src == "es":
+            t, masks[i] = _mask_names(_glos(t))
+        prepared.append(t)
+    seg_lists = [_segments(t) for t in prepared]
     flat, spans = [], []
     for segs in seg_lists:
         start = len(flat)
@@ -118,7 +172,8 @@ def _translate_batch(texts, src: str, tgt: str):
     toks = [tok.convert_ids_to_tokens(tok.encode(s)) for s in flat]
     out = tr.translate_batch(toks, max_batch_size=32)
     en = [tok.decode(tok.convert_tokens_to_ids(o.hypotheses[0]), skip_special_tokens=True) for o in out]
-    return ["\n".join(en[a:b]).strip() for a, b in spans]
+    joined = ["\n".join(en[a:b]).strip() for a, b in spans]
+    return [_unmask_names(j, masks[i]) for i, j in enumerate(joined)]
 
 
 def translate(text: str, src: str, tgt: str) -> str:
@@ -143,6 +198,26 @@ def translate_pairs(texts):
 
 
 if __name__ == "__main__":
+    # ponytail: self-checks sin modelos (corren siempre) — clean() + mask/restore.
+    assert clean("Hola \\ \\ mundo") == "Hola mundo"
+    assert clean("Codigo 32162\\\\r\\\nSe arrienda") == "Codigo 32162\n\nSe arrienda"  # mojibake \r, sin "r" suelto
+    assert clean("**Piscina** y gimnasio") == "Piscina y gimnasio"
+    assert clean("Precio //// negociable") == "Precio negociable"
+    assert clean("Sala / comedor, 3/4 baños, y/o estudio N/A") == \
+        "Sala / comedor, 3/4 baños, y/o estudio N/A"  # slashes legítimos intactos
+    assert clean("* Amplio balcón\n* Vista verde") == "• Amplio balcón\n• Vista verde"
+    masked, found = _mask_names("Apartamento en Girardota cerca de El Poblado")
+    assert "Girardota" not in masked and "NMTK" in masked, "mask roto"
+    assert _unmask_names(masked, found) == "Apartamento en Girardota cerca de El Poblado"
+    # restore tolerante a may/min y espacio que el modelo pueda introducir
+    assert _unmask_names("Flat in nmtk 0 near NMTK1", found) == \
+        "Flat in Girardota near El Poblado"
+    print("OK self-check clean + nombres propios")
+
+    import sys as _sys
+    if "--clean-only" in _sys.argv:
+        _sys.exit(0)  # sin modelos locales, para aquí
+
     # ponytail: self-check bidireccional — falla ruidoso si algún modelo se rompe.
     samples = [
         "Casa campestre en Envigado, estrato 5, servicios al día, escrituras listas.",

@@ -1,6 +1,7 @@
 """Subscription management — Pro and Agente plans."""
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -12,9 +13,10 @@ from api.config.planes import PLANES
 from api.db import get_pool
 from api.dependencies import get_current_user
 from api.utils.email import ADMIN_EMAIL, _wrap, send_email
-from api.utils import stripe_client
+from api.utils import ghl_client, stripe_client
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 _FRONTEND_URL = os.getenv("FRONTEND_URL", "https://medellin.social")
 _ADMIN_WHATSAPP = os.getenv("ADMIN_WHATSAPP", "")
@@ -147,6 +149,12 @@ async def registro_agente(
         """,
         current_user["id"], current_user["email"], body.nombre.strip(), body.telefono.strip(),
     )
+    # Realtor nuevo → GHL (Contact). Best-effort: hoy sync_agent levanta
+    # (stub sin contrato) → se loguea y sigue, igual que afiliados/embajadores.
+    try:
+        await ghl_client.sync_agent(row["id"])
+    except Exception:
+        log.exception("sync_agent(%s) falló", row["id"])  # best-effort, no bloquea el registro
     return {"id": str(row["id"]), "estado": row["estado"]}
 
 

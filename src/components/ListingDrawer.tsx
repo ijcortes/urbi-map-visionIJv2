@@ -4,7 +4,7 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip,
   ResponsiveContainer, ReferenceDot,
 } from "recharts";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import {
   X, Heart, Phone, ExternalLink, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
@@ -47,10 +47,10 @@ const TIPO_INMUEBLE_COLOR: Record<string, string> = {
   casa:          "#CE1126",
   casa_lote:     "#CE1126",
   finca:         "#CE1126",
-  apartaestudio: "#5BBE8A",
+  apartaestudio: "#C2410C",
   lote:          "#8A6A00",
   local:         "#1F5BC6",
-  oficina:       "#1F5BC6",
+  oficina:       "#6D4AA8",
   bodega:        "#6E726E",
   consultorio:   "#6E726E",
 };
@@ -78,18 +78,32 @@ function normalizeTipoOp(val: string | null | undefined): "arriendo" | "venta" {
   return "venta";
 }
 
-/** Limpia descripciones del scraper: mojibake, símbolos sueltos, espaciado. */
+/** Limpia descripciones del scraper: mojibake, símbolos sueltos, espaciado.
+ *  Espejo de clean() en scripts/traductor.py — cambiar los dos a la vez. */
 function cleanDescripcion(text: string): string {
   return text
     // Reemplaza el carácter de reemplazo Unicode y emojis rotos ("? Ubicación")
     .replace(/�/g, "")
-    // Bullets/símbolos sueltos al inicio de línea (?, *, -, •, · seguidos de espacio)
-    .replace(/^[\s]*[?*•·▪◦‣−–—-]+[\s]+/gm, "• ")
+    // CR real del scraper ("\r\n" / "\r") → salto de línea normal
+    .replace(/\r\n?/g, "\n")
+    // Mojibake: "\r"/"\n"/"\t" como texto literal (backslash+letra) → su whitespace,
+    // antes de colapsar backslashes (nunca legítimos en descripciones)
+    .replace(/\\+[rn]/g, "\n")
+    .replace(/\\+t/g, " ")
+    .replace(/\\+/g, " ")
+    // Bullets/símbolos sueltos al inicio de línea (?, *, /, -, •, ·, flechas…) → "• "
+    .replace(/^[\s]*[?*•·▪◦‣▶►➤/−–—-]+[\s]+/gm, "• ")
     // "?" pegado antes de texto (emoji perdido): "? Ubicación" → "Ubicación"
     .replace(/(^|\n)\s*\?\s+/g, "$1")
     // Quita caracteres de control / no imprimibles
     // eslint-disable-next-line no-control-regex
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+    // Asteriscos de énfasis/markdown sueltos ("**Piscina**"); los de bullet ya se convirtieron
+    .replace(/\*+/g, "")
+    // Slashes decorativos: solo runs de 2+ ("////"); se conservan 3/4, y/o, N/A
+    .replace(/\/{2,}/g, " ")
+    // Líneas que quedaron solo con "• " (bullet huérfano)
+    .replace(/^[ \t]*•[ \t]*$/gm, "")
     // Colapsa 3+ saltos de línea a máximo 2
     .replace(/\n{3,}/g, "\n\n")
     // Colapsa espacios/tabs múltiples
@@ -457,9 +471,9 @@ function ScoreBar({ label, score, sub }: { label: string; score: number; sub: st
   const s10 = score > 0 ? Math.max(1, Math.round(score / 10)) : 0;
   return (
     <div className="rounded-xl px-4 py-3" style={{ background: "#F3F0E8", border: "0.5px solid #E5E0D5" }}>
-      <div className="flex items-baseline justify-between">
-        <span className="text-xs font-semibold text-[#5B5F5C]">{label}</span>
-        <span className="text-lg font-bold" style={{ color }}>{s10}<span className="text-[11px] font-normal text-[#6E726E]">/10</span></span>
+      <div className="flex items-baseline justify-between gap-1.5">
+        <span className="min-w-0 text-xs font-semibold text-[#5B5F5C]">{label}</span>
+        <span className="shrink-0 text-lg font-bold" style={{ color }}>{s10}<span className="text-[11px] font-normal text-[#6E726E]">/10</span></span>
       </div>
       <div className="mt-1.5 h-1.5 overflow-hidden rounded-full" style={{ background: "#E5E0D5" }}>
         <div className="h-full rounded-full" style={{ width: `${score}%`, background: color }} />
@@ -506,7 +520,7 @@ function GettingAround({ barrioId }: { barrioId: number }) {
   return (
     <div className="space-y-2.5">
       <h3 className="text-sm font-semibold" style={{ color: "#111418" }}>Entorno</h3>
-      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${tiles.length}, minmax(0, 1fr))` }}>
+      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(130px, 1fr))` }}>
         {tiles.map((t) => (
           <ScoreBar key={t.label} label={t.label} score={t.score} sub={t.sub} />
         ))}
@@ -909,6 +923,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
   const { lang } = useLang();
   const { unit } = useUnit();
   const isMobile = useIsMobile();
+  const dragControls = useDragControls();
   const navigate = useNavigate();
   const { isFav, toggle: toggleFav } = useFavoritosListings();
   const { target } = useTarget();
@@ -1493,17 +1508,27 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                 data-tour="listing-drawer"
                 initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
                 transition={{ type: "spring", damping: 32, stiffness: 300 }}
+                drag="y"
+                dragControls={dragControls}
+                dragListener={false}
+                dragConstraints={{ top: 0, bottom: 0 }}
+                dragElastic={{ top: 0, bottom: 0.4 }}
+                onDragEnd={(_, info) => { if (info.offset.y > 120 || info.velocity.y > 600) onClose(); }}
                 className="fixed inset-x-0 bottom-0 z-50 flex flex-col overflow-hidden rounded-t-2xl shadow-2xl"
                 style={{ height: "90vh", background: "#FAF8F3", ...modalStyle }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="relative flex shrink-0 items-center justify-center py-3">
+                <div
+                  className="relative flex shrink-0 items-center justify-center py-3"
+                  onPointerDown={(e) => dragControls.start(e)}
+                  style={{ touchAction: "none", cursor: "grab" }}
+                >
                   <div className="h-1 w-10 rounded-full bg-[#C9C4B8]" />
-                  <button onClick={onClose} className="absolute right-4 grid h-7 w-7 place-items-center rounded-lg text-[#5B5F5C] transition hover:bg-[#F3F0E8]">
+                  <button onClick={onClose} onPointerDown={(e) => e.stopPropagation()} className="absolute right-4 grid h-7 w-7 place-items-center rounded-lg text-[#5B5F5C] transition hover:bg-[#F3F0E8]">
                     <X className="h-4 w-4" />
                   </button>
                 </div>
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
                   <PhotoGallery fotos={listing?.fotos} titulo={listing?.tipo_inmueble ?? undefined} />
                   <div className="space-y-5 px-5 py-5">
                     {isLoading && loadingSpinner}

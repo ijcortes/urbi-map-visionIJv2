@@ -223,6 +223,12 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
         .masthead-logo { animation: kRise .6s cubic-bezier(.2,.7,.2,1) both; }
         .masthead-tag { animation: kRise .6s .15s cubic-bezier(.2,.7,.2,1) both; letter-spacing: 4px; }
         @media (max-width: 480px) { .masthead-tag { letter-spacing: 1.5px; font-size: 11px !important; } }
+        /* Ticker en móvil: encoge el badge "Lo Próximo" y el padding para que las
+           noticias tengan espacio de lectura (el badge es flexShrink:0, no cede solo). */
+        @media (max-width: 600px) {
+          .k-ticker > div { padding-left: 14px !important; gap: 9px !important; }
+          .k-ticker > div > span { font-size: .6rem !important; padding: 2px 7px !important; letter-spacing: .3px !important; }
+        }
         @media (prefers-reduced-motion: reduce) {
           .k-ticker-inner, .k-tricolor > i, .masthead-logo, .masthead-tag { animation: none !important; }
         }
@@ -499,7 +505,9 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
                     key={it.href}
                     href={it.href}
                     onClick={() => setMenuAbierto(false)}
-                    style={{ display: 'block', color: 'rgba(255,255,255,0.72)', padding: '9px 0 9px 14px', fontSize: 14, fontWeight: 500, textDecoration: 'none', borderBottom: '0.5px solid rgba(255,255,255,0.06)' }}
+                    style={it.href === '/map'
+                      ? { display: 'block', background: K.teal, color: '#fff', padding: '10px 14px', margin: '4px 0', fontSize: 14, fontWeight: 800, textDecoration: 'none', borderRadius: 8 }
+                      : { display: 'block', color: 'rgba(255,255,255,0.72)', padding: '9px 0 9px 14px', fontSize: 14, fontWeight: 500, textDecoration: 'none', borderBottom: '0.5px solid rgba(255,255,255,0.06)' }}
                   >
                     {it.label}
                   </a>

@@ -133,7 +133,12 @@ WHERE d.activo    = TRUE
   AND d.destacado = TRUE
   AND (d.fecha_fin IS NULL OR d.fecha_fin >= CURRENT_DATE)
   AND (
-    ($2::int IS NOT NULL AND COALESCE(d.barrio_id, t.barrio_id) IN (
+    -- Comuna de Medellín: todos sus barrios (analytics.barrios_cd). Gana al barrio_id
+    -- del representante (el home manda el rep de la comuna, que es 1 solo barrio).
+    ($4::int IS NOT NULL AND COALESCE(d.barrio_id, t.barrio_id) IN (
+        SELECT barrio_id FROM analytics.barrios_cd WHERE cd_comuna = $4
+    ))
+    OR ($4::int IS NULL AND $2::int IS NOT NULL AND COALESCE(d.barrio_id, t.barrio_id) IN (
         SELECT id FROM raw.barrios b2
         WHERE ST_DWithin(
             b2.geometry,
@@ -141,10 +146,10 @@ WHERE d.activo    = TRUE
             3000
         )
     ))
-    OR ($2::int IS NULL AND $3::text IS NOT NULL AND COALESCE(d.barrio_id, t.barrio_id) IN (
+    OR ($4::int IS NULL AND $2::int IS NULL AND $3::text IS NOT NULL AND COALESCE(d.barrio_id, t.barrio_id) IN (
         SELECT id FROM raw.barrios WHERE municipio = $3
     ))
-    OR ($2::int IS NULL AND $3::text IS NULL AND d.ciudad_id = $1)
+    OR ($4::int IS NULL AND $2::int IS NULL AND $3::text IS NULL AND d.ciudad_id = $1)
   )
 ORDER BY d.created_at DESC
 LIMIT 4
@@ -156,10 +161,11 @@ async def get_deals(
     ciudad_id: int = Query(1),
     barrio_id: Optional[int] = Query(None),
     municipio: Optional[str] = Query(None),
+    cd_comuna: Optional[int] = Query(None),
     pool=Depends(get_pool),
 ):
     try:
-        rows = await pool.fetch(_DEALS_QUERY, ciudad_id, barrio_id, municipio)
+        rows = await pool.fetch(_DEALS_QUERY, ciudad_id, barrio_id, municipio, cd_comuna)
     except Exception:
         logger.exception("Error inesperado")
         raise HTTPException(status_code=500, detail="Error interno del servidor")
@@ -211,7 +217,10 @@ WHERE h.activo    = TRUE
   AND h.destacado = TRUE
   AND (h.fecha_fin IS NULL OR h.fecha_fin >= CURRENT_DATE)
   AND (
-    ($2::int IS NOT NULL AND COALESCE(h.barrio_id, t.barrio_id) IN (
+    ($4::int IS NOT NULL AND COALESCE(h.barrio_id, t.barrio_id) IN (
+        SELECT barrio_id FROM analytics.barrios_cd WHERE cd_comuna = $4
+    ))
+    OR ($4::int IS NULL AND $2::int IS NOT NULL AND COALESCE(h.barrio_id, t.barrio_id) IN (
         SELECT id FROM raw.barrios b2
         WHERE ST_DWithin(
             b2.geometry,
@@ -219,10 +228,10 @@ WHERE h.activo    = TRUE
             3000
         )
     ))
-    OR ($2::int IS NULL AND $3::text IS NOT NULL AND COALESCE(h.barrio_id, t.barrio_id) IN (
+    OR ($4::int IS NULL AND $2::int IS NULL AND $3::text IS NOT NULL AND COALESCE(h.barrio_id, t.barrio_id) IN (
         SELECT id FROM raw.barrios WHERE municipio = $3
     ))
-    OR ($2::int IS NULL AND $3::text IS NULL AND h.ciudad_id = $1)
+    OR ($4::int IS NULL AND $2::int IS NULL AND $3::text IS NULL AND h.ciudad_id = $1)
   )
 ORDER BY h.created_at DESC
 LIMIT 4
@@ -234,10 +243,11 @@ async def get_hotspots(
     ciudad_id: int = Query(1),
     barrio_id: Optional[int] = Query(None),
     municipio: Optional[str] = Query(None),
+    cd_comuna: Optional[int] = Query(None),
     pool=Depends(get_pool),
 ):
     try:
-        rows = await pool.fetch(_HOTSPOTS_QUERY, ciudad_id, barrio_id, municipio)
+        rows = await pool.fetch(_HOTSPOTS_QUERY, ciudad_id, barrio_id, municipio, cd_comuna)
     except Exception:
         logger.exception("Error inesperado")
         raise HTTPException(status_code=500, detail="Error interno del servidor")
@@ -299,7 +309,10 @@ WITH ranked AS (
       AND t.rating_google >= 4.8
       AND t.categoria     = ANY($3::text[])
       AND (
-        ($2::int IS NOT NULL AND t.barrio_id IN (
+        ($5::int IS NOT NULL AND t.barrio_id IN (
+            SELECT barrio_id FROM analytics.barrios_cd WHERE cd_comuna = $5
+        ))
+        OR ($5::int IS NULL AND $2::int IS NOT NULL AND t.barrio_id IN (
             SELECT id FROM raw.barrios b2
             WHERE ST_DWithin(
                 b2.geometry,
@@ -307,10 +320,10 @@ WITH ranked AS (
                 3000
             )
         ))
-        OR ($2::int IS NULL AND $4::text IS NOT NULL AND t.barrio_id IN (
+        OR ($5::int IS NULL AND $2::int IS NULL AND $4::text IS NOT NULL AND t.barrio_id IN (
             SELECT id FROM raw.barrios WHERE municipio = $4
         ))
-        OR ($2::int IS NULL AND $4::text IS NULL AND t.ciudad_id = $1)
+        OR ($5::int IS NULL AND $2::int IS NULL AND $4::text IS NULL AND t.ciudad_id = $1)
       )
 )
 SELECT * FROM ranked WHERE rn = 1 ORDER BY rating_google DESC LIMIT 4
@@ -322,10 +335,11 @@ async def get_directorio(
     ciudad_id: int = Query(1),
     barrio_id: Optional[int] = Query(None),
     municipio: Optional[str] = Query(None),
+    cd_comuna: Optional[int] = Query(None),
     pool=Depends(get_pool),
 ):
     try:
-        rows = await pool.fetch(_DIRECTORIO_QUERY, ciudad_id, barrio_id, _DIRECTORIO_CATEGORIAS, municipio)
+        rows = await pool.fetch(_DIRECTORIO_QUERY, ciudad_id, barrio_id, _DIRECTORIO_CATEGORIAS, municipio, cd_comuna)
     except Exception:
         logger.exception("Error inesperado")
         raise HTTPException(status_code=500, detail="Error interno del servidor")

@@ -14,6 +14,7 @@ from pydantic import BaseModel, EmailStr
 
 from api.db import get_pool
 from api.dependencies import get_current_user, get_optional_user
+from api.utils import ghl_client
 
 log = logging.getLogger(__name__)
 
@@ -340,6 +341,7 @@ async def aceptar_invite(
         agent_row = await conn.fetchrow(
             "SELECT id FROM agent WHERE usuario_id = $1", user["id"]
         )
+        agent_nuevo = agent_row is None
         if not agent_row:
             # Crear agent básico si no existe (pendiente de aprobación)
             agent_row = await conn.fetchrow(
@@ -373,5 +375,15 @@ async def aceptar_invite(
             "UPDATE agency_invite SET estado = 'aceptada', agent_id = $1 WHERE id = $2",
             agent_id, invite["id"],
         )
+
+    # Realtor recién creado por esta vía → GHL (Contact). Fuera de la
+    # transacción (sync usa conexión aparte). Best-effort: hoy levanta (stub).
+    # ponytail: este agent nace flaco (telefono=''), el Contact sale incompleto
+    # hasta que el realtor complete su perfil; aceptable para el esqueleto.
+    if agent_nuevo:
+        try:
+            await ghl_client.sync_agent(agent_id)
+        except Exception:
+            log.exception("sync_agent(%s) falló", agent_id)  # best-effort, no bloquea la aceptación
 
     return {"ok": True, "ya_miembro": False}
