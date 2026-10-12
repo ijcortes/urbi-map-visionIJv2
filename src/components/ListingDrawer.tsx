@@ -24,6 +24,7 @@ import { formatCOP } from "@/lib/format";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useFavoritosListings } from "@/hooks/useFavoritosListings";
 import { auth } from "@/lib/auth";
+import { ReclamarListingModal } from "@/components/ReclamarListingModal";
 import { toast } from "sonner";
 import type { ApiListingDetail, ApiListingAgente, ApiListingAgentes, SimilarListing } from "@/lib/adapters";
 import { toEmbedSrc } from "@/lib/embed";
@@ -993,6 +994,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
   const closedRef = useRef(false);
   const [showAlertModal, setShowAlertModal] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [showReclamar, setShowReclamar] = useState(false);
 
   const { data: agentes } = useQuery<ApiListingAgentes>({
     queryKey: ["listing-agente", listingId],
@@ -1272,6 +1274,22 @@ export function ListingDrawer({ listingId, onClose }: Props) {
         garantiza la exactitud de precios, disponibilidad ni detalles — verifica con el
         agente antes de decidir.
       </p>
+      {!esPropio && (
+        <button
+          onClick={() => {
+            if (!auth.get()) {
+              localStorage.setItem("registro_origen", "reclamo");
+              window.location.href = "/register";
+              return;
+            }
+            setShowReclamar(true);
+          }}
+          className="flex w-full items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-semibold transition hover:opacity-90"
+          style={{ border: "0.5px solid #0F8A4F", background: "#E7F4EC", color: "#0A5C36" }}
+        >
+          ¿Este inmueble es tuyo? Reclámalo
+        </button>
+      )}
       {isPro && listing.barrio_id && (
         <button
           onClick={() => setShowAlertModal(true)}
@@ -1644,6 +1662,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
         </AnimatePresence>
         {showAlertModal && listing && <AlertModal listing={listing} onClose={() => setShowAlertModal(false)} />}
         {showScheduleModal && <ScheduleVisitModal agente={agenteContacto} listingId={listing?.id ?? null} listingUrl={listing?.url ?? null} onClose={() => setShowScheduleModal(false)} />}
+        {showReclamar && listingId && <ReclamarListingModal listingId={listingId} onClose={() => setShowReclamar(false)} />}
       </>
     );
   }
@@ -1782,6 +1801,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
       </AnimatePresence>
       {showAlertModal && listing && <AlertModal listing={listing} onClose={() => setShowAlertModal(false)} />}
       {showScheduleModal && <ScheduleVisitModal agente={agenteContacto} listingId={listing?.id ?? null} listingUrl={listing?.url ?? null} onClose={() => setShowScheduleModal(false)} />}
+      {showReclamar && listingId && <ReclamarListingModal listingId={listingId} onClose={() => setShowReclamar(false)} />}
     </>
   );
 }

@@ -95,6 +95,27 @@ async def notify_admin_new_agente(nombre: str, cedula: str, email: str, telefono
     await send_email(ADMIN_EMAIL, f"Nueva solicitud de agente — {nombre}", html)
 
 
+async def notify_admin_reclamo(
+    nombre: str, telefono: str, email: str, matricula: str,
+    listing_url: str, mensaje: str,
+) -> None:
+    html = _wrap(f"""
+      <h3 style="color:#1D9E75">Alguien reclama un inmueble</h3>
+      <table style="width:100%;border-collapse:collapse">
+        <tr><td style="padding:6px;color:#62736d;width:140px">Nombre</td><td style="padding:6px;font-weight:600">{nombre}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Teléfono</td><td style="padding:6px">{telefono}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Email</td><td style="padding:6px">{email}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Matrícula</td><td style="padding:6px">{matricula or '—'}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Mensaje</td><td style="padding:6px">{mensaje or '—'}</td></tr>
+      </table>
+      <div style="margin-top:16px">
+        <a href="{listing_url}" style="color:#1D9E75">Ver listing reclamado →</a>
+      </div>
+      <p style="margin-top:12px;color:#62736d;font-size:13px">Verifica la propiedad antes de aprobar.</p>
+    """)
+    await send_email(ADMIN_EMAIL, f"Reclamo de inmueble — {nombre}", html)
+
+
 async def notify_agente_aprobado(email: str, nombre: str, dashboard_url: str) -> None:
     html = _wrap(f"""
       <h3 style="color:#1D9E75">¡Tu cuenta de agente fue aprobada!</h3>

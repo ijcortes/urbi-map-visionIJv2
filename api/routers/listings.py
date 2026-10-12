@@ -12,6 +12,7 @@ from api.db import get_pool
 from api.dependencies import get_current_user, get_optional_user, is_agente
 from api.limiter import limiter
 from api.services.personalizacion import calcular_relevancia, get_match_label, PRESUPUESTO_MAX
+from api.utils.email import notify_admin_reclamo
 
 router = APIRouter()
 
@@ -1797,3 +1798,76 @@ async def registrar_vista(
         listing_url,
     )
     return {"ok": True, "vistas": vistas or 0}
+
+
+# ── Reclama tu inmueble (claim your home) ────────────────────────────────────
+class ReclamarRequest(BaseModel):
+    nombre: str
+    telefono: str
+    email: Optional[str] = None
+    matricula_declarada: Optional[str] = None
+    mensaje: Optional[str] = None
+
+
+@router.post("/{listing_id}/reclamar", status_code=201)
+@limiter.limit("10/minute")
+async def reclamar_listing(
+    listing_id: int,
+    request: Request,
+    req: ReclamarRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Un dueño/agente reclama un listing YA scrapeado (sin dueño en el sistema).
+    Nace 'pendiente'; el admin verifica (fase 1 manual). Al verificar → lead al
+    realtor de zona vía intake/asignador (fase 2, aún no cableado)."""
+    if not req.nombre.strip() or not req.telefono.strip():
+        raise HTTPException(400, "Nombre y teléfono son obligatorios")
+
+    pool = get_pool()
+    # Reverse-lookup del url + fuente desde el hash int (mismo patrón que /vista).
+    row = await pool.fetchrow(
+        """SELECT url, fuente FROM staging.stg_listings_unificado
+           WHERE ('x'||substr(md5(url),1,8))::bit(32)::int = $1
+           LIMIT 1""",
+        listing_id,
+    )
+    if not row:
+        raise HTTPException(404, "Listing no encontrado")
+    if (row["fuente"] or "") == "propio":
+        raise HTTPException(400, "Este inmueble ya tiene dueño en la plataforma")
+
+    listing_url = row["url"]
+    # Idempotente: unique(listing_url, usuario_id) → re-submit no duplica.
+    inserted = await pool.fetchrow(
+        """
+        INSERT INTO listing_reclamo
+            (usuario_id, listing_url, fuente, nombre_contacto, telefono,
+             email_contacto, matricula_declarada, mensaje)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (listing_url, usuario_id) DO NOTHING
+        RETURNING id
+        """,
+        current_user["id"], listing_url, row["fuente"],
+        req.nombre.strip(), req.telefono.strip(),
+        (req.email or "").strip() or None,
+        (req.matricula_declarada or "").strip() or None,
+        (req.mensaje or "").strip() or None,
+    )
+    if inserted is None:
+        existing = await pool.fetchval(
+            "SELECT estado FROM listing_reclamo WHERE listing_url=$1 AND usuario_id=$2",
+            listing_url, current_user["id"],
+        )
+        return {"ok": True, "estado": existing or "pendiente", "ya_reclamado": True}
+
+    # Notifica al admin para verificación manual. No tumba el flujo si el email falla.
+    try:
+        await notify_admin_reclamo(
+            nombre=req.nombre.strip(), telefono=req.telefono.strip(),
+            email=(req.email or "").strip(), matricula=(req.matricula_declarada or "").strip(),
+            listing_url=listing_url, mensaje=(req.mensaje or "").strip(),
+        )
+    except Exception:
+        pass
+
+    return {"ok": True, "estado": "pendiente"}
