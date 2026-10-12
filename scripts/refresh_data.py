@@ -74,7 +74,11 @@ def main() -> int:
         ([python, "aggregate.py"], "listings aggregate"),
     ]
     if not args.dry_run:
-        steps.append(([python, "update_ts.py"], "TS update"))
+        # update_ts.py NO va aquí: es codegen de build (regenera src/data/*.ts del
+        # frontend, archivos commiteados), no una tarea de datos runtime. En el
+        # contenedor de cron src/ no existe y escribir el .ts ahí no sirve de nada
+        # (efímero, sin commit, sin build). Se corre en dev al regenerar la data
+        # estática del frontend, no en prod.
         steps.append(([python, str(SCRIPTS_DIR.parent / "scraping" / "run_comunidad.py")], "comunidad scrapers"))
 
     failed: list[str] = []

@@ -68,63 +68,38 @@ def norm(s: str) -> str:
 # ── Step 1: Insert GeoJSON polygons ──────────────────────────────────────────
 
 def load_geojson_to_db(cur, dry_run: bool) -> list[dict]:
-    with open(GEOJSON_PATH) as f:
-        fc = json.load(f)
+    # raw.barrios ya está poblada en prod y es la fuente de verdad de las
+    # geometrías de barrios; se leen de ahí para el point-in-polygon en vez del
+    # geojson estático (public/data/barrios_valle_aburra.geojson NO se copia a la
+    # imagen de cron → FileNotFoundError tumbaba todo el load de Valle de Aburrá).
+    # ponytail: ya no inserta barrios nuevos desde archivo; si apareciera un barrio
+    # que no está en raw.barrios, sus listings caen al vecino <2km o se saltan.
+    norm_mun_slug = {norm(mun): slug for slug, mun in SLUG_MUN_DB.items()}
 
-    cur.execute("SELECT id, nombre, municipio FROM raw.barrios")
-    existing: dict[str, int] = {}
-    for row in cur.fetchall():
-        existing[f"{norm(row['nombre'])}__{norm(row['municipio'])}"] = row["id"]
+    cur.execute("""
+        SELECT id, nombre, municipio, ST_AsGeoJSON(geometry) AS geojson
+        FROM raw.barrios
+        WHERE geometry IS NOT NULL
+    """)
 
     result = []
-    inserted = 0
-
-    for feat in fc["features"]:
-        props = feat["properties"]
-        slug = props.get("slug_municipio", "")
-        if slug not in TARGET_SLUGS:
+    for row in cur.fetchall():
+        slug = norm_mun_slug.get(norm(row["municipio"] or ""))
+        if not slug:
             continue
-
-        nombre_raw = props.get("nombre", "").strip()
-        geo = feat["geometry"]
-        if not nombre_raw or not geo:
-            continue
-
-        nombre_db = nombre_raw.upper()
-        mun_db = SLUG_MUN_DB[slug]
-        key = f"{norm(nombre_db)}__{norm(mun_db)}"
-
-        if key not in existing:
-            if not dry_run:
-                cur.execute(
-                    """
-                    INSERT INTO raw.barrios (nombre, municipio, fuente, geometry)
-                    VALUES (%s, %s, %s, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)))
-                    RETURNING id
-                    """,
-                    (nombre_db, mun_db, "valle_aburra_geojson", json.dumps(geo)),
-                )
-                bid = cur.fetchone()["id"]
-                existing[key] = bid
-                inserted += 1
-            else:
-                existing[key] = -(len(existing) + 1)
-                inserted += 1
-
         try:
-            shp = shape(geo)
+            shp = shape(json.loads(row["geojson"])) if row["geojson"] else None
         except Exception:
             shp = None
-
         result.append({
-            "barrio_id": existing[key],
-            "nombre_db": nombre_db,
-            "mun_db": mun_db,
+            "barrio_id": row["id"],
+            "nombre_db": row["nombre"],
+            "mun_db": row["municipio"],
             "slug": slug,
             "geom": shp,
         })
 
-    print(f"raw.barrios: {inserted} new rows (skipped {len(result)-inserted} existing)")
+    print(f"raw.barrios: {len(result)} barrios de Valle de Aburrá leídos de la DB")
     return result
 
 
