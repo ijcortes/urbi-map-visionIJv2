@@ -5,7 +5,7 @@ public.user_events (event_type='listing_view', entity_id = listing.id::text | sl
 """
 from __future__ import annotations
 
-from datetime import time as _time
+from datetime import date, time as _time
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile
@@ -15,7 +15,7 @@ from api.db import get_pool
 from api.dependencies import get_current_user
 from api.routers.barrios import BarrioResponse, _BARRIO_SQL, _build_response
 from api.services.asignador_service import AsignadorError, sweep_asignados_vencidos, tomar_del_pool
-from api.services.listing_service import datos_minimos_completos
+from api.services.listing_service import TRANSICIONES_VALIDAS, datos_minimos_completos
 from api.utils import ghl_client
 from api.utils.storage import upload_file
 
@@ -312,6 +312,63 @@ async def editar_listing(
     return {"id": listing_id, "actualizado": sorted(campos)}
 
 
+class CerrarListingRequest(BaseModel):
+    precio_cierre: float = Field(..., gt=0)
+    fecha_cierre: date | None = None            # default: hoy (CURRENT_DATE)
+    matricula_inmobiliaria: str | None = None   # llave ORIP — si no vino al publicar
+    cedula_catastral: str | None = None         # llave catastro
+
+
+@router.post("/listings/{listing_id}/cerrar")
+async def cerrar_listing(
+    listing_id: str,
+    req: CerrarListingRequest,
+    user: dict = Depends(get_current_user),
+    pool=Depends(get_pool),
+):
+    """Marca un listing propio como vendido/cerrado y graba el evento de
+    propiedad (precio de cierre + llaves ORIP/catastro) en el ledger durable
+    `propiedad_evento`. El listing es efímero; el evento sobrevive a su muerte.
+
+    Precio autoreportado por el realtor → queda verificado=false hasta cruzarlo
+    con compraventas_orips (SNR). Reusa TRANSICIONES_VALIDAS: solo publicado o
+    pausado pueden pasar a cerrado.
+    """
+    agent = await _agent_del_usuario(user, pool)
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            lst = await conn.fetchrow(
+                "SELECT estado::text AS estado, matricula_inmobiliaria, cedula_catastral "
+                "FROM listing WHERE id = $1 AND agent_id = $2 FOR UPDATE",
+                listing_id, agent.id,
+            )
+            if not lst:
+                raise HTTPException(status_code=404, detail="Listing no encontrado o no es tuyo")
+            if "cerrado" not in TRANSICIONES_VALIDAS.get(lst["estado"], frozenset()):
+                raise HTTPException(status_code=409, detail=f"No se puede cerrar desde '{lst['estado']}'")
+
+            # llaves: las del request mandan; si no, las que ya tenía el listing
+            matricula = (req.matricula_inmobiliaria or lst["matricula_inmobiliaria"] or "").strip() or None
+            catastral = (req.cedula_catastral or lst["cedula_catastral"] or "").strip() or None
+
+            await conn.execute(
+                "UPDATE listing SET estado = 'cerrado', "
+                "matricula_inmobiliaria = COALESCE($2, matricula_inmobiliaria), "
+                "cedula_catastral = COALESCE($3, cedula_catastral), "
+                "updated_at = NOW() WHERE id = $1",
+                listing_id, matricula, catastral,
+            )
+            await conn.execute(
+                "INSERT INTO propiedad_evento "
+                "(matricula_inmobiliaria, cedula_catastral, listing_id, tipo_evento, "
+                " precio, fecha, agent_id) "
+                "VALUES ($1, $2, $3, 'venta', $4, COALESCE($5, CURRENT_DATE), $6)",
+                matricula, catastral, listing_id, req.precio_cierre, req.fecha_cierre, agent.id,
+            )
+    await ghl_client.sync_listing(listing_id)
+    return {"id": listing_id, "estado": "cerrado", "precio_cierre": req.precio_cierre}
+
+
 @router.post("/listings/{listing_id}/fotos", status_code=201)
 async def subir_fotos(
     listing_id: str,
@@ -384,6 +441,21 @@ async def publicar(intake_id: str, user: dict = Depends(get_current_user), pool=
     return {"listing_id": str(row["listing_id"]), "estado": "en_revision"}
 
 
+def _grado_servicio(med_horas: float | None) -> tuple[str, str]:
+    """Grado de servicio por velocidad de respuesta a visitas (Zillow paso 3:
+    lead frío vale nada). El número ya se medía (métrica muerta); esto le da
+    standing visible al agente — el diente del SLA."""
+    if med_horas is None:
+        return ("—", "Aún sin visitas respondidas para calificarte")
+    if med_horas <= 4:
+        return ("A", "Respondes muy rápido — los leads llegan calientes")
+    if med_horas <= 12:
+        return ("B", "Respondes bien")
+    if med_horas <= 24:
+        return ("C", "Puedes responder más rápido")
+    return ("D", "Respondes lento — los leads se enfrían antes de que llames")
+
+
 @router.get("/desempeno")
 async def desempeno(user: dict = Depends(get_current_user), pool=Depends(get_pool)):
     """Métricas estilo Zillow (tasa de aceptación, velocidad) + ROI por zona patrocinada."""
@@ -420,7 +492,15 @@ async def desempeno(user: dict = Depends(get_current_user), pool=Depends(get_poo
             SELECT COUNT(*) FILTER (WHERE v.estado = 'realizada')  AS realizadas,
                    COUNT(*) FILTER (WHERE v.estado = 'no_asistio') AS no_shows,
                    COUNT(*) FILTER (WHERE v.resultado = 'oferta')     AS ofertas,
-                   COUNT(*) FILTER (WHERE v.resultado = 'interesado') AS interesados
+                   COUNT(*) FILTER (WHERE v.resultado = 'interesado') AS interesados,
+                   -- Diente SLA (paso 3): mediana de horas en responder la visita.
+                   -- Mismo scope que show_rate (mis_urls = listings propios); las
+                   -- visitas de zona patrocinada no entran aquí, igual que show_rate.
+                   -- ponytail: updated_at como proxy de 1ra respuesta (no hay
+                   -- responded_at); sobreestima si la visita cambió de estado >1 vez.
+                   percentile_cont(0.5) WITHIN GROUP (
+                       ORDER BY EXTRACT(EPOCH FROM (v.updated_at - v.created_at)) / 3600.0
+                   ) FILTER (WHERE v.estado <> 'pendiente') AS mediana_resp_horas
             FROM visita_solicitud v
             JOIN mis_urls m ON m.url = v.listing_url
             WHERE v.created_at > NOW() - INTERVAL '90 days'
@@ -497,12 +577,21 @@ async def desempeno(user: dict = Depends(get_current_user), pool=Depends(get_poo
 
     asignados_n = int(resp["asignados"])
     aceptados_n = int(resp["aceptados"])
+    mi_med = float(visitas_stats["mediana_resp_horas"]) if visitas_stats["mediana_resp_horas"] is not None else None
+    grado, grado_nota = _grado_servicio(mi_med)
     return {
         "asignados_90d": asignados_n,
         "aceptados_90d": aceptados_n,
         "tasa_aceptacion": round(aceptados_n / asignados_n, 3) if asignados_n else None,
         "mediana_horas_aceptar": round(float(resp["mediana_horas"]), 1)
             if resp["mediana_horas"] is not None else None,
+        "calificacion_servicio": {
+            "grado": grado,
+            "nota": grado_nota,
+            "mediana_horas_respuesta": round(mi_med, 1) if mi_med is not None else None,
+            "ranking": {"posicion": int(servicio["posicion"] or 0), "total": total_ag}
+                if (mi_med is not None and total_ag > 0) else None,
+        },
         "vistas_30d": int(vistas["v30"]),
         "vistas_total": int(vistas["total"]),
         "visitas_realizadas_90d": int(visitas_stats["realizadas"]),
@@ -551,6 +640,10 @@ async def agenda(user: dict = Depends(get_current_user), pool=Depends(get_pool))
                    COALESCE(v.nombre, u.nombre, 'Visitante') AS nombre,
                    v.telefono, u.email,
                    v.fecha_visita, v.mensaje, v.estado, v.resultado, v.created_at,
+                   -- Calificación del lead (Zillow paso 2): el agente ve con quién habla.
+                   v.intencion, v.presupuesto, v.plazo, v.credito,
+                   (v.presupuesto IS NOT NULL OR v.plazo IS NOT NULL
+                    OR v.credito IS NOT NULL OR v.intencion IS NOT NULL) AS calificado,
                    -- Horas que lleva pendiente (para SLA). NULL si ya respondida.
                    CASE WHEN v.estado = 'pendiente'
                         THEN ROUND(EXTRACT(EPOCH FROM (NOW() - v.created_at)) / 3600.0)::int
@@ -579,6 +672,7 @@ async def agenda(user: dict = Depends(get_current_user), pool=Depends(get_pool))
                )
             ORDER BY CASE v.estado WHEN 'pendiente' THEN 0 WHEN 'confirmada' THEN 1 ELSE 2 END,
                      es_pro DESC,
+                     calificado DESC,
                      v.fecha_visita ASC NULLS LAST, v.created_at DESC
             LIMIT 100
             """,

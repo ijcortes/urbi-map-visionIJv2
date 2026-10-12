@@ -891,6 +891,23 @@ const RESULTADO_LABEL: Record<NonNullable<VisitaSolicitud["resultado"]>, string>
   descartado: "Descartado",
 };
 
+// Calificación del lead (Zillow paso 2) — etiquetas legibles por campo.
+const LEAD_LABELS = {
+  intencion:   { vivir: "Para vivir", invertir: "Inversión" },
+  presupuesto: { "<200M": "Hasta $200M", "200-500M": "$200–500M", "500-1000M": "$500M–1.000M", ">1000M": "+$1.000M" },
+  plazo:       { ya: "Compra ya", "1-3m": "1–3 meses", "3-6m": "3–6 meses", explorando: "Explorando" },
+  credito:     { contado: "De contado", aprobado: "Crédito aprobado", en_tramite: "Crédito en trámite", no: "Sin crédito" },
+} as const;
+
+function leadPills(v: VisitaSolicitud): string[] {
+  const out: string[] = [];
+  if (v.intencion)   out.push(LEAD_LABELS.intencion[v.intencion]);
+  if (v.presupuesto) out.push(LEAD_LABELS.presupuesto[v.presupuesto]);
+  if (v.plazo)       out.push(LEAD_LABELS.plazo[v.plazo]);
+  if (v.credito)     out.push(LEAD_LABELS.credito[v.credito]);
+  return out;
+}
+
 function VisitaRow({
   visita: v,
   first,
@@ -920,6 +937,15 @@ function VisitaRow({
               title="Lead de listing destacado — priorízalo"
             >
               🔥 Pro
+            </span>
+          )}
+          {v.calificado && (
+            <span
+              className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+              style={{ background: "#E7F4EC", color: "#0A5C36" }}
+              title="Lead calificado — dio presupuesto / plazo / crédito"
+            >
+              ✓ Calificado
             </span>
           )}
           {(() => {
@@ -953,6 +979,15 @@ function VisitaRow({
             <span className="ml-1 font-medium text-foreground">· {RESULTADO_LABEL[v.resultado]}</span>
           )}
         </div>
+        {v.calificado && (
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {leadPills(v).map((p) => (
+              <span key={p} className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium text-foreground">
+                {p}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {(v.estado === "pendiente" || v.estado === "confirmada") && (
@@ -1235,6 +1270,10 @@ function ResultadosTab() {
       : `${Math.round(data.mediana_horas_aceptar / 24)} días`
     : "—";
   const ofertasInteres = data.ofertas_90d + data.interesados_90d;
+  const cs = data.calificacion_servicio;
+  const csSub = cs.ranking
+    ? `${cs.nota} · Puesto ${cs.ranking.posicion} de ${cs.ranking.total} por velocidad`
+    : cs.nota;
 
   return (
     <div className="space-y-12">
@@ -1274,6 +1313,11 @@ function ResultadosTab() {
             label="Visitas con oferta o interés real"
             value={ofertasInteres}
             sub={`${data.ofertas_90d} ofertas y ${data.interesados_90d} personas interesadas`}
+          />
+          <ResultCard
+            label="Tu calificación de servicio"
+            value={cs.mediana_horas_respuesta != null ? `${cs.grado} · ${cs.mediana_horas_respuesta}h` : cs.grado}
+            sub={csSub}
           />
         </div>
       </section>

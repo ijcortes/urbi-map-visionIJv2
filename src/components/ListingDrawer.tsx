@@ -571,6 +571,28 @@ function horasVisita(): string[] {
   return out;
 }
 
+// Select compacto reutilizado por los 4 campos de calificación del lead.
+function CampoSelect({
+  label, value, onChange, opciones,
+}: { label: string; value: string; onChange: (v: string) => void; opciones: [string, string][] }) {
+  return (
+    <div>
+      <div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-[#5B5F5C]">{label}</div>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full appearance-none rounded-xl px-3 py-2.5 text-sm transition focus:outline-none"
+        style={{ border: "0.5px solid #E5E0D5", background: "#FFFFFF", color: value ? "#111418" : "#6E726E" }}
+      >
+        <option value="">Sin especificar</option>
+        {opciones.map(([v, txt]) => (
+          <option key={v} value={v} style={{ color: "#111418" }}>{txt}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function ScheduleVisitModal({
   agente, listingId, listingUrl, onClose,
 }: { agente?: ApiListingAgente | null; listingId?: number | null; listingUrl?: string | null; onClose: () => void }) {
@@ -589,6 +611,12 @@ function ScheduleVisitModal({
   const [hora, setHora] = useState("");
   const [nombre, setNombre] = useState(() => auth.get()?.name ?? "");
   const [telefono, setTelefono] = useState("");
+  // Calificación del lead (Zillow paso 2) — opcional, colapsada: no frena el envío.
+  const [mostrarMas, setMostrarMas] = useState(false);
+  const [intencion, setIntencion] = useState("");
+  const [presupuesto, setPresupuesto] = useState("");
+  const [plazo, setPlazo] = useState("");
+  const [credito, setCredito] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [enviado, setEnviado] = useState<string | null>(null);  // recap "cuando" tras confirmar
 
@@ -625,6 +653,11 @@ function ScheduleVisitModal({
             telefono: telefono.trim(),
             fecha_visita: fecha.toISOString(),
             mensaje: cuando,
+            // Calificación del lead — solo se mandan los que el usuario llenó.
+            intencion: intencion || undefined,
+            presupuesto: presupuesto || undefined,
+            plazo: plazo || undefined,
+            credito: credito || undefined,
             // Sin agente de zona → el backend enruta al buzón interno por email.
             sin_agente: !agente,
           }),
@@ -779,6 +812,32 @@ function ScheduleVisitModal({
                 style={{ border: "0.5px solid #E5E0D5", background: "#FFFFFF", color: "#111418" }}
               />
             </div>
+          </div>
+
+          {/* Calificación del lead — opcional, colapsada. Al agente le llega "con
+              quién habla" (presupuesto/plazo/crédito); no obliga para no frenar. */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setMostrarMas((v) => !v)}
+              className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-wider transition"
+              style={{ color: "#5B5F5C", background: mostrarMas ? "#F3F0E8" : "transparent" }}
+            >
+              <span>Cuéntanos más para preparar tu visita (opcional)</span>
+              <ChevronRight className={`h-4 w-4 transition-transform ${mostrarMas ? "rotate-90" : ""}`} />
+            </button>
+            {mostrarMas && (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <CampoSelect label="¿Para qué?" value={intencion} onChange={setIntencion}
+                  opciones={[["vivir", "Para vivir"], ["invertir", "Para invertir"]]} />
+                <CampoSelect label="Presupuesto" value={presupuesto} onChange={setPresupuesto}
+                  opciones={[["<200M", "Menos de $200M"], ["200-500M", "$200M – $500M"], ["500-1000M", "$500M – $1.000M"], [">1000M", "Más de $1.000M"]]} />
+                <CampoSelect label="¿Cuándo?" value={plazo} onChange={setPlazo}
+                  opciones={[["ya", "Lo antes posible"], ["1-3m", "1 a 3 meses"], ["3-6m", "3 a 6 meses"], ["explorando", "Solo explorando"]]} />
+                <CampoSelect label="Crédito" value={credito} onChange={setCredito}
+                  opciones={[["contado", "De contado"], ["aprobado", "Crédito aprobado"], ["en_tramite", "En trámite"], ["no", "Aún no"]]} />
+              </div>
+            )}
           </div>
 
           <button

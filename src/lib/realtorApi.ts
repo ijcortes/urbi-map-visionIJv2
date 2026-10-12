@@ -126,11 +126,24 @@ export type Desempeno = {
   show_rate: number | null;             // 0–1
   ofertas_90d: number;
   interesados_90d: number;
+  // Diente del SLA (Zillow paso 3): grado de servicio por velocidad de respuesta.
+  calificacion_servicio: {
+    grado: string;                      // 'A' | 'B' | 'C' | 'D' | '—'
+    nota: string;
+    mediana_horas_respuesta: number | null;
+    ranking: { posicion: number; total: number } | null;
+  };
   zonas: RoiZona[];
 };
 
 export type EstadoVisita = "pendiente" | "confirmada" | "realizada" | "cancelada" | "no_asistio";
 export type ResultadoVisita = "interesado" | "oferta" | "descartado";
+
+// Calificación del lead (Zillow paso 2) — todos opcionales.
+export type IntencionLead   = "vivir" | "invertir";
+export type PresupuestoLead = "<200M" | "200-500M" | "500-1000M" | ">1000M";
+export type PlazoLead       = "ya" | "1-3m" | "3-6m" | "explorando";
+export type CreditoLead     = "contado" | "aprobado" | "en_tramite" | "no";
 
 export type VisitaSolicitud = {
   id: string;
@@ -146,6 +159,11 @@ export type VisitaSolicitud = {
   created_at: string;
   es_pro: boolean;
   horas_pendiente: number | null; // horas sin responder; null si ya se atendió
+  intencion: IntencionLead | null;
+  presupuesto: PresupuestoLead | null;
+  plazo: PlazoLead | null;
+  credito: CreditoLead | null;
+  calificado: boolean;
 };
 
 // Franja de disponibilidad semanal del agente (dia_semana 0=lunes..6=domingo).
@@ -445,6 +463,10 @@ const mockApi: RealtorDashboardApi = {
       show_rate: 0.75,
       ofertas_90d: 2,
       interesados_90d: 3,
+      calificacion_servicio: {
+        grado: "B", nota: "Respondes bien",
+        mediana_horas_respuesta: 6.2, ranking: { posicion: 3, total: 8 },
+      },
       vistas_30d: 328,
       vistas_total: 3425,
       zonas: [
@@ -466,9 +488,9 @@ const mockApi: RealtorDashboardApi = {
     await _d(500);
     return {
       visitas: [
-        { id: "v-1", listing_url: "l-1", listing_titulo: "Apartamento moderno en El Poblado", nombre: "Andrés Gómez",  telefono: "3001234567", email: "andres@example.com", fecha_visita: "2026-07-17T15:00:00Z", mensaje: "Viernes 17 jul a las 10:00 AM", estado: "pendiente",  resultado: null, created_at: "2026-07-15T09:00:00Z", es_pro: true, horas_pendiente: 9 },
-        { id: "v-2", listing_url: "l-1", listing_titulo: "Apartamento moderno en El Poblado", nombre: "Sara Vélez",    telefono: null,         email: "sara@example.com",   fecha_visita: "2026-07-18T19:30:00Z", mensaje: null,                          estado: "confirmada", resultado: null, created_at: "2026-07-14T12:00:00Z", es_pro: false, horas_pendiente: null },
-        { id: "v-3", listing_url: "l-5", listing_titulo: "Oficina zona financiera El Poblado", nombre: "Camilo Ruiz",  telefono: "3017654321", email: null,                 fecha_visita: null,                    mensaje: "¿Se puede ver este fin de semana?", estado: "realizada", resultado: "interesado", created_at: "2026-07-08T16:00:00Z", es_pro: false, horas_pendiente: null },
+        { id: "v-1", listing_url: "l-1", listing_titulo: "Apartamento moderno en El Poblado", nombre: "Andrés Gómez",  telefono: "3001234567", email: "andres@example.com", fecha_visita: "2026-07-17T15:00:00Z", mensaje: "Viernes 17 jul a las 10:00 AM", estado: "pendiente",  resultado: null, created_at: "2026-07-15T09:00:00Z", es_pro: true, horas_pendiente: 9, intencion: "invertir", presupuesto: "500-1000M", plazo: "ya", credito: "aprobado", calificado: true },
+        { id: "v-2", listing_url: "l-1", listing_titulo: "Apartamento moderno en El Poblado", nombre: "Sara Vélez",    telefono: null,         email: "sara@example.com",   fecha_visita: "2026-07-18T19:30:00Z", mensaje: null,                          estado: "confirmada", resultado: null, created_at: "2026-07-14T12:00:00Z", es_pro: false, horas_pendiente: null, intencion: null, presupuesto: null, plazo: null, credito: null, calificado: false },
+        { id: "v-3", listing_url: "l-5", listing_titulo: "Oficina zona financiera El Poblado", nombre: "Camilo Ruiz",  telefono: "3017654321", email: null,                 fecha_visita: null,                    mensaje: "¿Se puede ver este fin de semana?", estado: "realizada", resultado: "interesado", created_at: "2026-07-08T16:00:00Z", es_pro: false, horas_pendiente: null, intencion: "vivir", presupuesto: "200-500M", plazo: "3-6m", credito: "en_tramite", calificado: true },
       ],
       interesados: [
         { nombre: "Laura Martínez", email: "laura@example.com",  listing_titulo: "Apartamento moderno en El Poblado", created_at: "2026-07-14T18:00:00Z" },

@@ -5,7 +5,7 @@ import os
 import smtplib
 from datetime import datetime
 from email.message import EmailMessage
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -64,6 +64,12 @@ class VisitaRequest(BaseModel):
     mensaje: Optional[str] = Field(None, max_length=1000)
     # True cuando el inmueble no tiene agente patrocinador de zona → va al buzón interno.
     sin_agente: bool = False
+    # Calificación del lead (modelo Zillow paso 2) — todos opcionales: el form los
+    # pide sin obligar para no frenar la conversión. Literal valida en el boundary.
+    intencion: Optional[Literal["vivir", "invertir"]] = None
+    presupuesto: Optional[Literal["<200M", "200-500M", "500-1000M", ">1000M"]] = None
+    plazo: Optional[Literal["ya", "1-3m", "3-6m", "explorando"]] = None
+    credito: Optional[Literal["contado", "aprobado", "en_tramite", "no"]] = None
 
 
 @router.post("", status_code=201)
@@ -88,8 +94,10 @@ async def crear_visita(
         )
         row = await conn.fetchrow(
             """
-            INSERT INTO visita_solicitud (listing_url, usuario_id, nombre, telefono, fecha_visita, mensaje, agent_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO visita_solicitud
+                (listing_url, usuario_id, nombre, telefono, fecha_visita, mensaje, agent_id,
+                 intencion, presupuesto, plazo, credito)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id
             """,
             req.listing_url,
@@ -99,6 +107,10 @@ async def crear_visita(
             fecha,
             req.mensaje,
             agent_id,
+            req.intencion,
+            req.presupuesto,
+            req.plazo,
+            req.credito,
         )
     # Sin agente de zona → notificar al buzón interno (fuera del event loop; best-effort).
     if req.sin_agente:
