@@ -43,9 +43,9 @@ const PLATFORM = [
 ];
 
 const PROMO_SCOPES = [
-  { cat: "Special Offers",   levels: ["Barrio", "Comuna", "Ciudad"] },
-  { cat: "Featured Events",  levels: ["Barrio", "Comuna", "Ciudad"] },
-  { cat: "Featured Realtor", levels: ["Barrio", "Comuna", "Ciudad"] },
+  { cat: "Special Offers",   unit: "/mo",     levels: [["Barrio", "$49"], ["Comuna", "$199"], ["Ciudad", "$499"]] },
+  { cat: "Featured Events",  unit: "/evento", levels: [["Barrio", "$79"], ["Comuna", "$249"], ["Ciudad", "$599"]] },
+  { cat: "Featured Realtor", unit: "/mo",     levels: [["Barrio", "$199"], ["Comuna", "$999"], ["Ciudad", "$2,499"]] },
 ];
 
 const FAQ = [
@@ -164,11 +164,16 @@ function HotSpotPage() {
             Alcance de promociones
           </h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 48 }}>
-            {PROMO_SCOPES.map(({ cat, levels }) => (
+            {PROMO_SCOPES.map(({ cat, unit, levels }) => (
               <div key={cat} style={{ background: "#fff", border: `1px solid ${K.line}`, borderRadius: 10, padding: "14px" }}>
                 <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase", color: K.teal, marginBottom: 6 }}>{cat}</p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                  {levels.map(l => <span key={l} style={{ fontSize: 12.5, color: K.muted }}>{l}</span>)}
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {levels.map(([l, p]) => (
+                    <span key={l} style={{ fontSize: 12.5, color: K.muted, display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <span>{l}</span>
+                      <span style={{ fontWeight: 700, color: K.ink, whiteSpace: "nowrap" }}>{p}<span style={{ fontWeight: 400, color: K.muted, fontSize: 10 }}>{unit}</span></span>
+                    </span>
+                  ))}
                 </div>
               </div>
             ))}
