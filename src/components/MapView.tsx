@@ -430,6 +430,7 @@ export function MapView({
     nombre: string,
     bounds: mapboxgl.LngLatBounds,
     municipioFilter?: string | null,
+    skipFit = false,
   ) {
     // Fit the WHOLE zone in cluster tier (maxZoom < POLYGON_TIER_ZOOM) so the camera
     // derives the comuna/municipio (not a single barrio) and shows it all.
@@ -439,10 +440,18 @@ export function MapView({
     map.setTerrain(null);
     enteringBarriosRef.current = true;
     setTimeout(() => { enteringBarriosRef.current = false; }, 600);
-    map.fitBounds(bounds, {
-      padding: { top: 40, bottom: 40 + bottomInsetRef.current, left: 40, right: 40 },
-      maxZoom: POLYGON_TIER_ZOOM - 1, pitch: 0, bearing: 0, duration: 450,
-    });
+    // skipFit: el usuario YA está haciendo zoom hacia la comuna (drill por zoom en
+    // vista zonas) — no re-encuadrar (lo sacaría de su zoom); solo aplanar el pitch.
+    if (skipFit) {
+      if (map.getPitch() !== 0 || map.getBearing() !== 0) {
+        map.easeTo({ pitch: 0, bearing: 0, duration: 200 });
+      }
+    } else {
+      map.fitBounds(bounds, {
+        padding: { top: 40, bottom: 40 + bottomInsetRef.current, left: 40, right: 40 },
+        maxZoom: POLYGON_TIER_ZOOM - 1, pitch: 0, bearing: 0, duration: 450,
+      });
+    }
     viewLevelRef.current = "barrios";
     activeComunaRef.current = { cd, nombre, municipioFilter };
     onViewLevelChangeRef.current?.("barrios", nombre, municipioFilter ?? null, municipioFilter ? null : cd);
@@ -1113,14 +1122,43 @@ export function MapView({
     const map = mapRef.current;
     if (!map || !mapLoadedRef.current || mapView !== "zonas") return;
     const onZoomEnd = () => {
+      const z = map.getZoom();
       if (
         viewLevelRef.current === "barrios" &&
         !enteringBarriosRef.current &&
-        map.getZoom() < RETURN_TO_COMUNAS_ZOOM
+        z < RETURN_TO_COMUNAS_ZOOM
       ) {
         switchToComunas(map);
+      } else if (
+        // Drill por zoom: acercarse a una comuna en vista zonas = entrar a ella
+        // (igual que el clic) → vista listings + polígonos de barrio al pasar a
+        // BARRIO_TIER_ZOOM. Sin esto, hacer zoom en zonas nunca mostraba barrios.
+        viewLevelRef.current === "comunas" &&
+        !enteringBarriosRef.current &&
+        z >= POLYGON_TIER_ZOOM
+      ) {
+        const c = map.project(map.getCenter());
+        const feats = map.queryRenderedFeatures([c.x, c.y], { layers: ["comunas-fill"] });
+        if (feats.length) {
+          const f = feats[0];
+          const isMuni = f.properties?.is_municipio === true;
+          const cd = isMuni ? null : (f.properties?.cd_comuna as number);
+          const nombre = (f.properties?.nombre ?? "").toString();
+          // queryRenderedFeatures recorta la geometría al tile bajo el centro → usa el
+          // feature completo (por nombre) para encuadrar/estado toda la zona.
+          const full = staticFeaturesRef.current?.find((sf) => (sf.properties?.nombre ?? "") === nombre);
+          const bounds = featureBounds((full ?? f) as mapboxgl.MapboxGeoJSONFeature);
+          const featureId = f.id as number;
+          if (selectedComunaIdRef.current != null && selectedComunaIdRef.current !== featureId) {
+            map.setFeatureState({ source: "comunas", id: selectedComunaIdRef.current }, { selected: false });
+          }
+          map.setFeatureState({ source: "comunas", id: featureId }, { selected: true });
+          selectedComunaIdRef.current = featureId;
+          lastComunaBoundsRef.current = bounds;
+          switchToBarrios(map, cd as number, nombre, bounds, isMuni ? nombre : null, true);
+        }
       }
-      setShowVolverValle(map.getZoom() > VOLVER_VALLE_ZOOM);
+      setShowVolverValle(z > VOLVER_VALLE_ZOOM);
     };
     map.on("zoomend", onZoomEnd);
     return () => { map.off("zoomend", onZoomEnd); };
