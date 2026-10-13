@@ -10,7 +10,8 @@ from pydantic import BaseModel
 from api.config import USD_TO_COP
 from api.db import get_pool
 from api.dependencies import get_optional_user, is_agente
-from api.routers.listings import ListingFull, ListingsAllResponse
+from api.routers.listings import ListingFull, ListingsAllResponse, _finalize_row
+from api.services.trm_service import get_usd_rate
 from api.services.personalizacion import PRESUPUESTO_MAX
 
 router = APIRouter()
@@ -873,6 +874,94 @@ async def list_barrios(
     return [_build_response(dict(r), score_col, effective_perfil, perfil_full, use_max_score=use_max) for r in rows]
 
 
+# ── Barrio aliases (sectors people search that are not official barrios) ────
+# Source of truth: raw.barrio_alias (alembic 0104). The constant below is the
+# fallback when the table is missing. ASSUMPTION (owner to confirm): Ciudad del Río
+# and Provenza are sectors of EL POBLADO (comuna 14); they resolve to the barrio
+# polygon that contains them (226 COLOMBIA / 236 EL POBLADO).
+_BARRIO_ALIASES_FALLBACK = [
+    {"alias": "Ciudad del Río", "alias_norm": "ciudad del rio", "barrio_id": 226,
+     "barrio_nombre": "COLOMBIA", "municipio": "MEDELLIN", "cd_comuna": 14,
+     "comuna": "EL POBLADO", "asumido": True},
+    {"alias": "Provenza", "alias_norm": "provenza", "barrio_id": 236,
+     "barrio_nombre": "EL POBLADO", "municipio": "MEDELLIN", "cd_comuna": 14,
+     "comuna": "EL POBLADO", "asumido": True},
+]
+
+
+class BarrioAlias(BaseModel):
+    alias: str
+    alias_norm: str
+    barrio_id: int
+    barrio_nombre: Optional[str] = None
+    municipio: Optional[str] = None
+    cd_comuna: Optional[int] = None
+    comuna: Optional[str] = None
+    asumido: bool = True   # True = comuna/barrio assignment not officially verified
+
+
+def _norm_q(q: str) -> str:
+    import unicodedata
+    n = unicodedata.normalize("NFKD", q.strip().lower())
+    return "".join(c for c in n if not unicodedata.combining(c))
+
+
+async def _load_aliases() -> list[dict]:
+    try:
+        rows = await get_pool().fetch("""
+            SELECT a.alias, a.alias_norm, a.barrio_id, b.nombre AS barrio_nombre,
+                   b.municipio, bc.cd_comuna, b.comuna, TRUE AS asumido
+            FROM raw.barrio_alias a
+            LEFT JOIN raw.barrios b ON b.id = a.barrio_id
+            LEFT JOIN analytics.barrios_cd bc ON bc.barrio_id = a.barrio_id
+            ORDER BY a.alias
+        """)
+        return [dict(r) for r in rows]
+    except Exception:
+        return list(_BARRIO_ALIASES_FALLBACK)
+
+
+_NAME_NORM = "lower(translate(b.nombre, 'ÁÉÍÓÚáéíóúÑñ', 'AEIOUaeiouNn'))"
+_BUSCAR_SQL = f"""
+    SELECT b.id AS barrio_id, b.nombre AS barrio_nombre, b.municipio,
+           bc.cd_comuna, b.comuna
+    FROM raw.barrios b
+    LEFT JOIN analytics.barrios_cd bc ON bc.barrio_id = b.id
+    WHERE b.excluir_inversion = FALSE AND {_NAME_NORM} LIKE '%' || $1 || '%'
+    ORDER BY ({_NAME_NORM} LIKE $1 || '%') DESC, b.nombre
+    LIMIT 10
+"""
+
+
+@router.get("/aliases", response_model=list[BarrioAlias])
+async def list_barrio_aliases(response: Response):
+    """Search aliases (e.g. "Ciudad del Río", "Provenza") -> containing barrio + comuna."""
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return [BarrioAlias(**a) for a in await _load_aliases()]
+
+
+@router.get("/buscar", response_model=list[BarrioAlias])
+async def buscar_barrio(response: Response, q: str = Query(..., min_length=2, max_length=60)):
+    """Resolve a free-text zone name to a barrio: alias match first (accent-insensitive
+    substring), then official barrio names (prefix/substring)."""
+    nq = _norm_q(q)
+    out = [a for a in await _load_aliases() if nq in a["alias_norm"]]
+    if len(out) < 10:
+        try:
+            rows = await get_pool().fetch(_BUSCAR_SQL, nq)
+            seen = {a["barrio_id"] for a in out}
+            for r in rows:
+                if r["barrio_id"] in seen:
+                    continue
+                d = dict(r)
+                out.append({"alias": d["barrio_nombre"].title(), "alias_norm": _norm_q(d["barrio_nombre"]),
+                            "asumido": False, **d})
+        except Exception:
+            pass
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return [BarrioAlias(**a) for a in out[:10]]
+
+
 # ── Lightweight selector endpoints ───────────────────────────────────────────
 
 class ComunaItem(BaseModel):
@@ -985,7 +1074,7 @@ _BARRIO_COUNT_SQL = """
 SELECT COUNT(*) FROM staging.stg_listings_unificado l
 JOIN analytics.listings_georef g ON g.url = l.url
 WHERE l.barrio_id = $1
-  AND l.precio_cop >= 500000
+  AND (l.precio_cop >= 500000 OR (l.tipo_operacion = 'arriendo' AND l.precio_cop >= 150000))
   AND NOT (l.tipo_operacion = 'arriendo' AND l.precio_cop > 50000000)
   AND NOT (l.tipo_operacion = 'venta'    AND l.precio_cop > 50000000000)
   AND ($2::text   IS NULL OR l.tipo_operacion = $2)
@@ -1017,7 +1106,7 @@ lraw AS (
                ELSE NULL
            END AS pm2
     FROM staging.stg_listings_unificado
-    WHERE precio_cop >= 500000 AND barrio_id = $1
+    WHERE (precio_cop >= 500000 OR (tipo_operacion = 'arriendo' AND precio_cop >= 150000)) AND barrio_id = $1
       AND NOT (tipo_operacion = 'arriendo' AND precio_cop > 50000000)
       AND NOT (tipo_operacion = 'venta'    AND precio_cop > 50000000000)
 )
@@ -1029,7 +1118,7 @@ SELECT
     l.tipo_operacion,
     l.tipo_inmueble,
     l.precio::bigint              AS precio_cop,
-    (l.precio / {usd})::bigint    AS precio_usd,
+    NULL::bigint                  AS precio_usd,  -- filled in Python from the shared TRM
     l.area_m2::float8,
     l.pm2                         AS precio_m2,
     l.habitaciones,
@@ -1086,7 +1175,7 @@ WHERE ($2::text   IS NULL OR l.tipo_operacion = $2)
 ORDER BY
     CASE WHEN l.fuente = 'medellinliving' THEN 0 ELSE 1 END,
     l.pm2 ASC NULLS LAST
-""".format(usd=int(USD_TO_COP))
+"""
 
 
 @router.get("/{barrio_id}/listings", response_model=ListingsAllResponse)
@@ -1111,9 +1200,10 @@ async def get_barrio_listings(
     )
 
     _agente = is_agente(current_user)
+    rate = await get_usd_rate()
     items: list[ListingFull] = []
     for r in rows:
-        d = dict(r)
+        d = _finalize_row(dict(r), rate)
         if not _agente:
             d["buena_oferta"] = None
             d["pct_bajo_mediana"] = None

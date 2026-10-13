@@ -341,7 +341,7 @@ LEFT JOIN LATERAL (
       AND ST_Contains(em.geometry, ST_SetSRID(ST_MakePoint(l.lon, l.lat), 4326))
     LIMIT 1
 ) em ON TRUE
-WHERE l.precio_cop >= 500000
+WHERE (l.precio_cop >= 500000 OR (l.tipo_operacion = 'arriendo' AND l.precio_cop >= 150000))
   AND NOT (l.tipo_operacion = 'arriendo' AND l.precio_cop > 50000000)
   AND NOT (l.tipo_operacion = 'venta'    AND l.precio_cop > 50000000000)
   AND l.lat IS NOT NULL AND l.lat != 0
@@ -352,6 +352,31 @@ WHERE l.precio_cop >= 500000
   )
 ORDER BY l.url
 """
+
+
+_NORMALIZE_STUDIO_SQL = """
+UPDATE {table}
+   SET tipo_inmueble = 'apartamento', habitaciones = 0
+ WHERE lower(tipo_inmueble) = 'apartaestudio'
+"""
+
+# Hot-path indexes of /listings and /listings/viewport. The staging table is rebuilt
+# (swap-table) every hour, so indexes created by alembic on the old table vanish —
+# they must be (re)created here, on the NEW table before the RENAME.
+_LISTING_FILTER_INDEXES = (
+    "CREATE INDEX ON {t} (tipo_operacion, lower(tipo_inmueble), precio_cop)",
+    "CREATE INDEX ON {t} (lat, lon)",
+)
+
+
+async def _create_listing_filter_indexes(conn: Any, table: str) -> None:
+    for tmpl in _LISTING_FILTER_INDEXES:
+        await conn.execute(tmpl.format(t=table))
+    # Trigram index for the `busqueda` ILIKE '%x%' address search — only when the
+    # extension is installed (alembic 0106 tries to create it; needs privileges).
+    has_trgm = await conn.fetchval("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname='pg_trgm')")
+    if has_trgm:
+        await conn.execute(f"CREATE INDEX ON {table} USING gin (direccion_raw gin_trgm_ops)")
 
 
 async def refresh_listings_cache(pool: Any) -> None:
@@ -414,8 +439,11 @@ async def refresh_listings_cache(pool: Any) -> None:
                 # auto-nombra único: sin colisión ni bloat entre swaps). url para el
                 # JOIN de /viewport (g.url=l.url); barrio_id para el path de zona
                 # seleccionada (l.barrio_id = ANY($8)).
+                # apartaestudio ≡ apartamento con 0 habitaciones (un solo tipo en filtros).
+                await conn.execute(_NORMALIZE_STUDIO_SQL.format(table="staging.stg_listings_unificado_new"))
                 await conn.execute("CREATE INDEX ON staging.stg_listings_unificado_new (url)")
                 await conn.execute("CREATE INDEX ON staging.stg_listings_unificado_new (barrio_id)")
+                await _create_listing_filter_indexes(conn, "staging.stg_listings_unificado_new")
                 async with conn.transaction():
                     await conn.execute(
                         "ALTER TABLE staging.stg_listings_unificado RENAME TO stg_listings_unificado_old"

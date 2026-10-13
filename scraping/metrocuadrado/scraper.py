@@ -282,9 +282,18 @@ def _parse_float(val) -> float | None:
         return None
 
 
+def normalize_tipo_inmueble(tipo_inmueble: str) -> tuple[str, bool]:
+    """apartaestudio is stored as 'apartamento' (a studio is an apartment with 0
+    rooms) so filters/labels show a single type. Returns (tipo, was_studio)."""
+    if (tipo_inmueble or "").strip().lower() == "apartaestudio":
+        return "apartamento", True
+    return tipo_inmueble, False
+
+
 def _parse_listing(item: dict, tipo_inmueble: str, tipo_operacion: str,
                    municipio_raw: str | None = None) -> dict | None:
     """Convert raw API listing to normalized record."""
+    tipo_inmueble, es_estudio = normalize_tipo_inmueble(tipo_inmueble)
     link = item.get("link") or item.get("data", {}).get("murldetalle", "")
     if not link:
         return None
@@ -302,6 +311,8 @@ def _parse_listing(item: dict, tipo_inmueble: str, tipo_operacion: str,
 
     # Rooms/baths
     habitaciones = _parse_int(item.get("mnrocuartos"))
+    if es_estudio:
+        habitaciones = 0
     banos = _parse_int(item.get("mnrobanos"))
 
     # Location
