@@ -9,6 +9,87 @@ const KEY = "medellin-social.lang";
  * case-insensitively at word boundaries; cased keys match exactly.
  */
 const PHRASES: Array<[string, string]> = [
+  // ── Filtros del mapa (MapFilterBar) ──
+  ["Otros municipios", "Other municipalities"],
+  ["Toda la comuna", "Entire comuna"],
+  ["Estado del inmueble", "Property condition"],
+  ["Piso mínimo", "Minimum floor"],
+  ["Menos filtros", "Fewer filters"],
+  ["Usado", "Used"],
+  ["Precio / mes", "Price / mo"],
+  ["+30 días", "+30 days"],
+  ["+60 días", "+60 days"],
+  // ── Navbar (cuenta) ──
+  ["Mi perfil", "My profile"],
+  ["Mi plan", "My plan"],
+  ["Panel de agente", "Agent dashboard"],
+  // ── Popup listing (ListingDrawer) — chrome del form de visita/financiación ──
+  ["Ver en Metrocuadrado →", "View on Metrocuadrado →"],
+  ["Ver en MedellinLiving →", "View on MedellinLiving →"],
+  ["Espacio público (parque, plaza)", "Public space (park, plaza)"],
+  ["Te contactaremos pronto para confirmar.", "We'll contact you soon to confirm."],
+  ["Tu teléfono", "Your phone"],
+  ["Sin especificar", "Unspecified"],
+  ["Para vivir", "To live in"],
+  ["Para invertir", "To invest"],
+  ["Menos de $200M", "Under $200M"],
+  ["Más de $1.000M", "Over $1.000M"],
+  ["Crédito aprobado", "Pre-approved"],
+  ["Crédito", "Financing"],
+  ["De contado", "Cash"],
+  ["En trámite", "In process"],
+  ["Aún no", "Not yet"],
+  // ── Mini popup / paneles del mapa ──
+  ["En comparación", "In comparison"],
+  ["Ordenado por relevancia para tu perfil", "Sorted by relevance for your profile"],
+  ["Foto del inmueble", "Property photo"],
+  // ── OnboardingModal (stragglers no traducidos) ──
+  ["Publica y conecta con compradores e inversores", "List and connect with buyers and investors"],
+  ["Continuar →", "Continue →"],
+  ["Ver comunidad →", "View community →"],
+  ["Subir fotos y contenido de eventos", "Upload photos and event content"],
+  ["Descubrir negocios y tiendas locales", "Discover local businesses and shops"],
+  ["Conectar con tu comunidad", "Connect with your community"],
+  ["Explorar la comunidad →", "Explore the community →"],
+  ["Ver inmuebles en el mapa →", "View properties on the map →"],
+  ["Perfil guardado. Explorando el mapa…", "Profile saved. Opening the map…"],
+  // ── MapView (leyenda de tipos + fallback de fuente) ──
+  ["Ver leyenda de tipos", "View type legend"],
+  ["Ver listado →", "View listing →"],
+  ["Aptaestudio", "Studio"],
+  ["Apto", "Apt"],
+  // ── ListingDrawer — resto del popup (form visita, confirmación, badges) ──
+  ["Cuéntanos más para preparar tu visita (opcional)", "Tell us more to prepare your visit (optional)"],
+  ["Equipamiento urbano (colegio, hospital, etc.)", "Urban facilities (school, hospital, etc.)"],
+  ["¡Visita solicitada!", "Visit requested!"],
+  ["Link copiado ✅", "Link copied ✅"],
+  ["Solo explorando", "Just browsing"],
+  ["Sin verificar", "Unverified"],
+  ["Creando…", "Creating…"],
+  ["Tour 3D / Video", "3D Tour / Video"],
+  ["Tour 3D", "3D Tour"],
+  ["¿Cuándo?", "When?"],
+  ["¿Para qué?", "What for?"],
+  ["Inmueble", "Property"],
+  ["Listo", "Done"],
+  // ── MLSPanel — badges + tipos + modalidad de renta ──
+  ["YA NO DISPONIBLE", "NO LONGER AVAILABLE"],
+  ["BUENA OFERTA", "GOOD DEAL"],
+  ["Modalidad:", "Term:"],
+  ["Consultorio", "Medical office"],
+  ["Comercial", "Commercial"],
+  ["Finca", "Estate"],
+  ["Corto", "Short"],
+  ["Largo", "Long"],
+  // ── FloatingPanel — amenidades + caption ──
+  ["Cocina", "Kitchen"],
+  ["Lavadora", "Washer"],
+  ["Brecha mercado/catastro vs. mediana ciudad · Medellín 2026", "Market/cadastre gap vs. city median · Medellín 2026"],
+  ["p25 · mediana · p75", "p25 · median · p75"],
+  // ── Navbar ──
+  ["Herramientas", "Tools"],
+  ["Unidad", "Units"],
+
   ["Tutorial de la página", "Page tutorial"],
   ["NEGOCIOS", "BUSINESSES"],
   ["EVENTOS", "EVENTS"],
@@ -2880,12 +2961,8 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     setLangState(l);
     if (typeof window !== "undefined") {
       localStorage.setItem(KEY, l);
-      // La unidad de área sigue al idioma: es->m², en->ft² (el toggle manual de
-      // useUnit queda como override hasta el próximo cambio de idioma). Se dispara
-      // el mismo evento que escucha useUnit para actualizar en vivo. Claves
-      // hardcodeadas a propósito (mismo patrón sin-contexto que lang/unit).
-      localStorage.setItem("medellin-social.unit", l === "en" ? "sqft" : "m2");
-      window.dispatchEvent(new Event("medellin-social:unit-change"));
+      // La unidad de área deriva del idioma en useUnit() (es→m², en→ft²), vía
+      // el contexto — ya no hay toggle manual ni evento que sincronizar.
     }
   }, []);
   const toggle = useCallback(() => setLang(lang === "es" ? "en" : "es"), [lang, setLang]);

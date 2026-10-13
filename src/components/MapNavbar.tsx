@@ -6,7 +6,6 @@ import { auth } from "@/lib/auth";
 import { logout } from "@/hooks/useAuth";
 import { useIsAgente } from "@/components/LockedField";
 import { useLang, FlagCO, FlagUS } from "@/lib/i18n";
-import { useUnit } from "@/hooks/useUnit";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Wordmark } from "@/components/Wordmark";
 import type { Neighborhood } from "@/lib/adapters";
@@ -70,7 +69,6 @@ const NAV = {
 export function MapNavbar({ activeTab, onTabChange, mlsBarrio, mlsTotal, onBack }: MapNavbarProps) {
   const navigate = useNavigate();
   const { lang, toggle } = useLang();
-  const { unit, toggle: toggleUnit } = useUnit();
   const isMobile = useIsMobile();
   const isAgente = useIsAgente();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -191,21 +189,6 @@ export function MapNavbar({ activeTab, onTabChange, mlsBarrio, mlsTotal, onBack 
                       }}
                     >
                       {l === "es" ? <FlagCO /> : <FlagUS />}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ display: "flex", gap: 8, padding: "12px 16px", borderBottom: `1px solid ${NAV.border}`, alignItems: "center" }}>
-                <span style={{ fontSize: 13, color: NAV.muted, fontWeight: 600 }}>Unidad</span>
-                <div style={{ display: "flex", border: `1px solid ${NAV.border}`, borderRadius: 999, overflow: "hidden", marginLeft: "auto" }}>
-                  {(["m2", "sqft"] as const).map((u) => (
-                    <button
-                      key={u}
-                      onClick={() => u !== unit && toggleUnit()}
-                      style={{ border: "none", background: unit === u ? C.teal : "transparent", color: unit === u ? "#fff" : NAV.muted, padding: "3px 10px", fontWeight: 700, cursor: "pointer", fontSize: 11 }}
-                    >
-                      {u === "m2" ? "M²" : "FT²"}
                     </button>
                   ))}
                 </div>
@@ -484,27 +467,6 @@ export function MapNavbar({ activeTab, onTabChange, mlsBarrio, mlsTotal, onBack 
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 14px" }}>
-                    <span style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>Unidades</span>
-                    <div style={{ display: "flex", border: `1px solid ${C.border}`, borderRadius: 999, overflow: "hidden" }}>
-                      {(["m2", "sqft"] as const).map((u) => (
-                        <button
-                          key={u}
-                          onClick={() => u !== unit && toggleUnit()}
-                          style={{
-                            border: "none",
-                            background: unit === u ? C.teal : "transparent",
-                            color: unit === u ? "#fff" : C.muted,
-                            padding: "3px 9px", fontWeight: 700,
-                            cursor: "pointer", fontSize: 11,
-                          }}
-                        >
-                          {u === "m2" ? "M²" : "FT²"}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
                   <button
                     onClick={() => { setAccountOpen(false); logout(); navigate({ to: "/login" }); }}
                     style={{ ...accountItemStyle, width: "100%", textAlign: "left", color: C.coral, display: "flex", alignItems: "center", gap: 8, borderTop: `1px solid ${C.border}` }}
@@ -535,25 +497,6 @@ export function MapNavbar({ activeTab, onTabChange, mlsBarrio, mlsTotal, onBack 
                   }}
                 >
                   {l === "es" ? <FlagCO /> : <FlagUS />}
-                </button>
-              ))}
-            </div>
-
-            {/* Unidad de área */}
-            <div style={{ display: "flex", border: `1px solid ${NAV.border}`, borderRadius: 999, overflow: "hidden" }}>
-              {(["m2", "sqft"] as const).map((u) => (
-                <button
-                  key={u}
-                  onClick={() => u !== unit && toggleUnit()}
-                  style={{
-                    border: "none",
-                    background: unit === u ? C.teal : "transparent",
-                    color: unit === u ? "#fff" : NAV.muted,
-                    padding: "3px 9px", fontWeight: 700,
-                    cursor: "pointer", fontSize: 11,
-                  }}
-                >
-                  {u === "m2" ? "M²" : "FT²"}
                 </button>
               ))}
             </div>

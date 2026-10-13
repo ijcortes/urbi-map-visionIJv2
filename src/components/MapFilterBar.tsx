@@ -332,11 +332,14 @@ function fmtPrice(cop: number, lang: string, trm: number, isRent: boolean): stri
 }
 
 function precioLabel(f: SharedFilters, isRent: boolean, lang: string, trm: number): string {
+  // Este label vive en un span data-i18n-skip (gotcha #1 cache-poisoning), así que
+  // el diccionario DOM no lo toca — hay que devolver EN aquí mismo.
+  const en = lang === "en";
   if (f.precioMin !== null && f.precioMax !== null)
     return `${fmtPrice(f.precioMin, lang, trm, isRent)} – ${fmtPrice(f.precioMax, lang, trm, isRent)}`;
-  if (f.precioMax !== null) return `Hasta ${fmtPrice(f.precioMax, lang, trm, isRent)}`;
-  if (f.precioMin !== null) return `Desde ${fmtPrice(f.precioMin, lang, trm, isRent)}`;
-  return isRent ? "Precio/mes" : "Precio";
+  if (f.precioMax !== null) return `${en ? "Up to" : "Hasta"} ${fmtPrice(f.precioMax, lang, trm, isRent)}`;
+  if (f.precioMin !== null) return `${en ? "From" : "Desde"} ${fmtPrice(f.precioMin, lang, trm, isRent)}`;
+  return en ? (isRent ? "Price/mo" : "Price") : (isRent ? "Precio/mes" : "Precio");
 }
 
 function habLabel(f: SharedFilters): string {
@@ -393,6 +396,52 @@ function useAreaFieldText(
     const m2 = raw ? displayToM2(Number(raw), unit) : null;
     lastM2.current = m2;
     onCommit(m2);
+  };
+
+  return { text, handleChange };
+}
+
+// precioMin/precioMax en SharedFilters siempre están en COP (canónico para la
+// API); en EN el usuario teclea USD → convertir en el borde (×trm). Mismo patrón
+// de texto-local que el área para que el número no se corra bajo el dedo al
+// teclear ni al cambiar de idioma. Sin esto, teclear "1200" en EN mandaba
+// precio=1200 COP (bajo el piso de 500K) → cero resultados.
+function copToDisplay(cop: number | null, lang: string, trm: number): number | null {
+  if (cop === null) return null;
+  return lang === "en" ? Math.round(cop / trm) : cop;
+}
+function displayToCop(v: number | null, lang: string, trm: number): number | null {
+  if (v === null) return null;
+  return lang === "en" ? Math.round(v * trm) : v;
+}
+function usePriceFieldText(
+  copValue: number | null,
+  lang: string,
+  trm: number,
+  onCommit: (cop: number | null) => void,
+) {
+  const lastCop = useRef(copValue);
+  const [text, setText] = useState<string>(() => copToDisplay(copValue, lang, trm)?.toString() ?? "");
+
+  useEffect(() => {
+    if (copValue !== lastCop.current) {
+      lastCop.current = copValue;
+      setText(copToDisplay(copValue, lang, trm)?.toString() ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [copValue]);
+
+  useEffect(() => {
+    lastCop.current = copValue;
+    setText(copToDisplay(copValue, lang, trm)?.toString() ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang]);
+
+  const handleChange = (raw: string) => {
+    setText(raw);
+    const cop = raw ? displayToCop(Number(raw), lang, trm) : null;
+    lastCop.current = cop;
+    onCommit(cop);
   };
 
   return { text, handleChange };
@@ -546,8 +595,9 @@ function PrecioPanel({
   }, [isRent]);
 
   const fmt  = (v: number) => {
-    if (v <= TOTAL_MIN) return "Mín";
-    if (v >= TOTAL_MAX) return "Máx";
+    // Range labels van en spans data-i18n-skip → traducir aquí.
+    if (v <= TOTAL_MIN) return lang === "en" ? "Min" : "Mín";
+    if (v >= TOTAL_MAX) return lang === "en" ? "Max" : "Máx";
     return fmtPrice(v, lang, trm, isRent);
   };
 
@@ -1040,6 +1090,8 @@ export function MapFilterBar({
   const areaUnitLabel = unit === "sqft" ? "ft²" : "m²";
   const areaMinField = useAreaFieldText(filters.areaMin, unit, (m2) => onFiltersChange({ areaMin: m2 }));
   const areaMaxField = useAreaFieldText(filters.areaMax, unit, (m2) => onFiltersChange({ areaMax: m2 }));
+  const precioMinField = usePriceFieldText(filters.precioMin, lang, trm, (cop) => onFiltersChange({ precioMin: cop }));
+  const precioMaxField = usePriceFieldText(filters.precioMax, lang, trm, (cop) => onFiltersChange({ precioMax: cop }));
   const [open, setOpen] = useState<DropdownId | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mobileMore, setMobileMore] = useState(false);
@@ -1360,16 +1412,16 @@ export function MapFilterBar({
 
         {/* Precio */}
         <div style={{ marginBottom: 20 }}>
-          <span style={labelSm}>{isRent ? "Precio / mes" : "Precio"}</span>
+          <span style={labelSm}>{isRent ? "Precio / mes" : "Precio"} ({lang === "en" ? "USD" : "COP"})</span>
           <div style={{ display: "flex", gap: 8 }}>
             <input
-              type="number" placeholder="Mínimo" aria-label="Precio mínimo" value={filters.precioMin ?? ""}
-              onChange={(e) => onFiltersChange({ precioMin: e.target.value ? Number(e.target.value) : null })}
+              type="number" placeholder="Mínimo" aria-label="Precio mínimo" value={precioMinField.text}
+              onChange={(e) => precioMinField.handleChange(e.target.value)}
               style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 13, outline: "none", color: C.ink, background: "#fff" }}
             />
             <input
-              type="number" placeholder="Máximo" aria-label="Precio máximo" value={filters.precioMax ?? ""}
-              onChange={(e) => onFiltersChange({ precioMax: e.target.value ? Number(e.target.value) : null })}
+              type="number" placeholder="Máximo" aria-label="Precio máximo" value={precioMaxField.text}
+              onChange={(e) => precioMaxField.handleChange(e.target.value)}
               style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 13, outline: "none", color: C.ink, background: "#fff" }}
             />
           </div>

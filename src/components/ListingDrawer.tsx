@@ -56,14 +56,15 @@ const TIPO_INMUEBLE_COLOR: Record<string, string> = {
   consultorio:   "#6E726E",
 };
 
-function diasLabel(dias: number | null | undefined): string | null {
+function diasLabel(dias: number | null | undefined, lang: string): string | null {
   if (dias == null || dias < 0) return null;
-  if (dias === 0) return "Publicado hoy";
-  if (dias === 1) return "Hace 1 día";
-  if (dias < 7) return `Hace ${dias} días`;
-  if (dias < 30) return `Hace ${Math.floor(dias / 7)} sem.`;
-  if (dias < 365) return `Hace ${Math.floor(dias / 30)} mes${Math.floor(dias / 30) > 1 ? "es" : ""}`;
-  return `Hace +${Math.floor(dias / 365)} año${Math.floor(dias / 365) > 1 ? "s" : ""}`;
+  const en = lang === "en";
+  if (dias === 0) return en ? "Posted today" : "Publicado hoy";
+  if (dias === 1) return en ? "1 day ago" : "Hace 1 día";
+  if (dias < 7) return en ? `${dias} days ago` : `Hace ${dias} días`;
+  if (dias < 30) { const w = Math.floor(dias / 7); return en ? `${w} wk ago` : `Hace ${w} sem.`; }
+  if (dias < 365) { const m = Math.floor(dias / 30); return en ? `${m} mo ago` : `Hace ${m} mes${m > 1 ? "es" : ""}`; }
+  const y = Math.floor(dias / 365); return en ? `${y}+ yr ago` : `Hace +${y} año${y > 1 ? "s" : ""}`;
 }
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -533,28 +534,33 @@ function GettingAround({ barrioId }: { barrioId: number }) {
 
 // ─── Agendar visita — popup estilo Zillow (día con flechas + hora desplegable) ──
 
-const DOW_LARGO = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
-const DOW = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-const MON = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const DIAS_VENTANA = 5; // días visibles por página
+
+// toLocaleDateString('es') da "lun."/"ene." (minúscula + punto); normalizamos a
+// "Lun"/"Ene" para conservar el estilo previo. EN sale "Mon"/"Oct" tal cual.
+const cap = (s: string) => s.replace(/\.$/, "").replace(/^\p{L}/u, (c) => c.toUpperCase());
 
 type DiaInfo = { date: Date; label: string; sub: string; largo: string };
 const dateKey = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-function dayInfo(d: Date): DiaInfo {
+function dayInfo(d: Date, lang: string): DiaInfo {
+  const loc = lang === "en" ? "en-US" : "es-CO";
   const t0 = new Date(); t0.setHours(0, 0, 0, 0);
   const d0 = new Date(d); d0.setHours(0, 0, 0, 0);
   const diff = Math.round((d0.getTime() - t0.getTime()) / 86400000);
-  const label = diff === 0 ? "Hoy" : diff === 1 ? "Mañana" : DOW[d.getDay()];
-  const largo = diff === 0 ? "Hoy" : diff === 1 ? "Mañana" : DOW_LARGO[d.getDay()];
-  return { date: d, label, sub: `${d.getDate()} ${MON[d.getMonth()]}`, largo };
+  const hoy = lang === "en" ? "Today" : "Hoy";
+  const manana = lang === "en" ? "Tomorrow" : "Mañana";
+  const label = diff === 0 ? hoy : diff === 1 ? manana : cap(d.toLocaleDateString(loc, { weekday: "short" }));
+  const largo = diff === 0 ? hoy : diff === 1 ? manana : cap(d.toLocaleDateString(loc, { weekday: "long" }));
+  const mes = cap(d.toLocaleDateString(loc, { month: "short" }));
+  return { date: d, label, sub: `${d.getDate()} ${mes}`, largo };
 }
-function proximosDias(n: number): DiaInfo[] {
+function proximosDias(n: number, lang: string): DiaInfo[] {
   const dias: DiaInfo[] = [];
   for (let i = 0; i < n; i++) {
     const d = new Date();
     d.setDate(d.getDate() + i);
-    dias.push(dayInfo(d));
+    dias.push(dayInfo(d, lang));
   }
   return dias;
 }
@@ -597,6 +603,7 @@ function CampoSelect({
 function ScheduleVisitModal({
   agente, listingId, listingUrl, onClose,
 }: { agente?: ApiListingAgente | null; listingId?: number | null; listingUrl?: string | null; onClose: () => void }) {
+  const { lang } = useLang();
   // Slots reales del agente de zona (horario propio menos reservados). Si no hay
   // agente/horario configurado, cae al horario genérico (fallback).
   const [slotMap, setSlotMap] = useState<Record<string, string[]> | null>(null);
@@ -623,8 +630,8 @@ function ScheduleVisitModal({
 
   const realMode = !!slotMap;
   const dias = useMemo<DiaInfo[]>(
-    () => (slotMap ? Object.keys(slotMap).sort().map((iso) => dayInfo(new Date(iso + "T12:00:00"))) : proximosDias(30)),
-    [slotMap],
+    () => (slotMap ? Object.keys(slotMap).sort().map((iso) => dayInfo(new Date(iso + "T12:00:00"), lang)) : proximosDias(30, lang)),
+    [slotMap, lang],
   );
   const diaSel = dias[Math.min(diaIdx, dias.length - 1)];
   const horas = realMode ? (diaSel ? slotMap![dateKey(diaSel.date)] ?? [] : []) : horasVisita();
@@ -636,7 +643,7 @@ function ScheduleVisitModal({
   async function confirmar() {
     if (!puedeEnviar || enviando || !diaSel) return;
     const dia = diaSel;
-    const cuando = `${dia.largo} ${dia.sub} a las ${hora}`;
+    const cuando = `${dia.largo} ${dia.sub} ${lang === "en" ? "at" : "a las"} ${hora}`;
     const [hm, ampm] = hora.split(" ");
     const [hh, mm] = hm.split(":").map(Number);
     const fecha = new Date(dia.date);
@@ -754,7 +761,7 @@ function ScheduleVisitModal({
                     >
                       <span className="text-[10px] font-semibold uppercase tracking-wide">{d.label}</span>
                       <span className="text-[13px] font-bold leading-tight">{d.date.getDate()}</span>
-                      <span className="text-[9px] opacity-75">{MON[d.date.getMonth()]}</span>
+                      <span className="text-[9px] opacity-75">{cap(d.date.toLocaleDateString(lang === "en" ? "en-US" : "es-CO", { month: "short" }))}</span>
                     </button>
                   );
                 })}
@@ -1379,7 +1386,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
               <div className="space-y-2.5">
                 {historia.map((h, i) => {
                   const daysAgo = Math.floor((Date.now() - new Date(h.fecha).getTime()) / 86400000);
-                  const cuandoLabel = daysAgo === 0 ? "Hoy" : daysAgo === 1 ? "Hace 1 día" : `Hace ${daysAgo} días`;
+                  const cuandoLabel = daysAgo === 0 ? (lang === "en" ? "Today" : "Hoy") : daysAgo === 1 ? (lang === "en" ? "1 day ago" : "Hace 1 día") : (lang === "en" ? `${daysAgo} days ago` : `Hace ${daysAgo} días`);
                   const sube = (h.delta_pct ?? 0) > 0;
                   const color = sube ? "#B4462F" : "#0F8A4F";
                   return (
@@ -1545,7 +1552,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                   {s.barrio_nombre}
                 </div>
               )}
-              {s.dias_en_mercado != null && <div className="text-[10px]" style={{ color: "#5B5F5C" }}>{diasLabel(s.dias_en_mercado) ?? `${s.dias_en_mercado}d`}</div>}
+              {s.dias_en_mercado != null && <div className="text-[10px]" style={{ color: "#5B5F5C" }}>{diasLabel(s.dias_en_mercado, lang) ?? `${s.dias_en_mercado}d`}</div>}
             </div>
           </button>
         ))}

@@ -1,34 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useLang } from "@/lib/i18n";
 
 export type AreaUnit = "m2" | "sqft";
 
-const KEY = "medellin-social.unit";
-const EVENT = "medellin-social:unit-change";
-
-function readStored(): AreaUnit {
-  if (typeof window === "undefined") return "m2";
-  return (localStorage.getItem(KEY) as AreaUnit | null) ?? "m2";
-}
-
-// Cross-instance sync: multiple components call useUnit() independently (no
-// context provider, like the price/lang toggles don't need one either) — a
-// custom event keeps them in lockstep when one toggles.
-export function useUnit() {
-  const [unit, setUnitState] = useState<AreaUnit>(readStored);
-
-  useEffect(() => {
-    const onChange = () => setUnitState(readStored());
-    window.addEventListener(EVENT, onChange);
-    return () => window.removeEventListener(EVENT, onChange);
-  }, []);
-
-  const setUnit = useCallback((u: AreaUnit) => {
-    localStorage.setItem(KEY, u);
-    window.dispatchEvent(new Event(EVENT));
-  }, []);
-  const toggle = useCallback(() => setUnit(unit === "m2" ? "sqft" : "m2"), [unit, setUnit]);
-
-  return { unit, setUnit, toggle };
+// Unidad de área = derivación directa del idioma: es→m², en→ft². Antes era un
+// toggle manual (localStorage) que podía desincronizarse del idioma; ahora el
+// idioma manda y re-renderiza vía el contexto de useLang(). m² sigue siendo
+// canónico en DB/filtros; ft² es solo presentación (conversión en el borde UI).
+export function useUnit(): { unit: AreaUnit } {
+  const { lang } = useLang();
+  return { unit: lang === "en" ? "sqft" : "m2" };
 }
 
 // m² is canonical everywhere (DB, filters); sqft is display-only.

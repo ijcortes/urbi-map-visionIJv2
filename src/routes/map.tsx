@@ -113,6 +113,18 @@ function MapPageInner() {
   const [highlightedListingId, setHighlightedListingId] = useState<number | null>(null);
   const [activeBarrioInComune, setActiveBarrioInComune] = useState<string | null>(null);
   const flyToListingRef = useRef<((lat: number, lng: number, zoom?: number) => void) | null>(null);
+  // Deep-link comuna/municipio (botón "Listings" del home) parseado en el mount;
+  // se aplica vía handleComunaSelect cuando ya cargaron los barrios Y el mapa (ver efecto abajo).
+  const deepLinkComunaRef = useRef<{ cd: number | null; municipio: string | null; nombre: string | null } | null>(null);
+  const [mapReady, setMapReady] = useState(false);
+  // Llegada por deep-link (botón "Listings" del home) → no abrir el tour de
+  // onboarding: su demo mueve la cámara al centro de la ciudad y tapa la comuna
+  // pedida. El tour sigue apareciendo en una visita normal a /map.
+  const [isDeepLink] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const p = new URLSearchParams(window.location.search);
+    return !!(p.get("cd_comuna") || p.get("municipio"));
+  });
 
   // Listing detail modal
   const [listingDetailId, setListingDetailId] = useState<number | null>(null);
@@ -286,38 +298,37 @@ function MapPageInner() {
       if (!Number.isNaN(id)) setListingDetailId(id);
     }
     // ?cd_comuna=N (Medellín) o ?municipio=X (Valle) → entrar directo a los listings
-    // de esa comuna (botón "Listings" del mapa del home). Sin esto el fly de lat/lng
-    // solo mueve la cámara en vista zonas y nunca se ven listings.
+    // de esa comuna (botón "Listings" del mapa del home). Se difiere a un efecto que
+    // espera los barrios y luego llama handleComunaSelect — la MISMA vía que un click
+    // en el filtro, así se selecciona la comuna y cargan sus listings (no sólo el fly).
     const cdComunaParam = params.get("cd_comuna");
     const municipioParam = params.get("municipio");
     if (cdComunaParam || municipioParam) {
-      setGlobalSearch(false);
-      setMapView("listings");
-      setViewLevel("barrios");
-      if (municipioParam) {
-        setActiveMunicipio(municipioParam);
-        setActiveComuna(null);
-        setActiveComunaCd(null);
-      } else {
-        setActiveComunaCd(Number(cdComunaParam));
-        setActiveComuna(params.get("nombre"));
-        setActiveMunicipio(null);
-      }
+      deepLinkComunaRef.current = {
+        cd: municipioParam ? null : Number(cdComunaParam),
+        municipio: municipioParam,
+        nombre: params.get("nombre"),
+      };
+      return; // handleComunaSelect hace scope + fly + fetch; no duplicar el fly de lat/lng
     }
     const lat = Number(params.get("lat"));
     const lng = Number(params.get("lng"));
     const zoom = Number(params.get("zoom") ?? "14");
     if (lat && lng) {
-      const tryFly = (attempts = 0) => {
-        if (flyToListingRef.current) {
-          flyToListingRef.current(lat, lng, zoom);
-        } else if (attempts < 20) {
-          setTimeout(() => tryFly(attempts + 1), 200);
-        }
-      };
-      tryFly();
+      flyToListingRef.current?.(lat, lng, zoom); // queda en cola si el mapa aún no cargó
     }
   }, []);
+
+  // Aplica el deep-link de comuna una vez cargados los barrios Y el mapa. Esperar
+  // a mapReady hace que la selección corra como un click real post-load: los
+  // efectos gated por mapLoaded (capas de puntos, fly de cámara) corren normal.
+  // Sin esto, seleccionar pre-load dejaba la carrera sin puntos y sin zoom.
+  useEffect(() => {
+    const dl = deepLinkComunaRef.current;
+    if (!dl || !mapReady || allBarrioOptions.length === 0) return;
+    deepLinkComunaRef.current = null;
+    handleComunaSelect(dl.cd, dl.nombre, dl.municipio);
+  }, [mapReady, allBarrioOptions]);
 
   useEffect(() => {
     const sync = () => setMostrarOportunidades(auth.get()?.mostrarOportunidades ?? false);
@@ -614,6 +625,7 @@ function MapPageInner() {
           onViewportLoadingChange={setViewportLoading}
           onAutoSelectBarrio={handleAutoSelectBarrio}
           onAutoSelectComuna={handleAutoSelectComuna}
+          onReady={() => setMapReady(true)}
           highlightedListingId={highlightedListingId}
           flyToListingRef={flyToListingRef}
           onListingClickFromMap={handleListingClickFromMap}
@@ -768,7 +780,7 @@ function MapPageInner() {
 
       <MapTourModal
         isMobile={isMobile}
-        dataReady={allBarrioOptions.length > 0}
+        dataReady={allBarrioOptions.length > 0 && !isDeepLink}
         activeComunaName={activeComuna ? activeComuna.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) : null}
         onDemoZoom={() => {
           flyToListingRef.current?.(6.2442, -75.5812, 14.5);

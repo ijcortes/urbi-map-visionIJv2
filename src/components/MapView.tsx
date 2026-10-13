@@ -90,6 +90,10 @@ type Props = {
   // de contenedor) en vez del center+zoom fijo pensado para la página /map
   // a pantalla completa.
   fitValle?: boolean;
+  // Se dispara una vez cuando el mapa emitió "load" (capas listas). El deep-link
+  // de comuna (/map?cd_comuna=...) espera esto para seleccionar la zona como un
+  // click real post-load, evitando la carrera con los efectos gated por mapLoaded.
+  onReady?: () => void;
 };
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -301,6 +305,7 @@ export function MapView({
   pitch,
   bearing,
   fitValle = false,
+  onReady,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapboxMap | null>(null);
@@ -322,6 +327,7 @@ export function MapView({
   const lastAutoBarrioRef = useRef<number | null>(null);  // camera-auto-selected barrio
   const lastAutoComunaRef = useRef<string | null>(null);  // camera-auto-selected comuna/muni key
   const flattenSkipRef = useRef(false);  // skip listings-toggle pitch easeTo when a zone fit drives it
+  const pendingFlyRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);  // deep-link flyTo que llegó antes del "load" del mapa
   const lastViewportQueryRef = useRef("");  // dedup identical viewport fetches
   const pulseRafRef = useRef<number | null>(null);  // animación de pulso de markers Pro
   const tokenError = !MAPBOX_TOKEN || MAPBOX_TOKEN.includes("REPLACE_ME");
@@ -577,6 +583,20 @@ export function MapView({
       }
       mapLoadedRef.current = true;
       setMapLoaded(true);
+
+      // Flush de un flyTo deep-link que llegó antes del load (ver flyToListingRef).
+      if (pendingFlyRef.current) {
+        const { lat, lng, zoom } = pendingFlyRef.current;
+        pendingFlyRef.current = null;
+        flattenSkipRef.current = true;
+        map.flyTo({ center: [lng, lat], zoom, pitch: 0, speed: 0.9 });
+      }
+
+      // Señal al padre: mapa cargado. El deep-link de comuna espera esto para
+      // seleccionar la zona como un click real (efectos gated por mapLoaded ya
+      // re-corren tras el re-render). onReady corre después de agregar las capas
+      // (mismo callback) porque React aplica el setState tras retornar de aquí.
+      onReady?.();
 
       // ── Limpiar POIs del mapa base ────────────────────────────────────────
       const baseStyle = map.getStyle();
@@ -1277,10 +1297,10 @@ export function MapView({
       map.off("moveend", onMove);
       map.off("zoomend", onMove);
     };
-  // mapLoaded en deps: mismo race que FIX 1c (barrios). Deep-link a listings
-  // (?cd_comuna/?municipio) pone mapView="listings" en mount, ANTES del evento
-  // "load" → este efecto salía por !mapLoadedRef y NO re-corría (mapLoadedRef es
-  // ref, no dispara efecto) → loadViewport nunca se llamaba → sin puntos en el mapa.
+  // mapLoaded en deps: mismo race que FIX 1c (ver ~l.1336) y el toggle de vista.
+  // Deep-link a listings (?cd_comuna/?municipio) pone mapView="listings" en mount,
+  // ANTES del evento "load" → este efecto salía por !mapLoadedRef y NO re-corría
+  // (mapLoadedRef es ref, no dispara efecto) → loadViewport nunca se llamaba → sin puntos.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapView, mapLoaded, mlsBarrioId, mlsCdComuna, mlsMunicipio, mlsTipoOp, mlsPrecioMin, mlsPrecioMax, mlsAmoblado,
       mlsFilters?.habitaciones, mlsFilters?.banos, mlsFilters?.areaMin, mlsFilters?.areaMax,
@@ -1417,7 +1437,9 @@ export function MapView({
     if (!flyToListingRef) return;
     flyToListingRef.current = (lat: number, lng: number, zoom = 16) => {
       const map = mapRef.current;
-      if (!map || !mapLoadedRef.current) return;
+      // Deep-link (botón "Listings" del home) dispara esto en el mount, antes de
+      // que el mapa emita "load" → sin cola el flyTo se perdía y nunca hacía zoom.
+      if (!map || !mapLoadedRef.current) { pendingFlyRef.current = { lat, lng, zoom }; return; }
       // Flatten as part of the fly: navigating zonas→barrio sets mapView="listings"
       // in the same handler, and that effect's pitch easeTo would otherwise interrupt
       // this flyTo mid-flight → camera froze below POLYGON_TIER_ZOOM → autoSelect fell
