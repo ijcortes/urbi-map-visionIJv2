@@ -1239,8 +1239,12 @@ export function MapView({
       map.off("moveend", onMove);
       map.off("zoomend", onMove);
     };
+  // mapLoaded en deps: mismo race que FIX 1c (barrios). Deep-link a listings
+  // (?cd_comuna/?municipio) pone mapView="listings" en mount, ANTES del evento
+  // "load" → este efecto salía por !mapLoadedRef y NO re-corría (mapLoadedRef es
+  // ref, no dispara efecto) → loadViewport nunca se llamaba → sin puntos en el mapa.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapView, mlsBarrioId, mlsCdComuna, mlsMunicipio, mlsTipoOp, mlsPrecioMin, mlsPrecioMax, mlsAmoblado,
+  }, [mapView, mapLoaded, mlsBarrioId, mlsCdComuna, mlsMunicipio, mlsTipoOp, mlsPrecioMin, mlsPrecioMax, mlsAmoblado,
       mlsFilters?.habitaciones, mlsFilters?.banos, mlsFilters?.areaMin, mlsFilters?.areaMax,
       mlsFilters?.estrato?.join(","), mlsFilters?.tipoInmueble?.join(","), mlsFilters?.diasMercado, mlsFilters?.busqueda,
       mlsFilters?.amenidades?.join(",")]);

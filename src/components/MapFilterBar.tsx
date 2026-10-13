@@ -1309,15 +1309,19 @@ export function MapFilterBar({
               value={activeComunaCd != null ? String(activeComunaCd) : (activeMunicipio ? `mun:${activeMunicipio}` : "")}
               onChange={(e) => {
                 const v = e.target.value;
-                if (!v) { onComunaSelect?.(null, null); return; }
+                // Cerrar la hoja tras elegir zona (igual que el sub-select de barrio):
+                // si no, la hoja tapa el mapa y el filtro parece no aplicar ("no filtra").
+                if (!v) { onComunaSelect?.(null, null); setMobileOpen(false); return; }
                 if (v.startsWith("mun:")) {
                   const mun = v.slice(4);
                   const g = groupMunicipios(allBarrios).find((x) => x.municipio === mun);
                   if (g) onComunaSelect?.(null, g.nombre, g.municipio);
+                  setMobileOpen(false);
                   return;
                 }
                 const c = groupComunas(allBarrios).find((g) => String(g.cd) === v);
                 if (c) onComunaSelect?.(c.cd as number, c.nombre);
+                setMobileOpen(false);
               }}
               style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, color: C.ink, background: "#fff" }}
             >
