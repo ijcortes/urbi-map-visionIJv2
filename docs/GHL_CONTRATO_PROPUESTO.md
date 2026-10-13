@@ -288,6 +288,10 @@ de ads son **dos pools sin ningún puente**, en ninguna dirección.
   Contacts filtrable por tag/funnel, o solo GET-por-ID? Si es solo
   GET-por-ID, no hay forma de *descubrir* leads nuevos sin la firma del
   webhook (§0) o ese endpoint de listado.
+- **Nuestra DB → GHL (traer nuestros leads):** ✅ patrón resuelto por PULL en
+  §6b (`GET /api/v1/ghl/leads?since=`): nosotros exponemos, Talal descubre por
+  polling. El mismo patrón sirve si algún día hay que exponer otros pools de
+  lead nuestros a GHL sin depender de la firma del webhook.
 - **Login unificado (magic link):** ✅ **verificado 2026-09-24, construido y
   en producción de nuestro lado** — `POST /auth/magic-link` +
   `/auth/magic-link/verificar` (`api/routers/auth.py`), auto-registra si el
@@ -403,6 +407,60 @@ GHL Calendar), para que vea los horarios libres del realtor y reserve ahí.
 - [ ] Cómo mapea `visita_solicitud.estado`
       (pendiente/confirmada/realizada/cancelada) ↔ estado del Appointment GHL.
 - [ ] Firma del webhook — mismo bloqueador que el resto (§0).
+
+### Salida por PULL — ✅ CONSTRUIDO 2026-10-12 (NO bloqueado, listo para Talal)
+
+A diferencia del push (`push_visita_to_ghl`, bloqueado por la API de
+Appointments), esta dirección **no necesita contrato de Talal**: nosotros
+exponemos el shape, Talal lo mapea del lado GHL. Resuelve la pregunta abierta de
+§5 ("no hay forma de descubrir leads nuevos"). **Talal conecta GHL a estos
+endpoints** (HTTP Request action / workflow programado):
+
+| Endpoint | Uso |
+|---|---|
+| `GET /api/v1/ghl/leads?since=<ISO>&estado=<e>&limit=<n>` | Descubrimiento/polling. `since` = `created_at` del último lead ya traído. `limit` 1–500 (default 100). Orden `created_at DESC`. Devuelve `{count, leads:[...]}`. |
+| `GET /api/v1/ghl/leads/{id}` | Re-sync de un lead puntual. |
+
+**Auth:** header `X-API-Key: <GHL_LEADS_TOKEN>`. El token lo generamos nosotros
+y se lo pasamos a Talal; vive en el env `GHL_LEADS_TOKEN` de la API. Cerrado por
+defecto: **si el env no está seteado → 503** (nunca abierto). Token
+correcto → 200; ausente/malo → 401. Comparación con `hmac.compare_digest`.
+
+**Shape plano del lead** (cada campo = un campo/custom field a mapear en GHL):
+
+```json
+{
+  "id": "<uuid visita_solicitud>",
+  "created_at": "2026-10-12T...+00:00",
+  "estado": "pendiente|confirmada|realizada|cancelada|no_asistio",
+  "nombre": "Andrés Muñoz",
+  "telefono": "3001112233",
+  "email": "comprador@...",
+  "listing_url": "<id interno / slug / url externa del inmueble>",
+  "fecha_visita": "2026-10-15T...|null",
+  "mensaje": "...|null",
+  "agent_id": "<uuid agent asignado | null>",
+  "intencion": "vivir|invertir|null",
+  "presupuesto": "<200M|200-500M|500-1000M|>1000M|null",
+  "plazo": "ya|1-3m|3-6m|explorando|null",
+  "credito": "contado|aprobado|en_tramite|no|null",
+  "calificado": true,
+  "sla_horas_sin_responder": 9
+}
+```
+
+`intencion/presupuesto/plazo/credito` = calificación del lead estilo Zillow
+(migr 0101); `null` cuando el comprador no la llenó (el form los pide
+opcionales). `calificado` = true si llenó alguno. `sla_horas_sin_responder` =
+horas que lleva en `pendiente` (null si ya se atendió) — para que GHL dispare
+recordatorios de velocidad de respuesta.
+
+**Base legal (Ley 1581):** el comprador envió la solicitud de visita
+activamente (consentimiento para ser contactado) — postura distinta al harvest
+de agencias scrapeadas; aquí el titular inició el contacto.
+
+Código: `api/routers/ghl_leads.py`. Verificado end-to-end contra API local
+(401/503/200 + filtros `since`/`estado`).
 
 ---
 

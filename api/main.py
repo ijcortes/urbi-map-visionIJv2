@@ -17,7 +17,7 @@ from api.db import create_pool, close_pool, get_pool
 from api import parametros
 from api.cache import refresh_listings_cache, run_periodic_cache_refresh
 from api.limiter import limiter
-from api.routers import admin, admin_agentes, afiliados, agency, alertas, asignador, auth, barrios, business, calculadora, comparador, comunidad, comunidad_posts, comunas, embajadores, favoritos, ghl_webhook, historial, intake, listings, listings_propios, moderacion, oportunidades, pasantias, realtor, stats, suscripciones, tracking, trm, usuario, visitas, zonas
+from api.routers import admin, admin_agentes, afiliados, agency, alertas, asignador, auth, barrios, business, calculadora, comparador, comunidad, comunidad_posts, comunas, embajadores, favoritos, ghl_leads, ghl_webhook, historial, intake, listings, listings_propios, moderacion, oportunidades, pasantias, realtor, stats, suscripciones, tracking, trm, usuario, visitas, zonas
 
 # Sentry — only active when SENTRY_DSN is set (optional in local/test)
 _SENTRY_DSN = os.getenv("SENTRY_DSN", "")
@@ -175,6 +175,7 @@ app.include_router(agency.router,           prefix="/api/v1/agency",            
 app.include_router(visitas.router,          prefix="/api/v1/visitas",              tags=["visitas"])
 app.include_router(zonas.router,            prefix="/api/v1/zonas",                tags=["zonas"])
 app.include_router(ghl_webhook.router,       prefix="/api/v1/webhook",              tags=["ghl-webhook"])
+app.include_router(ghl_leads.router,         prefix="/api/v1/ghl",                  tags=["ghl-leads"])
 
 
 @app.get("/", tags=["meta"])

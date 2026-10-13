@@ -589,8 +589,10 @@ async def desempeno(user: dict = Depends(get_current_user), pool=Depends(get_poo
             "grado": grado,
             "nota": grado_nota,
             "mediana_horas_respuesta": round(mi_med, 1) if mi_med is not None else None,
-            "ranking": {"posicion": int(servicio["posicion"] or 0), "total": total_ag}
-                if (mi_med is not None and total_ag > 0) else None,
+            # Leaderboard cross-agente diferido: hoy ningún agente tiene volumen de
+            # visitas respondidas con key compartida (agent_id NULL en scrapeados).
+            # El grado ya es el standing visible; el ranking se activa con volumen.
+            "ranking": None,
         },
         "vistas_30d": int(vistas["v30"]),
         "vistas_total": int(vistas["total"]),
