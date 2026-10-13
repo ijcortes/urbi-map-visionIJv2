@@ -180,7 +180,7 @@ CREATE INDEX IF NOT EXISTS idx_mq_barrio   ON raw.listings_metrocuadrado(barrio_
 CREATE INDEX IF NOT EXISTS idx_mq_precio   ON raw.listings_metrocuadrado(precio);
 CREATE INDEX IF NOT EXISTS idx_mq_scraping ON raw.listings_metrocuadrado(fecha_scraping);
 CREATE INDEX IF NOT EXISTS idx_mq_geo      ON raw.listings_metrocuadrado(lat, lon);
-CREATE INDEX IF NOT EXISTS idx_mq_url      ON raw.listings_metrocuadrado(url);
+CREATE UNIQUE INDEX IF NOT EXISTS listings_mq_url_op_unique ON raw.listings_metrocuadrado(url, tipo_operacion);
 """
 
 UPSERT_SQL = """
@@ -197,7 +197,14 @@ VALUES
      %(parqueaderos)s, %(piso)s, %(antiguedad)s, %(administracion)s,
      %(amenidades)s, %(fecha_scraping)s, %(activo)s, %(raw_data)s,
      %(fecha_publicacion)s, %(dias_en_mercado)s, %(dedup_hash)s, %(fotos)s)
-ON CONFLICT (dedup_hash) DO UPDATE SET
+-- Identidad = (url, tipo_operacion), estable y sin precio. Una url de MC
+-- (murldetalle keyea por midinmueble) hostea venta Y arriendo del mismo
+-- inmueble, así que url sola fusionaría ambas operaciones -> (url,op). dedup_hash
+-- incluye precio y queda SOLO para el dedup cross-fuente en serving (cache.py/
+-- dbt), NO como clave de upsert: con precio en la clave, un cambio de precio
+-- insertaba fila nueva en vez de UPDATE -> el trigger de historial nunca
+-- disparaba. Mismo espíritu que fincaraiz/vrbo/renta_media (key por url).
+ON CONFLICT (url, tipo_operacion) DO UPDATE SET
     precio            = EXCLUDED.precio,
     area_m2           = EXCLUDED.area_m2,
     habitaciones      = EXCLUDED.habitaciones,
@@ -218,12 +225,7 @@ ON CONFLICT (dedup_hash) DO UPDATE SET
     raw_data          = EXCLUDED.raw_data,
     fecha_publicacion = EXCLUDED.fecha_publicacion,
     dias_en_mercado   = EXCLUDED.dias_en_mercado,
-    fotos             = CASE WHEN array_length(EXCLUDED.fotos,1) > 0 THEN EXCLUDED.fotos ELSE raw.listings_metrocuadrado.fotos END,
-    url               = CASE
-        WHEN raw.listings_metrocuadrado.url IS NOT NULL
-        THEN raw.listings_metrocuadrado.url
-        ELSE EXCLUDED.url
-    END;
+    fotos             = CASE WHEN array_length(EXCLUDED.fotos,1) > 0 THEN EXCLUDED.fotos ELSE raw.listings_metrocuadrado.fotos END;
 """
 
 MQ_CDN = "https://multimedia.metrocuadrado.com"
