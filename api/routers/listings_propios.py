@@ -14,7 +14,8 @@ import uuid
 from types import SimpleNamespace
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, Request
+from api.limiter import limiter
 from pydantic import BaseModel, Field
 
 from api.db import get_pool
@@ -151,7 +152,8 @@ class OtpConfirmarRequest(BaseModel):
 
 
 @router.post("/verificar-telefono/enviar")
-async def otp_enviar(req: OtpEnviarRequest, current_user: dict = Depends(get_current_user)):
+@limiter.limit("3/minute")
+async def otp_enviar(request: Request, req: OtpEnviarRequest, current_user: dict = Depends(get_current_user)):
     """Genera y envía el código de verificación del teléfono del owner.
 
     ponytail: canal email (único proveedor configurado); cambiar a SMS/WhatsApp
@@ -183,7 +185,8 @@ async def otp_enviar(req: OtpEnviarRequest, current_user: dict = Depends(get_cur
 
 
 @router.post("/verificar-telefono/confirmar")
-async def otp_confirmar(req: OtpConfirmarRequest, current_user: dict = Depends(get_current_user)):
+@limiter.limit("10/minute")
+async def otp_confirmar(request: Request, req: OtpConfirmarRequest, current_user: dict = Depends(get_current_user)):
     pool = get_pool()
     owner_id = await get_or_create_owner(current_user, pool)
     ok = await pool.fetchval(

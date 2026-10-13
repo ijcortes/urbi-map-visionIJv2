@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from api.limiter import limiter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -24,7 +25,9 @@ class TrackEvent(BaseModel):
 
 
 @router.post("")
+@limiter.limit("120/minute")
 async def track(
+    request: Request,
     req: TrackEvent,
     current_user: Optional[dict] = Depends(get_optional_user),
 ):

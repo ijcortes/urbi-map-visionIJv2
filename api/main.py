@@ -36,13 +36,18 @@ if _SENTRY_DSN:
 
 logger = structlog.get_logger()
 
-_LOCAL_ORIGINS = [
+_IS_PROD = bool(os.getenv("RAILWAY_ENVIRONMENT")) and os.getenv("RAILWAY_ENVIRONMENT") != "development"
+
+_DEV_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
     "http://localhost:5174",
     "http://localhost:8080",
     "http://localhost:8081",
     "http://localhost:8082",
+]
+
+_LOCAL_ORIGINS = [
     "https://urbidata.co",
     "https://www.urbidata.co",
     "https://medellinsocial.com",
@@ -52,7 +57,7 @@ _LOCAL_ORIGINS = [
 def _build_origins() -> list[str]:
     extra = os.getenv("CORS_ORIGINS", "")
     extras = [o.strip() for o in extra.split(",") if o.strip()]
-    return _LOCAL_ORIGINS + extras
+    return _LOCAL_ORIGINS + ([] if _IS_PROD else _DEV_ORIGINS) + extras
 
 
 async def _connect_with_retry() -> None:
@@ -89,6 +94,10 @@ app = FastAPI(
     description="Motor de decisión de inversión inmobiliaria — Valle de Aburrá",
     version="1.0.0",
     lifespan=lifespan,
+    # Swagger/OpenAPI exposed only outside production (set EXPOSE_DOCS=1 to override).
+    docs_url=None if _IS_PROD and not os.getenv("EXPOSE_DOCS") else "/docs",
+    redoc_url=None if _IS_PROD and not os.getenv("EXPOSE_DOCS") else "/redoc",
+    openapi_url=None if _IS_PROD and not os.getenv("EXPOSE_DOCS") else "/openapi.json",
 )
 
 app.state.limiter = limiter

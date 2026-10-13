@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from api.limiter import limiter
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from pydantic import BaseModel
 
@@ -233,6 +234,7 @@ async def cancelar_suscripcion(current_user: dict = Depends(get_current_user)):
 # ── POST /webhook/stripe ───────────────────────────────────────────────────────
 
 @router.post("/webhook/stripe", include_in_schema=False)
+@limiter.limit("120/minute")
 async def webhook_stripe(request: Request):
     payload = await request.body()
     sig = request.headers.get("stripe-signature", "")

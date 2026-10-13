@@ -64,13 +64,43 @@ def _upload_sync(file_bytes: bytes, key: str, content_type: str) -> str:
     return _public_url(key)
 
 
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+_IMAGE_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+                ".webp": "image/webp", ".gif": "image/gif"}
+
+
+def _sniff_image_ext(b: bytes) -> str | None:
+    """Real type from magic bytes (the client-supplied filename/content-type is untrusted)."""
+    if b[:3] == b"\xff\xd8\xff":
+        return ".jpg"
+    if b[:8] == b"\x89PNG\r\n\x1a\n":
+        return ".png"
+    if b[:4] == b"RIFF" and b[8:12] == b"WEBP":
+        return ".webp"
+    if b[:6] in (b"GIF87a", b"GIF89a"):
+        return ".gif"
+    return None
+
+
+def validate_image_upload(file_bytes: bytes) -> str:
+    """Return the sniffed extension or raise HTTP 413/415. Rejects SVG/HTML/exe
+    masquerading as images (stored XSS on the public bucket)."""
+    from fastapi import HTTPException
+    if len(file_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="archivo demasiado grande (max 10 MB)")
+    ext = _sniff_image_ext(file_bytes)
+    if ext is None:
+        raise HTTPException(status_code=415, detail="solo imágenes JPG, PNG, WEBP o GIF")
+    return ext
+
+
 async def upload_file(
     file_bytes: bytes,
     filename: str,
     folder: str = "agentes",
 ) -> str:
-    ext = PurePosixPath(filename).suffix.lower() or ".bin"
-    content_type = mimetypes.types_map.get(ext, "application/octet-stream")
+    ext = validate_image_upload(file_bytes)
+    content_type = _IMAGE_TYPES[ext]
     key = f"{folder}/{uuid.uuid4().hex}{ext}"
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _upload_sync, file_bytes, key, content_type)
