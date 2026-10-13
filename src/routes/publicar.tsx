@@ -1,4 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useTrm } from "@/hooks/useTrm";
+import { formatMoney } from "@/lib/format";
 import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
@@ -33,8 +35,6 @@ function PublicarRoot() {
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 const K = TOKENS;
-
-const COP_USD_RATE = 4200;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -573,7 +573,8 @@ function Step1({
   data: FormData; setData: (p: Partial<FormData>) => void;
 }) {
   const precioCOP = parseCOP(data.precio_cop);
-  const precioUSD = precioCOP ? Math.round(precioCOP / COP_USD_RATE).toLocaleString("en-US") : null;
+  const { valor: trm } = useTrm();
+  const precioUSD = precioCOP && trm ? formatMoney(precioCOP / trm, "USD", "en", { suffix: false }) : null;
   const isArriendo = data.tipo_operacion === "arriendo";
 
   return (
@@ -622,7 +623,7 @@ function Step1({
         </div>
         {precioUSD && (
           <p style={{ fontSize: 12, color: K.teal, marginTop: 4 }}>
-            ≈ USD {precioUSD}
+            ≈ USD {precioUSD.replace(/^\$/, "")}
           </p>
         )}
       </Field>

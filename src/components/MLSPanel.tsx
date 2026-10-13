@@ -10,7 +10,7 @@ import { auth } from "@/lib/auth";
 import { useTarget, targetTipoOperacion } from "@/contexts/TargetContext";
 import { type SharedFilters, EMPTY_SHARED_FILTERS } from "@/components/MapFilterBar";
 import { useComparadorStore } from "@/hooks/useComparadorStore";
-import { useTrm } from "@/hooks/useTrm";
+import { usePriceFormat } from "@/hooks/usePriceFormat";
 import { useIsPro, useIsAgente } from "@/components/LockedField";
 import { useLang } from "@/lib/i18n";
 import { useUnit, formatArea } from "@/hooks/useUnit";
@@ -156,27 +156,15 @@ function ListingCard({
   const isMobile = useIsMobile();
   const { addListing, removeListing, isSelected, canAdd } = useComparadorStore();
   const selected = isSelected(listing.id);
-  const trm = useTrm();
+  const { formatPrice, formatSecondary, formatPricePerArea } = usePriceFormat();
   const { unit } = useUnit();
   const { lang } = useLang();
-  const precioCOP = listing.precio_cop ? formatCOP(listing.precio_cop) : "—";
-  const precioUSD = listing.precio_cop
-    ? (() => {
-        const u = listing.precio_cop / trm;
-        return `~${u >= 1_000_000 ? `$${(u / 1_000_000).toFixed(1)}M` : `$${Math.round(u / 1_000)}k`} USD`;
-      })()
-    : null;
-  const precio    = lang === "en" && precioUSD ? precioUSD : precioCOP;
-  const precioSub = lang === "en" ? precioCOP  : precioUSD;
+  const precio    = formatPrice(listing.precio_cop);
+  const precioSub = formatSecondary(listing.precio_cop);
   // precio_m2 del backend es venta-only (precio total/m²); en arriendo sería
   // canon mensual/m² (escala de miles) — dividir por 1M ahí da basura ($0.0M/m²).
   const _pm2 = listing.tipo_operacion === "venta" ? listing.precio_m2 : null;
-  const m2 =
-    _pm2 && _pm2 > 0 && _pm2 < 50_000_000
-      ? unit === "sqft"
-        ? `$${(_pm2 / 10.7639 / 1_000).toFixed(0)}k/ft²`
-        : `$${(_pm2 / 1_000_000).toFixed(1)}M/m²`
-      : null;
+  const m2 = _pm2 && _pm2 > 0 && _pm2 < 50_000_000 ? formatPricePerArea(_pm2) : null;
   const tipo = listing.tipo_operacion?.toUpperCase() ?? "—";
   const tipoInmueble = listing.tipo_inmueble ?? "";
   const specs = [

@@ -1,5 +1,6 @@
 import { X, ChevronRight, Bed, Bath, Maximize2, Clock, MapPin, Plus, Check } from "@/lib/icons";
-import { formatCOP } from "@/lib/format";
+import { usePriceFormat } from "@/hooks/usePriceFormat";
+import { formatArea } from "@/hooks/useUnit";
 import type { ApiListing } from "@/lib/adapters";
 import { useComparadorStore } from "@/hooks/useComparadorStore";
 import { useIsAgente } from "@/components/LockedField";
@@ -48,6 +49,7 @@ type Props = {
 
 export function ListingMiniPopup({ listing, onClose, onViewMore }: Props) {
   const isAgente = useIsAgente();
+  const { formatPrice, formatSecondary, unit, lang } = usePriceFormat();
   const { addListing, removeListing, isSelected, canAdd } = useComparadorStore();
   const selected = isSelected(listing.id);
 
@@ -102,13 +104,16 @@ export function ListingMiniPopup({ listing, onClose, onViewMore }: Props) {
         {/* Info */}
         <div className="space-y-2 p-3">
           <div className="text-base font-bold leading-tight" style={{ color: "#111418" }}>
-            {listing.precio_cop ? formatCOP(listing.precio_cop) : "—"}
+            {formatPrice(listing.precio_cop)}
+            {formatSecondary(listing.precio_cop) && (
+              <span className="ml-2 text-[11px] font-normal" style={{ color: "#6E726E" }}>{formatSecondary(listing.precio_cop)}</span>
+            )}
           </div>
 
           <div className="flex items-center gap-3 text-xs" style={{ color: "#5B5F5C" }}>
             {listing.area_m2 != null && (
               <span className="flex items-center gap-0.5">
-                <Maximize2 className="h-3 w-3 shrink-0" />{listing.area_m2}m²
+                <Maximize2 className="h-3 w-3 shrink-0" />{formatArea(listing.area_m2, unit)}
               </span>
             )}
             {listing.habitaciones != null && (
@@ -143,7 +148,7 @@ export function ListingMiniPopup({ listing, onClose, onViewMore }: Props) {
                 } else if (canAdd) {
                   addListing(listing);
                 } else {
-                  toast.info("Máximo 5 inmuebles en el comparador");
+                  toast.info(lang === "en" ? "Maximum 5 properties in the comparator" : "Máximo 5 inmuebles en el comparador");
                 }
               }}
               className="flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition"

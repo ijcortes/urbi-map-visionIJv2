@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { formatMoney } from "@/lib/format";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { MapPin, MessageCircle, Users, ArrowRight, Search, Star, ShieldCheck, HelpCircle, X, Home, Calendar, CheckCircle } from "@/lib/icons";
@@ -74,7 +75,7 @@ function waLink(a: Agente): string {
 
 function fmtPrecio(v: number | null | undefined, moneda = "COP"): string {
   if (v == null) return "";
-  return new Intl.NumberFormat("es-CO", { style: "currency", currency: moneda, maximumFractionDigits: 0 }).format(v);
+  return formatMoney(v, moneda === "USD" ? "USD" : "COP", undefined, { suffix: moneda === "USD" });
 }
 
 function Stars({ value, size = 14 }: { value: number; size?: number }) {

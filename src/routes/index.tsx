@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { numberLocale } from "@/lib/format";
 import { useState, useCallback, useRef } from 'react'
 import { MapView } from '@/components/MapView'
 import { ComunidadLayout } from '@/components/comunidad/ComunidadLayout'
@@ -211,7 +212,7 @@ function SideHead({ children }: { children: string }) {
 // del panel "Trading" luzcan como una sola arquitectura.
 function NoticiaRow({ noticia, last = false }: { noticia: { id: number; titulo: string; url: string; fuente: string | null; fecha_publicacion: string | null }; last?: boolean }) {
   const fecha = noticia.fecha_publicacion
-    ? new Date(noticia.fecha_publicacion).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })
+    ? new Date(noticia.fecha_publicacion).toLocaleDateString(numberLocale(), { day: 'numeric', month: 'short' })
     : null
   return (
     <a href={noticia.url} target="_blank" rel="noopener noreferrer" style={{

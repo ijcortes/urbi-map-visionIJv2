@@ -30,18 +30,12 @@ import type { ApiListingDetail, ApiListingAgente, ApiListingAgentes, SimilarList
 import { toEmbedSrc } from "@/lib/embed";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { useComparadorStore } from "@/hooks/useComparadorStore";
-import { useTrm } from "@/hooks/useTrm";
-import { useLang } from "@/lib/i18n";
+import { usePriceFormat } from "@/hooks/usePriceFormat";
+import { formatDate } from "@/lib/format";
+import { useLang, translateString } from "@/lib/i18n";
 import { useUnit, formatArea } from "@/hooks/useUnit";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
-
-function fmtUSD(cop: number, trm: number): string {
-  const v = cop / trm;
-  if (v < 1_000) return `$${Math.round(v)}`;
-  if (v < 1_000_000) return `$${(v / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
-  return `$${(v / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-}
 
 const TIPO_INMUEBLE_COLOR: Record<string, string> = {
   apartamento:   "#0F8A4F",
@@ -986,7 +980,7 @@ type Props = {
 };
 
 export function ListingDrawer({ listingId, onClose }: Props) {
-  const trm = useTrm();
+  const { formatPrice, formatSecondary, formatPricePerArea } = usePriceFormat();
   const { lang } = useLang();
   const { unit } = useUnit();
   const isMobile = useIsMobile();
@@ -1056,19 +1050,23 @@ export function ListingDrawer({ listingId, onClose }: Props) {
   useEffect(() => {
     if (!listing) return;
     const prevTitle = document.title;
-    const price = listing.precio_cop ? formatCOP(listing.precio_cop) : "—";
+    const price = formatPrice(listing.precio_cop);
     const tipo  = (listing.tipo_inmueble ?? "Inmueble").replace(/_/g, " ");
     const barrio = listing.barrio_nombre ?? "Medellín";
     const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-    document.title = `${cap(tipo)} en ${barrio} | ${price} — Medellín Social`;
+    const en = lang === "en";
+    const tipoT = en ? translateString(cap(tipo)) : cap(tipo);
+    document.title = `${tipoT} ${en ? "in" : "en"} ${barrio} | ${price} — Medellín Social`;
     const metaEl = document.querySelector('meta[name="description"]');
     const prevDesc = metaEl?.getAttribute("content") ?? null;
-    metaEl?.setAttribute("content", `${cap(tipo)} en ${barrio} por ${price}. Ver fotos, análisis y contactar agente.`);
+    metaEl?.setAttribute("content", (en
+      ? `${tipoT} in ${barrio} for ${price}. See photos, analysis and contact the agent.`
+      : `${tipoT} en ${barrio} por ${price}. Ver fotos, análisis y contactar agente.`));
     return () => {
       document.title = prevTitle;
       if (metaEl && prevDesc) metaEl.setAttribute("content", prevDesc);
     };
-  }, [listing]);
+  }, [listing, lang, formatPrice]);
 
   if (!listingId) return null;
 
@@ -1083,7 +1081,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
       : null;
 
   const waText = encodeURIComponent(
-    `Hola, me interesa este inmueble en ${listing?.barrio_nombre ?? "Medellín"} por ${listing?.precio_cop ? formatCOP(listing.precio_cop) : "—"} COP. ID: ${listingId}`,
+    `Hola, me interesa este inmueble en ${listing?.barrio_nombre ?? "Medellín"} por ${formatPrice(listing?.precio_cop)}. ID: ${listingId}`,
   );
   const waUrl = `https://wa.me/+573122502394?text=${waText}`;
 
@@ -1163,9 +1161,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
   ) : null;
 
   // Tabla de datos estilo Zillow (2 columnas). Cada celda solo si hay dato.
-  const precioM2Label = (v: number) => unit === "sqft"
-    ? `$${Math.round(v / 10.7639 / 1000)}k/ft²`
-    : (v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M/m²` : `$${Math.round(v / 1000)}k/m²`);
+  const precioM2Label = (v: number) => formatPricePerArea(v);
   const facts: { icon: React.ReactNode; text: string }[] = [];
   if (listing?.tipo_inmueble) facts.push({ icon: <Home className="h-4 w-4" />, text: listing.tipo_inmueble.replace(/_/g, " ") });
   if (listing?.nombre_edificio) facts.push({ icon: <Building2 className="h-4 w-4" />, text: listing.nombre_edificio });
@@ -1348,8 +1344,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
       {/* Historial de precio — todos los targets */}
       {(() => {
         const historia = listing.precio_historia ?? [];
-        const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
-        const fmtFecha = (d: Date) => `${d.getDate()} ${MESES[d.getMonth()]} ${d.getFullYear()}`;
+        const fmtFecha = (d: Date) => formatDate(d, lang);
 
         // Sin historial (≈97% de los inmuebles): mostramos precio actual + fecha/año
         // y avisamos que estamos recopilando el histórico completo.
@@ -1369,7 +1364,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                   {fechaListado && <div className="text-[11px]" style={{ color: "#6E726E" }}>{fmtFecha(fechaListado)}</div>}
                 </div>
                 <div className="text-[15px] font-semibold tabular-nums" style={{ color: "#111418" }}>
-                  {listing.precio_cop ? formatCOP(listing.precio_cop) : "—"}
+                  {formatPrice(listing.precio_cop)}
                 </div>
               </div>
               <p className="text-[11px] leading-relaxed" style={{ color: "#6E726E" }}>
@@ -1396,7 +1391,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                         <div className="text-[11px]" style={{ color: "#6E726E" }}>{cuandoLabel}</div>
                       </div>
                       <div className="text-right">
-                        <div className="text-[14px] font-semibold tabular-nums" style={{ color: "#111418" }}>{formatCOP(h.precio)}</div>
+                        <div className="text-[14px] font-semibold tabular-nums" style={{ color: "#111418" }}>{formatPrice(h.precio)}</div>
                         {h.delta_pct != null && (
                           <div className="text-[11px] font-medium tabular-nums" style={{ color }}>
                             {sube ? "+" : "−"}{Math.abs(h.delta_pct).toFixed(1)}%
@@ -1416,11 +1411,11 @@ export function ListingDrawer({ listingId, onClose }: Props) {
         const chartData = [
           ...sorted.map(h => ({
             fecha: h.fecha.slice(5, 10).replace("-", "/"), // MM/DD
-            precio: +(h.precio / 1_000_000).toFixed(2),
+            precio: h.precio,
           })),
-          { fecha: "Hoy", precio: +((listing.precio_cop ?? 0) / 1_000_000).toFixed(2) },
+          { fecha: lang === "en" ? "Today" : "Hoy", precio: listing.precio_cop ?? 0 },
         ];
-        const currentPrecioM = +((listing.precio_cop ?? 0) / 1_000_000).toFixed(2);
+        const currentPrecioM = listing.precio_cop ?? 0;
 
         return (
           <div className="space-y-3">
@@ -1437,7 +1432,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                   <XAxis dataKey="fecha" tick={{ fontSize: 10, fill: "#6E726E" }} tickLine={false} axisLine={false} dy={4} />
                   <YAxis hide domain={["auto", "auto"]} />
                   <RechartsTooltip
-                    formatter={(val: unknown) => [`$${val}M COP`, "Precio"]}
+                    formatter={(val: unknown) => [formatPrice(Number(val)), lang === "en" ? "Price" : "Precio"]}
                     contentStyle={{ background: "#111418", border: "none", borderRadius: 8, color: "#fff", fontSize: 11, padding: "6px 10px" }}
                     labelStyle={{ color: "rgba(255,255,255,0.6)", fontSize: 10 }}
                   />
@@ -1447,7 +1442,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                     dot={{ r: 2.5, fill: "#0F8A4F", strokeWidth: 0 }}
                     activeDot={{ r: 4, fill: "#0F8A4F" }}
                   />
-                  <ReferenceDot x="Hoy" y={currentPrecioM} r={4} fill="#111418" stroke="#fff" strokeWidth={2} />
+                  <ReferenceDot x={lang === "en" ? "Today" : "Hoy"} y={currentPrecioM} r={4} fill="#111418" stroke="#fff" strokeWidth={2} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -1540,7 +1535,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
               )}
             </div>
             <div className="space-y-0.5 p-2.5">
-              <div className="text-sm font-semibold" style={{ color: "#111418" }}>{s.precio_cop ? formatCOP(s.precio_cop) : "—"}</div>
+              <div className="text-sm font-semibold" style={{ color: "#111418" }}>{formatPrice(s.precio_cop)}</div>
               <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "#5B5F5C" }}>
                 {s.area_m2 != null && <span>{formatArea(s.area_m2, unit)}</span>}
                 {s.habitaciones != null && <span>· {s.habitaciones} hab</span>}
@@ -1623,11 +1618,11 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                           <div className="flex items-start justify-between gap-3">
                             <div data-i18n-skip="true">
                               <div className="font-display text-2xl font-bold leading-tight" style={{ fontFamily: "'Fraunces', Georgia, serif", color: "#111418" }}>
-                                {listing.precio_cop ? (lang === "en" ? `${fmtUSD(listing.precio_cop, trm)} USD` : formatCOP(listing.precio_cop)) : "—"}
+                                {formatPrice(listing.precio_cop)}
                               </div>
                               {listing.precio_cop && (
                                 <div className="text-xs text-[#5B5F5C]">
-                                  {lang === "en" ? formatCOP(listing.precio_cop) : `~${fmtUSD(listing.precio_cop, trm)} USD`}
+                                  {formatSecondary(listing.precio_cop)}
                                 </div>
                               )}
                             </div>
@@ -1699,11 +1694,11 @@ export function ListingDrawer({ listingId, onClose }: Props) {
             <div className="flex items-start justify-between gap-3">
               <div data-i18n-skip="true">
                 <div className="font-display text-3xl font-bold leading-tight" style={{ fontFamily: "'Fraunces', Georgia, serif", color: "#111418" }}>
-                  {listing.precio_cop ? (lang === "en" ? `${fmtUSD(listing.precio_cop, trm)} USD` : formatCOP(listing.precio_cop)) : "—"}
+                  {formatPrice(listing.precio_cop)}
                 </div>
                 {listing.precio_cop && (
                   <div className="text-xs text-[#5B5F5C]">
-                    {lang === "en" ? formatCOP(listing.precio_cop) : `~${fmtUSD(listing.precio_cop, trm)} USD`}
+                    {formatSecondary(listing.precio_cop)}
                   </div>
                 )}
               </div>

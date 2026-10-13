@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { formatMoney } from "@/lib/format";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ComunidadLayout } from "@/components/comunidad/ComunidadLayout";
@@ -44,8 +45,7 @@ const K = TOKENS;
 
 function fmtM(n: number | null | undefined): string {
   if (!n) return "—";
-  if (n >= 1_000_000) return `$${Math.round(n / 1_000_000).toLocaleString("es-CO")}M`;
-  return `$${n.toLocaleString("es-CO")}`;
+  return formatMoney(n, "COP", undefined, { suffix: false });
 }
 
 function fmtPct(n: number | null | undefined): string {

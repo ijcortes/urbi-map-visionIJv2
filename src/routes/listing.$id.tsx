@@ -7,7 +7,8 @@ import {
 import { apiFetch } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { MAPBOX_TOKEN } from "@/lib/mapboxToken";
-import { formatCOP, yieldColor, yieldLabel } from "@/lib/format";
+import { yieldColor, yieldLabel } from "@/lib/format";
+import { usePriceFormat } from "@/hooks/usePriceFormat";
 import type { ApiListingDetail } from "@/lib/adapters";
 import { SiteNavbar } from "@/components/SiteNavbar";
 import { PhotoGallery } from "@/components/PhotoGallery";
@@ -154,6 +155,7 @@ export function ListingDetailContent({
   isModal?: boolean;
 }) {
   const { lat, lon } = listing;
+  const { formatPrice, formatSecondary, formatPricePerArea } = usePriceFormat();
   const fuente = (listing.fuente ?? "").toLowerCase();
   const tipoOp = listing.tipo_operacion ?? "venta";
 
@@ -163,7 +165,7 @@ export function ListingDetailContent({
       : null;
 
   const waText = encodeURIComponent(
-    `Hola, me interesa este listing en ${listing.barrio_nombre ?? ""} de ${listing.precio_cop ? formatCOP(listing.precio_cop) : "—"}. ID: ${listing.id}`,
+    `Hola, me interesa este listing en ${listing.barrio_nombre ?? ""} de ${formatPrice(listing.precio_cop)}. ID: ${listing.id}`,
   );
   const waUrl = `https://wa.me/+573122502394?text=${waText}`;
 
@@ -359,7 +361,7 @@ export function ListingDetailContent({
                     <div className="text-xs text-muted-foreground">
                       Mediana zona:{" "}
                       {listing.precio_m2_mediana_barrio
-                        ? `${(listing.precio_m2_mediana_barrio / 1_000_000).toFixed(1)}M/m²`
+                        ? formatPricePerArea(listing.precio_m2_mediana_barrio)
                         : "—"}
                     </div>
                   </div>
@@ -378,7 +380,7 @@ export function ListingDetailContent({
                     <div className="text-xs text-muted-foreground">Arriendo referencia barrio</div>
                     <div className="text-2xl font-bold">
                       {listing.arriendo_p50_barrio
-                        ? formatCOP(listing.arriendo_p50_barrio)
+                        ? formatPrice(listing.arriendo_p50_barrio)
                         : "—"}
                     </div>
                     <div className="text-xs text-muted-foreground">
@@ -390,7 +392,7 @@ export function ListingDetailContent({
                     <div className="text-xs text-muted-foreground">Ingreso anual estimado</div>
                     <div className="text-2xl font-bold text-primary">
                       {listing.arriendo_p50_barrio
-                        ? formatCOP(listing.arriendo_p50_barrio * 12)
+                        ? formatPrice(listing.arriendo_p50_barrio * 12)
                         : "—"}
                     </div>
                     <div className="text-xs text-muted-foreground">
@@ -485,13 +487,13 @@ export function ListingDetailContent({
                         {s.tipo_inmueble} · {s.barrio_nombre}
                       </div>
                       <div className="font-bold">
-                        {s.precio_cop ? formatCOP(s.precio_cop) : "—"}
+                        {formatPrice(s.precio_cop)}
                       </div>
                       <div className="mt-1 flex gap-2 text-xs text-muted-foreground">
                         {s.habitaciones != null && <span>{s.habitaciones}hab</span>}
                         {s.area_m2 != null && <span>{s.area_m2}m²</span>}
                         {s.precio_m2 != null && tipoOp === "venta" && (
-                          <span>{(s.precio_m2 / 1_000_000).toFixed(1)}M/m²</span>
+                          <span>{formatPricePerArea(s.precio_m2)}</span>
                         )}
                       </div>
                     </Link>
@@ -507,11 +509,11 @@ export function ListingDetailContent({
             <div className="space-y-4 rounded-2xl border border-[#E5E0D5] bg-white p-6 backdrop-blur-sm">
               <div>
                 <div className="font-display text-3xl font-bold leading-tight" style={{ color: '#111418' }}>
-                  {listing.precio_cop ? formatCOP(listing.precio_cop) : "—"}
+                  {formatPrice(listing.precio_cop)}
                 </div>
-                {listing.precio_usd && (
+                {formatSecondary(listing.precio_cop) && (
                   <div className="mt-0.5 text-sm" style={{ color: '#5B5F5C' }}>
-                    ~{listing.precio_usd >= 1_000_000 ? `$${(listing.precio_usd / 1_000_000).toFixed(1)}M` : `$${Math.round(listing.precio_usd / 1_000)}k`} USD
+                    {formatSecondary(listing.precio_cop)}
                   </div>
                 )}
               </div>
@@ -547,7 +549,7 @@ export function ListingDetailContent({
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Precio/m²</span>
                       <span className="font-semibold">
-                        {(listing.precio_m2 / 1_000_000).toFixed(1)}M/m²
+                        {formatPricePerArea(listing.precio_m2)}
                       </span>
                     </div>
                   )}
@@ -555,7 +557,7 @@ export function ListingDetailContent({
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Mediana zona</span>
                       <span>
-                        {(listing.precio_m2_mediana_barrio / 1_000_000).toFixed(1)}M/m²
+                        {formatPricePerArea(listing.precio_m2_mediana_barrio)}
                       </span>
                     </div>
                   )}
@@ -581,7 +583,7 @@ export function ListingDetailContent({
                   {listing.arriendo_p50_barrio != null && tipoOp === "venta" && (
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Arriendo ref. barrio</span>
-                      <span>{formatCOP(listing.arriendo_p50_barrio)}</span>
+                      <span>{formatPrice(listing.arriendo_p50_barrio)}</span>
                     </div>
                   )}
                 </div>

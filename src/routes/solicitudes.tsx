@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { formatCOP, formatDate } from "@/lib/format";
 import { useState, useEffect } from "react";
 import { auth } from "@/lib/auth";
 import { getToken } from "@/lib/apiClient";
@@ -200,9 +201,9 @@ function SolicitudCard({
   readOnly?: boolean;
 }) {
   const foto = sol.fotos?.[0];
-  const precio = `$${sol.precio_cop.toLocaleString("es-CO")} COP`;
+  const precio = formatCOP(sol.precio_cop);
   const propietario = `${sol.propietario_nombre} ${sol.propietario_apellido}`.trim();
-  const date = new Date(sol.created_at).toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" });
+  const date = formatDate(sol.created_at);
 
   const estadoBadge = {
     pendiente:  { bg: "#FFF6D6", color: "#856404", label: "Pendiente" },

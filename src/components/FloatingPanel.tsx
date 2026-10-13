@@ -41,10 +41,10 @@ import { LIQUIDITY_COLORS } from "@/data/marketActivity";
 import { OPP_COLORS, getScoreColor, getScoreLabel } from "@/config/mapColors";
 import { auth, GOAL_LABEL, recommendation, type Goal } from "@/lib/auth";
 import { useTarget, TARGET_OPTIONS } from "@/contexts/TargetContext";
-import { formatCOP, formatPct, yieldColor } from "@/lib/format";
+import { formatCOP, formatNumber, formatPct, yieldColor } from "@/lib/format";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useLang, AutoTranslate } from "@/lib/i18n";
-import { useTrm } from "@/hooks/useTrm";
+import { usePriceFormat } from "@/hooks/usePriceFormat";
 import { useListings, useCiudadStats, useBarrios, useBarriosRaw } from "@/hooks/useBarrios";
 import { useFavoritos, useToggleFavorito } from "@/hooks/useUser";
 import type { ApiListing } from "@/lib/adapters";
@@ -1204,7 +1204,7 @@ function AirbnbSection({ n }: { n: Neighborhood }) {
           <div className="flex justify-between items-center">
             <span className="text-muted-foreground">Ingresos anuales estimados:</span>
             <span className="font-semibold text-emerald-400">
-              ${(ab.ingresos_anuales_p50_cop / 1_000_000).toFixed(1)}M COP
+              {formatCOP(ab.ingresos_anuales_p50_cop)}
             </span>
           </div>
         )}
@@ -1527,7 +1527,7 @@ function CatastroSection({ n }: { n: Neighborhood }) {
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
           <div>
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Total predios</div>
-            <div className="mt-0.5 font-semibold">{cat.total_predios.toLocaleString()}</div>
+            <div className="mt-0.5 font-semibold">{formatNumber(cat.total_predios)}</div>
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">% Apartamentos</div>
@@ -1585,12 +1585,12 @@ function MercadoRealSection({ n }: { n: Neighborhood }) {
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
           <div>
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Ventas cerradas {mr.anio_dato}</div>
-            <div className="mt-0.5 font-semibold">{mr.n_transacciones_anual?.toLocaleString() ?? "—"}</div>
+            <div className="mt-0.5 font-semibold">{mr.n_transacciones_anual != null ? formatNumber(mr.n_transacciones_anual) : "—"}</div>
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Valor mediana cierre</div>
             <div className="mt-0.5 font-semibold">
-              {mr.valor_mediana_anual != null ? `$${(mr.valor_mediana_anual / 1_000_000).toFixed(0)}M` : "—"}
+              {mr.valor_mediana_anual != null ? formatCOP(mr.valor_mediana_anual) : "—"}
             </div>
           </div>
           <div>
@@ -1616,7 +1616,7 @@ function MercadoRealSection({ n }: { n: Neighborhood }) {
         )}
       </div>
       <p className="mt-1.5 text-[10px] text-muted-foreground">
-        Fuente: registro notarial SNR/ORIPS, nivel municipio (no barrio) — {mr.n_transacciones_anual?.toLocaleString()} transacciones reales de {n.municipio} en {mr.anio_dato}.
+        Fuente: registro notarial SNR/ORIPS, nivel municipio (no barrio) — {mr.n_transacciones_anual != null ? formatNumber(mr.n_transacciones_anual) : "—"} transacciones reales de {n.municipio} en {mr.anio_dato}.
         {mr.ipvn_dane_pct != null && ` Índice DANE nacional del mismo año: ${mr.ipvn_dane_pct > 0 ? "+" : ""}${mr.ipvn_dane_pct}% (referencia, no aplicado como ajuste).`}
         {" "}Valor absoluto, no controla mezcla de tipo/tamaño de inmueble.
       </p>
@@ -1703,13 +1703,10 @@ function ValorizacionSection({ n }: { n: Neighborhood }) {
 
 function ListingCard({ l }: { l: ApiListing }) {
   const mc = l.relevancia_score != null ? matchColor(l.relevancia_score) : null;
-  const { lang } = useLang();
-  const trm = useTrm();
+  const { formatPrice, formatSecondary, formatPricePerArea } = usePriceFormat();
   const cop = l.precio_cop ?? 0;
-  const usdVal = cop / trm;
-  const usdStr = cop ? `~${usdVal >= 1_000_000 ? `$${(usdVal / 1_000_000).toFixed(1)}M` : `$${Math.round(usdVal / 1_000)}k`} USD` : null;
-  const primary = lang === "en" && usdStr ? usdStr : formatCOP(cop);
-  const secondary = lang === "en" ? formatCOP(cop) : usdStr;
+  const primary = formatPrice(cop);
+  const secondary = formatSecondary(cop);
   return (
     <div style={{ borderRadius: 10, border: '1px solid rgb(184 164 138 / 55%)', background: 'rgba(255,255,255,0.6)', padding: 12 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
@@ -1753,7 +1750,7 @@ function ListingCard({ l }: { l: ApiListing }) {
             </span>
           )}
           {l.precio_m2 != null && (
-            <div style={{ fontSize: 11, color: '#33473D', fontWeight: 600 }}>{formatCOP(l.precio_m2)}/m²</div>
+            <div style={{ fontSize: 11, color: '#33473D', fontWeight: 600 }}>{formatPricePerArea(l.precio_m2)}</div>
           )}
           {l.url && (
             <a href={l.url} target="_blank" rel="noopener noreferrer"
@@ -1778,6 +1775,7 @@ function ListingsView({
   perfil?: string;
   risk?: string;
 }) {
+  const { formatPrice: fmtP } = usePriceFormat();
   const defaultOp: "venta" | "arriendo" = perfil === "mediano_plazo" ? "arriendo" : "venta";
   const [op, setOp] = useState<"venta" | "arriendo">(defaultOp);
   const [precioMax, setPrecioMax] = useState<number | null>(null);
@@ -1848,7 +1846,7 @@ function ListingsView({
             isLoading
               ? "Precio máx · cargando…"
               : maxPrecioData > 0
-              ? `Precio máx · ${formatCOP(sliderPrecio)}`
+              ? `Precio máx · ${fmtP(sliderPrecio)}`
               : "Precio máx · sin datos"
           }
           onReset={precioMax !== null ? () => setPrecioMax(null) : undefined}

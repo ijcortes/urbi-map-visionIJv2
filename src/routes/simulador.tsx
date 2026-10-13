@@ -28,7 +28,7 @@ import {
 } from "recharts";
 import { z } from "zod";
 import { MapNavbar } from "@/components/MapNavbar";
-import { formatCOP, formatPct } from "@/lib/format";
+import { formatCOP, formatPct, formatUSD } from "@/lib/format";
 import { auth } from "@/lib/auth";
 import { apiFetch } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
@@ -165,7 +165,7 @@ function SimuladorPage() {
   const [cuotaInicial, setCuotaInicial] = useState(search.cuota_inicial ?? 30);
   const [tasaAnual, setTasaAnual] = useState(search.tasa ?? 13);
   const [plazoAnos, setPlazoAnos] = useState<10 | 15 | 20>((search.plazo as 10 | 15 | 20) ?? 15);
-  const usdRate = useTrm();
+  const { valor: usdRate } = useTrm();
 
   // Gastos
   const [showGastos, setShowGastos] = useState(false);
@@ -386,7 +386,7 @@ function SimuladorPage() {
                     {titleCase(listingData.barrio_nombre ?? "")}
                   </span>
                   {" · "}
-                  {formatCOP(listingData.precio)} COP
+                  {formatCOP(listingData.precio)}
                   {listingData.administracion ? ` · Admin: ${formatCOP(listingData.administracion)}/mes` : ""}
                 </span>
               ) : (
@@ -511,7 +511,7 @@ function SimuladorPage() {
                 />
                 <span className="text-xs text-[#5B5F5C]">M COP</span>
                 <span className="ml-auto text-xs text-[#5B5F5C]">
-                  ≈ ${((presupuesto * 1_000_000) / usdRate).toLocaleString("en-US", { maximumFractionDigits: 0 })} USD
+                  {usdRate ? `≈ ${formatUSD((presupuesto * 1_000_000) / usdRate, "en")}` : ""}
                 </span>
               </div>
               <input
@@ -1280,7 +1280,7 @@ function AlternativasSection({
                 {titleCase(alt.tipo_inmueble ?? "Inmueble")} · {titleCase(alt.barrio_nombre)}
               </div>
               <div className="mt-0.5 text-xs text-[#5B5F5C]">
-                {formatCOP(alt.precio)} COP
+                {formatCOP(alt.precio)}
                 {alt.area_m2 != null && ` · ${alt.area_m2}m²`}
                 {alt.habitaciones != null && ` · ${alt.habitaciones} hab`}
               </div>

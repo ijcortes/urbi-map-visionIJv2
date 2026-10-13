@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
-import { barrioToNeighborhood, type ApiBarrio, type ApiListingsResponse } from "@/lib/adapters";
+import { barrioToNeighborhood, appendPriceParams, type ApiBarrio, type ApiListingsResponse } from "@/lib/adapters";
 import { setScoreThresholds } from "@/config/mapColors";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -523,8 +523,7 @@ export function useAllListings(filters: AllListingsFilters) {
       if (filters.barrio_id != null) params.set("barrio_id", String(filters.barrio_id));
       if (filters.tipo_operacion) params.set("tipo_operacion", filters.tipo_operacion);
       if (filters.tipo_inmueble) params.set("tipo_inmueble", filters.tipo_inmueble);
-      if (filters.precio_min != null) params.set("precio_min", String(filters.precio_min));
-      if (filters.precio_max != null) params.set("precio_max", String(filters.precio_max));
+      appendPriceParams(params, filters.precio_min, filters.precio_max);
       if (filters.area_min != null) params.set("area_min", String(filters.area_min));
       if (filters.habitaciones != null) params.set("habitaciones", String(filters.habitaciones));
       params.set("limit", String(filters.limit ?? 200));
@@ -579,8 +578,7 @@ export function useListings(
         for (const a of extraFilters.amenidades) params.append("amenidades", a);
       }
       if (extraFilters?.amoblado != null) params.set("amoblado", String(extraFilters.amoblado));
-      if (extraFilters?.precio_min != null) params.set("precio_min", String(extraFilters.precio_min));
-      if (extraFilters?.precio_max != null) params.set("precio_max", String(extraFilters.precio_max));
+      appendPriceParams(params, extraFilters?.precio_min, extraFilters?.precio_max);
       if (extraFilters?.habitaciones != null) params.set("habitaciones", String(extraFilters.habitaciones));
       if (extraFilters?.tipo_inmueble?.length) {
         for (const t of extraFilters.tipo_inmueble) params.append("tipo_inmueble", t);

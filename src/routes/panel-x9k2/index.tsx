@@ -1,4 +1,5 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { formatMoney } from "@/lib/format";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -370,7 +371,7 @@ type ListingRevision = {
 };
 
 const fmtCOP = (n: number) =>
-  n >= 1_000_000_000 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1_000_000 ? `$${Math.round(n / 1e6)}M` : `$${n.toLocaleString("es-CO")}`;
+  formatMoney(n, "COP", "es", { suffix: false });
 
 function ListingsTab() {
   const qc = useQueryClient();

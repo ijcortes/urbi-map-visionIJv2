@@ -3,13 +3,13 @@ import { useQuery } from "@tanstack/react-query";
 import { Bath, Bed, Building2, ChevronRight, MapPin, Maximize2, X } from "@/lib/icons";
 import { apiFetch } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
-import { formatCOP } from "@/lib/format";
+import { usePriceFormat } from "@/hooks/usePriceFormat";
+import { formatNumber, M2_PER_FT2 } from "@/lib/format";
 import type { ApiListing, ApiListingDetail } from "@/lib/adapters";
 import { PopupGallery } from "./PopupGallery";
 
 const POPUP_WIDTH = 300;
 
-const copShort = (n: number) => formatCOP(Math.round(n)).replace(" COP", "");
 
 /** Pin data comes ALL CAPS (barrio_nombre "ALEJANDRIA") — sentence-case it while
  *  the detail (which has *_display already cased) loads. */
@@ -26,6 +26,7 @@ type Props = {
 
 export function ListingPopup({ listing, onClose, onViewMore }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const { formatPrice, formatSecondary, formatPricePerArea, unit, lang } = usePriceFormat();
 
   // Same queryKey as ListingDrawer → shared cache; opening the drawer after is free.
   const { data: detail, isLoading } = useQuery<ApiListingDetail>({
@@ -75,7 +76,6 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
   const d = detail;
   const tipoOp = d?.tipo_operacion ?? listing.tipo_operacion;
   const precioCop = d?.precio_cop ?? listing.precio_cop;
-  const precioUsd = d?.precio_usd ?? listing.precio_usd;
   const habitaciones = d?.habitaciones ?? listing.habitaciones;
   const banos = d?.banos ?? listing.banos;
   const areaM2 = d?.area_m2 ?? listing.area_m2;
@@ -166,11 +166,11 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
           <div>
             <div className="flex items-baseline gap-2">
               <span className="text-xl font-bold leading-tight" style={{ color: "#111418" }}>
-                {desdePrecio ? `Desde ${formatCOP(desdePrecio)}` : precioCop ? formatCOP(precioCop) : "—"}
+                {desdePrecio ? `${lang === "en" ? "From" : "Desde"} ${formatPrice(desdePrecio)}` : formatPrice(precioCop)}
               </span>
-              {!desdePrecio && precioUsd != null && precioUsd > 0 && (
+              {!desdePrecio && formatSecondary(precioCop) && (
                 <span className="text-[11px]" style={{ color: "#6E726E" }}>
-                  ≈ US${Math.round(precioUsd).toLocaleString("en-US")}
+                  {formatSecondary(precioCop)}
                 </span>
               )}
             </div>
@@ -184,10 +184,10 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
                 <span className="flex items-center gap-1"><Bath className="h-3.5 w-3.5 shrink-0" />{Math.round(banos)} baños</span>
               )}
               {areaM2 != null && (
-                <span className="flex items-center gap-1"><Maximize2 className="h-3.5 w-3.5 shrink-0" />{Math.round(areaM2)} m²</span>
+                <span className="flex items-center gap-1"><Maximize2 className="h-3.5 w-3.5 shrink-0" />{unit === "sqft" ? `${formatNumber(Math.round(areaM2 * M2_PER_FT2), lang)} ft²` : `${formatNumber(Math.round(areaM2), lang)} m²`}</span>
               )}
               {precioM2 != null && precioM2 > 0 && (
-                <span>{copShort(precioM2)}/m²</span>
+                <span>{formatPricePerArea(precioM2)}</span>
               )}
             </div>
 

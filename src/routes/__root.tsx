@@ -148,8 +148,14 @@ export const Route = createRootRoute({
 
 function RootShell({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es" translate="no" className="dark">
+    <html lang="es" translate="no" className="dark" suppressHydrationWarning>
       <head>
+        {/* Set <html lang> from the stored choice before first paint (no ES flash on the root attribute). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var m=document.cookie.match(/(?:^|; )medellin-social\\.lang=(en|es)/),l=localStorage.getItem("medellin-social.lang")||(m&&m[1]);if(l==="en"||l==="es")document.documentElement.lang=l}catch(e){}`,
+          }}
+        />
         <HeadContent />
       </head>
       <body className="bg-background text-foreground">

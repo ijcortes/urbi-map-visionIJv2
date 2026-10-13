@@ -5,7 +5,7 @@ import { pointOnFeature } from "@turf/turf";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { MAPBOX_TOKEN } from "@/lib/mapboxToken";
 import { auth, MAP_STYLES } from "@/lib/auth";
-import { barrioToNeighborhood, type ApiBarrio, type Neighborhood } from "@/lib/adapters";
+import { barrioToNeighborhood, appendPriceParams, type ApiBarrio, type Neighborhood } from "@/lib/adapters";
 import { useBarriosRaw, useScoreThresholds, useComunasMetrics, type ComunaMetrics } from "@/hooks/useBarrios";
 import type { ApiListing } from "@/lib/adapters";
 import { apiFetch } from "@/lib/apiClient";
@@ -165,109 +165,7 @@ function featureCentroid(feat: mapboxgl.MapboxGeoJSONFeature): [number, number] 
   return [c.lat, c.lng];
 }
 
-// ── Popup HTML for individual listing ───────────────────────────────────────
-
-function _fmtCOP(n: number): string {
-  const m = Math.round(n / 1_000_000);
-  return `$${m.toLocaleString("es-CO")}M`;
-}
-
-function _fmtM2(n: number): string {
-  return `$${(n / 1_000_000).toFixed(1)}M/m²`;
-}
-
-function _scoreLabel(s: number): string {
-  if (s >= 70) return "EXCELENTE";
-  if (s >= 55) return "BUENO";
-  if (s >= 40) return "MODERADO";
-  return "BAJO";
-}
-
-function buildListingPopupHTML(
-  props: Record<string, unknown>,
-  barrio: ApiBarrio | undefined,
-  _perfil?: string,
-): string {
-  const precio_cop   = (props.precio_cop   as number | null) ?? null;
-  const precio_usd   = (props.precio_usd   as number | null) ?? null;
-  const precio_m2    = (props.precio_m2    as number | null) ?? null;
-  const mediana      = (props.precio_m2_mediana_barrio as number | null) ?? null;
-  const area_m2      = (props.area_m2      as number | null) ?? null;
-  const habitaciones = (props.habitaciones as number | null) ?? null;
-  const banos        = (props.banos        as number | null) ?? null;
-  const tipo_op      = (props.tipo_op      as string) ?? "venta";
-  const tipo_inmueble= (props.tipo_inmueble as string) ?? "";
-  const barrio_nombre= (props.barrio_nombre as string) ?? "";
-  const fuente       = ((props.fuente      as string) ?? "").toLowerCase();
-  const url          = (props.url          as string) ?? "";
-
-  const tipoBg    = tipo_op === "arriendo" ? "#E7F4EC" : "#FCE8EA";
-  const tipoColor = tipo_op === "arriendo" ? "#0F8A4F" : "#CE1126";
-  const tipoBadge = `<span style="background:${tipoBg};color:${tipoColor};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.05em;">${tipo_op.toUpperCase()}</span>`;
-  const inmBadge     = tipo_inmueble
-    ? `<span style="background:rgba(26,18,8,.07);color:#5B5F5C;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;text-transform:capitalize;">${tipo_inmueble}</span>`
-    : "";
-
-  const specs = [
-    area_m2      ? `📐 ${area_m2}m²`        : null,
-    habitaciones ? `🛏️ ${habitaciones}hab`  : null,
-    banos        ? `🚿 ${banos}baños`        : null,
-  ].filter(Boolean).join("&nbsp;&nbsp;");
-
-  let badgeHTML = "";
-  if (tipo_op === "venta" && precio_m2 && mediana && mediana > 0) {
-    const diff = (precio_m2 - mediana) / mediana * 100;
-    if (diff < -10)
-      badgeHTML = `<div style="margin-top:8px;"><div style="color:#0A5C36;font-weight:700;font-size:12px;">🟢 BUENA OFERTA</div><div style="color:#6E726E;font-size:11px;">${Math.abs(diff).toFixed(0)}% bajo la mediana del barrio</div></div>`;
-    else if (diff > 15)
-      badgeHTML = `<div style="margin-top:8px;"><div style="color:#CE1126;font-weight:700;font-size:12px;">🔴 SOBRE PRECIO</div><div style="color:#6E726E;font-size:11px;">${diff.toFixed(0)}% sobre la mediana</div></div>`;
-    else
-      badgeHTML = `<div style="margin-top:8px;"><div style="color:#6E726E;font-weight:700;font-size:12px;">⚪ PRECIO JUSTO</div><div style="color:#6E726E;font-size:11px;">Dentro del rango del barrio</div></div>`;
-  }
-
-  let yieldHTML = "";
-  if (tipo_op === "venta" && precio_cop && barrio?.mercado?.arriendo_p50_cop) {
-    const y = barrio.mercado.arriendo_p50_cop * 12 / precio_cop * 100;
-    if (y > 0 && y < 30)
-      yieldHTML = `<div style="color:#6E726E;font-size:11px;">Yield estimado: <strong style="color:#111418;">${y.toFixed(1)}%</strong></div>`;
-  }
-
-  let scoreHTML = "";
-  if (barrio?.scores?.score_activo != null) {
-    const s = barrio.scores.score_activo;
-    scoreHTML = `<div style="color:#6E726E;font-size:11px;">Score zona: <strong style="color:#0F8A4F;">${s}</strong> · ${_scoreLabel(s)}</div>`;
-  }
-
-  const sourceMap: Record<string, string> = {
-    fincaraiz:      "Ver en Fincaraíz →",
-    metrocuadrado:  "Ver en Metrocuadrado →",
-    medellinliving: "Ver en MedellinLiving →",
-  };
-  const sourceLabel = sourceMap[fuente] ?? "Ver listado →";
-  const waText  = encodeURIComponent(
-    `Hola, estoy interesado en una propiedad en ${barrio_nombre} de ${precio_cop ? _fmtCOP(precio_cop) : "—"} COP. ¿Pueden ayudarme?`
-  );
-  const waUrl   = `https://wa.me/+573122502394?text=${waText}`;
-  const btnBase = `cursor:pointer;padding:6px 10px;border-radius:6px;font-size:11px;font-weight:600;border:1px solid;`;
-  const btnSrc  = url
-    ? `<button onclick="window.open('${url.replace(/'/g,"\\'")}','_blank')" style="${btnBase}background:transparent;border-color:#E5E0D5;color:#5B5F5C;">${sourceLabel}</button>`
-    : "";
-  const btnWa   = `<button onclick="window.open('${waUrl}','_blank')" style="${btnBase}background:#0A5C36;border-color:#0A5C36;color:#FFFFFF;">Agente 💬</button>`;
-
-  return `
-<div style="font-family:system-ui,sans-serif;min-width:220px;max-width:290px;color:#111418;">
-  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;">${tipoBadge}${inmBadge}</div>
-  <div data-i18n-skip style="color:#6E726E;font-size:11px;margin-bottom:8px;">${barrio_nombre}</div>
-  ${precio_cop  ? `<div style="font-size:18px;font-weight:700;color:#111418;">${_fmtCOP(precio_cop)} COP</div>` : ""}
-  ${precio_usd  ? `<div style="color:#6E726E;font-size:11px;margin-bottom:6px;">~${precio_usd >= 1000000 ? `$${(precio_usd/1000000).toFixed(1)}M` : `$${Math.round(precio_usd/1000)}k`} USD</div>` : ""}
-  ${specs       ? `<div style="font-size:12px;color:#5B5F5C;margin:6px 0;">${specs}</div>` : ""}
-  ${precio_m2 && tipo_op === "venta" ? `<div style="font-size:11px;color:#6E726E;">Precio/m²: <strong style="color:#111418;">${_fmtM2(precio_m2)}</strong></div>` : ""}
-  ${mediana && tipo_op === "venta" ? `<div style="font-size:11px;color:#6E726E;">Mediana zona: <strong style="color:#111418;">${_fmtM2(mediana)}</strong></div>` : ""}
-  ${badgeHTML}
-  ${yieldHTML || scoreHTML ? `<div style="margin-top:6px;">${yieldHTML}${scoreHTML}</div>` : ""}
-  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">${btnSrc}${btnWa}</div>
-</div>`;
-}
+// Popup HTML builder lives in @/lib/listingPopupHtml (pure, lang/currency-aware).
 
 export function MapView({
   onSelect,
@@ -1204,8 +1102,7 @@ export function MapView({
         zoom: String(Math.round(map.getZoom())),
       });
       if (mlsTipoOp) params.set("tipo_operacion", mlsTipoOp);
-      if (mlsPrecioMin != null) params.set("precio_min", String(mlsPrecioMin));
-      if (mlsPrecioMax != null) params.set("precio_max", String(mlsPrecioMax));
+      appendPriceParams(params, mlsPrecioMin, mlsPrecioMax);
       if (mlsAmoblado != null) params.set("amoblado", String(mlsAmoblado));
       // Geographic selection — backend ignores bbox when a zone is active.
       if (mlsBarrioId != null) params.set("barrio_id", String(mlsBarrioId));

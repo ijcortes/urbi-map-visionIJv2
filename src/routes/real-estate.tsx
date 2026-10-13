@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { formatMoney } from "@/lib/format";
 import { useQuery } from '@tanstack/react-query'
 import { useState, useMemo } from 'react'
 import { apiFetch } from '@/lib/apiClient'
@@ -32,8 +33,7 @@ const K = TOKENS;
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function fmtCOP(n: number): string {
-  if (n >= 1_000_000) return `$${Math.round(n / 1_000_000).toLocaleString("es-CO")}M`
-  return `$${n.toLocaleString('es-CO')}`
+  return formatMoney(n, "COP", undefined, { suffix: false })
 }
 
 // ── Static data ───────────────────────────────────────

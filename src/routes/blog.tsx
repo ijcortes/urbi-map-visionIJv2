@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { numberLocale } from "@/lib/format";
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { API_BASE_URL } from '@/config/api'
@@ -172,7 +173,7 @@ function BlogPage() {
                 </h3>
                 {n.fecha_publicacion && (
                   <span style={{ fontSize: 11, color: K.muted }}>
-                    {new Date(n.fecha_publicacion).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
+                    {new Date(n.fecha_publicacion).toLocaleDateString(numberLocale(), { day: 'numeric', month: 'short' })}
                   </span>
                 )}
               </a>

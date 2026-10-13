@@ -538,3 +538,24 @@ export function parseBudgetCop(budget?: string | null): [number, number] | null 
   return null;
 }
 
+
+// ── Price filter params ─────────────────────────────────────────────────────
+// Filter state is canonical COP. The API takes `moneda` (COP|USD) + precio_min /
+// precio_max in that currency. Until the deployed backend is known to support
+// `moneda` (VITE_API_SUPPORTS_MONEDA=true) we send COP-converted values, which
+// both old and new backends interpret correctly (new ones default moneda=COP).
+const SUPPORTS_MONEDA = import.meta.env.VITE_API_SUPPORTS_MONEDA === "true";
+
+export function appendPriceParams(
+  params: URLSearchParams,
+  minCop: number | null | undefined,
+  maxCop: number | null | undefined,
+  opts: { currency?: "COP" | "USD"; trm?: number | null; supportsMoneda?: boolean } = {},
+): void {
+  const supports = opts.supportsMoneda ?? SUPPORTS_MONEDA;
+  const useUsd = supports && opts.currency === "USD" && !!opts.trm && opts.trm > 0;
+  const conv = (v: number) => (useUsd ? Math.round(v / (opts.trm as number)) : Math.round(v));
+  if (minCop != null) params.set("precio_min", String(conv(minCop)));
+  if (maxCop != null) params.set("precio_max", String(conv(maxCop)));
+  if (supports && (minCop != null || maxCop != null)) params.set("moneda", useUsd ? "USD" : "COP");
+}

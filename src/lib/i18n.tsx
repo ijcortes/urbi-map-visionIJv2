@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
+import { setFormatLang } from "./format";
 
 export type Lang = "es" | "en";
 const KEY = "medellin-social.lang";
@@ -8,7 +9,7 @@ const KEY = "medellin-social.lang";
  * inside larger ones. Keep all-lowercase keys are matched
  * case-insensitively at word boundaries; cased keys match exactly.
  */
-const PHRASES: Array<[string, string]> = [
+export const PHRASES: Array<[string, string]> = [
   // ── Filtros del mapa (MapFilterBar) ──
   ["Otros municipios", "Other municipalities"],
   ["Toda la comuna", "Entire comuna"],
@@ -419,7 +420,6 @@ const PHRASES: Array<[string, string]> = [
   ["Continuar", "Continue"],
   ["Siguiente", "Next"],
   ["Atrás", "Back"],
-  ["Volver", "Back"],
   ["Cerrar", "Close"],
   ["Aceptar", "Accept"],
   ["Confirmar", "Confirm"],
@@ -511,13 +511,10 @@ const PHRASES: Array<[string, string]> = [
   ["no un portal de listados.", "not a listings portal."],
   ["en segundos.", "in seconds."],
   ["Nosotros mostramos los datos.", "We show the data."],
-  ["o con intuición?", "or on intuition?"],
   ["Prueba el simulador", "Try the simulator"],
   ["Explora el mapa", "Explore the map"],
   ["Ir al mapa", "Go to the map"],
   ["Comenzar gratis", "Start free"],
-  ["Cómo funciona Medellin Social", "How Medellin Social works"],
-  ["Cómo funciona", "How it works"],
   ["Para inversores", "For investors"],
   ["Datos que usamos", "Data we use"],
   ["Datos", "Data"],
@@ -578,11 +575,9 @@ const PHRASES: Array<[string, string]> = [
   ["Mixto", "Mixed"],
   ["Renta corta", "Short-term rental"],
   ["Renta larga", "Long-term rental"],
-  ["Renta media", "Mid-term rental"],
   ["Arriendo largo", "Long-term rent"],
   ["Arriendo tradicional", "Traditional rent"],
   ["Arriendo prom.", "Avg. rent"],
-  ["Arriendo", "Rent"],
   ["Yield largo plazo", "Long-term yield"],
   ["Corto plazo", "Short-term"],
   ["Mediano plazo", "Mid-term"],
@@ -657,7 +652,6 @@ const PHRASES: Array<[string, string]> = [
   ["resetear", "reset"],
   ["resultado", "result"],
   ["resultados", "results"],
-  ["baños", "baths"],
   ["hab", "bd"],
 
   // ---- Comparador ----
@@ -763,7 +757,6 @@ const PHRASES: Array<[string, string]> = [
   ["POCO SEGURO", "SOMEWHAT UNSAFE"],
   ["POCO VERDE", "NOT GREEN"],
   ["PELIGROSO", "DANGEROUS"],
-  ["EXCELENTE", "EXCELLENT"],
   ["MODERADO", "MODERATE"],
   ["BUENO", "GOOD"],
   ["SEGURO", "SAFE"],
@@ -788,8 +781,6 @@ const PHRASES: Array<[string, string]> = [
   ["Todos los eventos", "All Events"],
   ["Próximos", "Upcoming"],
   ["Esta semana", "This Week"],
-  ["Este mes", "This Month"],
-  ["Todos", "All"],
   ["Otro", "Other"],
   ["Destacado", "Featured"],
   ["Ver detalles", "View details"],
@@ -926,7 +917,6 @@ const PHRASES: Array<[string, string]> = [
 
   // ---- Common footer / misc ----
   ["Inicio", "Home"],
-  ["Ir al mapa", "Go to the map"],
 
   // ---- Forgot / Reset password ----
   ["¡Contraseña actualizada!", "Password updated!"],
@@ -954,7 +944,6 @@ const PHRASES: Array<[string, string]> = [
   ["Volver al login", "Back to login"],
   ["Pega el token aquí", "Paste the token here"],
   ["Repite la contraseña", "Repeat password"],
-  ["Mínimo 8 caracteres", "Minimum 8 characters"],
   ["Ingresa tu correo.", "Enter your email."],
   ["Error. Intenta de nuevo.", "Error. Try again."],
 
@@ -1172,7 +1161,6 @@ const PHRASES: Array<[string, string]> = [
   ["Filtros", "Filters"],
   ["Aplicar", "Apply"],
   ["Baños", "Bathrooms"],
-  ["Nuevo", "New"],
   ["lleva tiempo", "been a while"],
   ["negociable", "negotiable"],
   ["Área", "Area"],
@@ -1362,13 +1350,11 @@ const PHRASES: Array<[string, string]> = [
   ["USD $", "USD $"],
   ["Para conocer el mercado", "To learn the market"],
   ["Siempre gratis", "Always free"],
-  ["Comenzar gratis", "Start for free"],
   ["Para vender o arrendar al mejor precio", "To sell or rent at the best price"],
   ["pago único · por listing", "one-time · per listing"],
   ["MEJOR VALOR", "BEST VALUE"],
   ["Publicar con destacado →", "List with Featured →"],
   ["Para prospectar y publicar clientes", "To prospect and list clients"],
-  ["Crear cuenta", "Create account"],
   ["Agente de Zona", "Zone Agent"],
   ["Cupo exclusivo en tu barrio o comuna", "Exclusive spot in your neighborhood or district"],
   ["desde $", "from $"],
@@ -1381,7 +1367,6 @@ const PHRASES: Array<[string, string]> = [
   ["Preguntas frecuentes", "Frequently asked questions"],
   ["Error iniciando el proceso. Intenta de nuevo.", "Error starting the process. Please try again."],
   ["Solicitud de zona", "Zone request"],
-  ["Cerrar", "Close"],
 
   ["Toma mejores decisiones en el mercado inmobiliario del Valle de Aburrá con datos reales.", "Make better decisions in the Aburrá Valley real estate market with real data."],
   ["Sí. Sin permanencia. Cancelas en cualquier momento desde tu perfil.", "Yes. No commitment. Cancel anytime from your profile."],
@@ -1393,7 +1378,6 @@ const PHRASES: Array<[string, string]> = [
   ["¿Qué es la verificación de agente?", "What is agent verification?"],
   ["¿Puedo cancelar cuando quiera?", "Can I cancel anytime?"],
   ["Elige tu plan", "Choose your plan"],
-  ["Para conocer el mercado", "To explore the market"],
   ["Incluido en Agente", "Included in Agent plan"],
   ["Pesos COP", "Colombian Pesos (COP)"],
   ["¿Más preguntas?", "More questions?"],
@@ -1523,7 +1507,6 @@ const PHRASES: Array<[string, string]> = [
   ["Suave", "Soft"],
   ["Nocturna", "Night"],
   ["Contraste", "Contrast"],
-  ["Personaliza tu cuenta, perfil de inversor y experiencia de mapa.", "Customize your account, investor profile and map experience."],
   ["Personalizamos el mapa y las recomendaciones según tu perfil.", "We customize the map and recommendations based on your profile."],
   ["Perfil de búsqueda", "Search profile"],
   ["Comprar o arrendar", "Buy or rent"],
@@ -1531,8 +1514,6 @@ const PHRASES: Array<[string, string]> = [
   ["¿Qué estás buscando?", "What are you looking for?"],
   ["Nómadas digitales", "Digital nomads"],
   ["Crédito hipotecario", "Mortgage/financing"],
-  ["Cargando favoritos...", "Loading favorites..."],
-  ["Cargando historial...", "Loading history..."],
   ["No sé aún", "Not sure yet"],
 
   // ── Publicar ──────────────────────────────────────────────────────────────
@@ -1548,7 +1529,7 @@ const PHRASES: Array<[string, string]> = [
   ["Noches (18–21)", "Evenings (18–21)"],
   ["Fines de semana", "Weekends"],
   ["Cuarto de servicio", "Service room"],
-  ["Cocina integral", "Open kitchen"],
+  ["Cocina integral", "Full kitchen"],
   ["Walk-in closet", "Walk-in closet"],
   ["Chimenea", "Fireplace"],
   ["Jacuzzi", "Jacuzzi"],
@@ -1602,7 +1583,6 @@ const PHRASES: Array<[string, string]> = [
   ["Seleccionar comuna", "Select district"],
   ["Seleccionar barrio", "Select neighborhood"],
   ["Mascotas permitidas", "Pets allowed"],
-  ["Cuota de administración mensual COP", "Monthly admin fee COP"],
   ["Tipo de operación", "Operation type"],
   ["Precio mensual COP", "Monthly price COP"],
   ["Precio de venta COP", "Sale price COP"],
@@ -1641,11 +1621,6 @@ const PHRASES: Array<[string, string]> = [
   ["Vender", "Sell"],
 
   // ── Login / Register ──────────────────────────────────────────────────────
-  ["Ingresa tu correo y contraseña.", "Enter your email and password."],
-  ["Credenciales inválidas.", "Invalid credentials."],
-  ["Explora el mercado inmobiliario y la comunidad del Valle de Aburrá", "Explore the real estate market and community of the Aburrá Valley"],
-  ["Únete a la comunidad que\nestá construyendo Medellín.", "Join the community building Medellín."],
-  ["Entrando…", "Signing in…"],
   ["54K+ propiedades", "54K+ properties"],
   ["606 barrios", "606 neighborhoods"],
   ["12K+ negocios", "12K+ businesses"],
@@ -1668,9 +1643,7 @@ const PHRASES: Array<[string, string]> = [
   ["¡Ya eres parte de Medellín Social!", "You're now part of Medellín Social!"],
   ["¡Bienvenido a Medellín Social!", "Welcome to Medellín Social!"],
   ["¿Buscas tu próxima propiedad?", "Looking for your next property?"],
-  ["Soy agente inmobiliario", "I'm a real estate agent"],
   ["También en Medellín Social", "Also on Medellín Social"],
-  ["Invertir en finca raíz", "Invest in real estate"],
 
   // ── ListingMiniPopup ──────────────────────────────────────────────────────
   ["Máximo 5 inmuebles en el comparador", "Maximum 5 properties in the comparator"],
@@ -1683,7 +1656,6 @@ const PHRASES: Array<[string, string]> = [
   ["Amenidades", "Amenities"],
   ["EDIFICIO Y CONJUNTO", "BUILDING & COMPLEX"],
   ["SEGURIDAD Y ENTORNO", "SAFETY & SURROUNDINGS"],
-  ["Cocina integral", "Full kitchen"],
   ["Aire acondicionado", "Air conditioning"],
   ["Balcón / Terraza", "Balcony / Terrace"],
   ["Lavandería", "Laundry"],
@@ -1718,7 +1690,6 @@ const PHRASES: Array<[string, string]> = [
   // ── Standalone form labels / actions ─────────────────────────────────────
   ["Mínima", "Minimum"],
   ["Máxima", "Maximum"],
-  ["Mínimo", "Minimum"],
   ["Máximo", "Maximum"],
   ["Limpiar", "Clear"],
 
@@ -1820,7 +1791,6 @@ const PHRASES: Array<[string, string]> = [
   ["Estamos construyendo la red de agentes en Medellín. Vuelve pronto.", "We're building the agent network in Medellín. Check back soon."],
   ["Explora propiedades en el mapa", "Explore properties on the map"],
   ["Agente inmobiliario", "Real estate agent"],
-  ["Contactar por WhatsApp", "Contact via WhatsApp"],
   ["Sin agentes por ahora", "No agents yet"],
   ["agentes disponibles", "agents available"],
   ["agente disponible", "agent available"],
@@ -2009,9 +1979,7 @@ const PHRASES: Array<[string, string]> = [
   ["Aplica como Afiliado Comunitario", "Apply as a Community Affiliate"],
   ["Cuéntanos sobre tu red y tu experiencia. Respondemos en 2 días hábiles.", "Tell us about your network and experience. We respond within 2 business days."],
   ["Selecciona…", "Select…"],
-  ["Enviando…", "Sending…"],
   ["Enviar solicitud →", "Submit application →"],
-  ["Error al enviar. Intenta de nuevo.", "Error sending. Please try again."],
 
   // ── embajador.tsx ──────────────────────────────────────────────────────────
   ["Curar y publicar contenido semanal", "Curate and publish weekly content"],
@@ -2133,7 +2101,6 @@ const PHRASES: Array<[string, string]> = [
   ["Gratis para siempre · Sin spam", "Always free · No spam"],
   ["Suscribirme gratis →", "Subscribe free →"],
   ["Suscribirme gratis", "Subscribe free"],
-  ["Selecciona tu barrio…", "Select your neighborhood…"],
   ["Todo en un lugar.", "All in one place."],
   ["¡Estás dentro!", "You're in!"],
   ["¿Qué te interesa más?", "What interests you most?"],
@@ -2198,7 +2165,6 @@ const PHRASES: Array<[string, string]> = [
   ["Llega a miles de vecinos de tu barrio. Un solo negocio por categoría — cuando tus vecinos buscan el mejor restaurante, spa o servicio,", "Reach thousands of neighbors in your area. One business per category — when your neighbors search for the best restaurant, spa or service,"],
   ["tú eres la respuesta.", "you're the answer."],
   ["Lista tu negocio →", "List your business →"],
-  ["Cómo funciona", "How it works"],
   ["Cuatro pasos y ya estás dentro de la comunidad digital de tu barrio.", "Four steps and you're inside your neighborhood's digital community."],
   ["Bienvenido a Medellín Social. Revisa tu correo — cada viernes recibirás lo mejor de tu barrio.", "Welcome to Medellín Social. Check your email — every Friday you'll get the best of your neighborhood."],
   ["Ir al inicio →", "Go to home →"],
@@ -2207,7 +2173,6 @@ const PHRASES: Array<[string, string]> = [
   // ── negocios/unirse.tsx ───────────────────────────────────────────────────
   ["Nombre del negocio", "Business name"],
   ["Plan que te interesa", "Plan you're interested in"],
-  ["Selecciona…", "Select…"],
   ["Restaurante / Cena", "Restaurant / Dinner"],
   ["Comida rápida", "Fast food"],
   ["Spa & Masajes", "Spa & Massage"],
@@ -2230,7 +2195,6 @@ const PHRASES: Array<[string, string]> = [
   ["Mapa local: Google & Apple", "Local map: Google & Apple"],
   ["Dominas Google Maps y Apple Maps en tu barrio y categoría. El mapa es donde tus vecinos deciden.", "You dominate Google Maps and Apple Maps in your neighborhood and category. The map is where your neighbors decide."],
   ["Característica", "Feature"],
-  ["Precio", "Price"],
   ["desde $29 USD", "from $29 USD"],
   ["desde $29", "from $29"],
   ["USD por placement", "USD per placement"],
@@ -2243,7 +2207,6 @@ const PHRASES: Array<[string, string]> = [
   ["Perfil dedicado con fotos y bio", "Dedicated profile with photos and bio"],
   ["Artículo IA al inicio", "AI article at launch"],
   ["SEO + AEO + MEO", "SEO + AEO + MEO"],
-  ["Gastronomía", "Food & Drink"],
   ["Restaurantes, bares, cafés, panaderías, comida rápida", "Restaurants, bars, cafés, bakeries, fast food"],
   ["Salud & Bienestar", "Health & Wellness"],
   ["Médicos, gym, yoga, spa, nutrición", "Doctors, gym, yoga, spa, nutrition"],
@@ -2269,7 +2232,6 @@ const PHRASES: Array<[string, string]> = [
   ["Un solo negocio por categoría en cada barrio. Cuando tus vecinos buscan el mejor restaurante, spa o servicio en Google, ChatGPT o el mapa —", "One business per category in every neighborhood. When your neighbors search for the best restaurant, spa or service on Google, ChatGPT or the map —"],
   ["Ver planes →", "See plans →"],
   ["Empieza aquí", "Start here"],
-  ["USD por placement", "USD per placement"],
   ["Aparece en Hotspots & Deals del home", "Appears in the homepage's Hotspots & Deals"],
   ["Incluido en newsletter semanal del barrio", "Included in the weekly neighborhood newsletter"],
   ["Publicado en redes de Medellín Social", "Posted on Medellín Social's social media"],
@@ -2367,7 +2329,6 @@ const PHRASES: Array<[string, string]> = [
   // Popup1
   ["Ver detalle del inmueble", "View property details"],
   ["días en el mercado", "days on market"],
-  ["Publicado hoy", "Published today"],
   // Entorno (walk/transit/colegios)
   ["Entorno", "Surroundings"],
   ["Caminabilidad", "Walkability"],
@@ -2387,15 +2348,12 @@ const PHRASES: Array<[string, string]> = [
   ["Tráfico", "Traffic"],
   ["Qué tiene", "Amenities"],
   // Historial de precio
-  ["Historial de precio", "Price history"],
   ["Publicado en venta", "Listed for sale"],
   ["Aún no hay cambios de precio registrados para este inmueble. Registramos cada variación desde su publicación.",
     "No price changes recorded for this property yet. We track every change since it was listed."],
   ["Subió de precio", "Price increased"],
   ["Bajó de precio", "Price decreased"],
-  ["Hace 1 día", "1 day ago"],
   // Valor estimado / catastro
-  ["Valor estimado de mercado", "Estimated market value"],
   ["Valor estimado", "Estimated value"],
   ["Valor de mercado", "Market value"],
   ["Renta estimada", "Estimated rent"],
@@ -2424,7 +2382,6 @@ const PHRASES: Array<[string, string]> = [
   ["Agendar visita", "Schedule a visit"],
   ["Agendar una visita", "Schedule a visit"],
   ["Solicitar visita", "Request visit"],
-  ["Elige un día", "Choose a day"],
   ["Elige una hora", "Choose a time"],
   ["Selecciona una hora", "Select a time"],
   ["Contactar", "Contact"],
@@ -2552,7 +2509,6 @@ const PHRASES: Array<[string, string]> = [
   ["Construye y gradúate", "Build & graduate"],
   ["Entrega proyectos, construye tu portafolio y termina con experiencia que se destaca.",
     "Deliver projects, build your portfolio and finish with experience that stands out."],
-  ["¡Recibimos tu aplicación!", "We received your application!"],
   ["Revisamos cada aplicación personalmente. Te contactamos en menos de 48 horas.",
     "We review every application personally. We'll contact you within 48 hours."],
   ["Aplica a una Práctica EAFIT", "Apply for an EAFIT Internship"],
@@ -2583,7 +2539,6 @@ const PHRASES: Array<[string, string]> = [
     "Use the filter bar for price, bedrooms, property type and more."],
   ["Filtra tu búsqueda", "Filter your search"],
   ["Cambia entre estas dos pestañas según lo que estés buscando.", "Switch between these two tabs depending on what you're looking for."],
-  ["Comprar o arrendar", "Buy or rent"],
   ["Aquí aparecen los inmuebles disponibles según los filtros que apliques.",
     "Available properties show up here based on the filters you apply."],
   ["Inmuebles en el mapa", "Properties on the map"],
@@ -2708,7 +2663,6 @@ const PHRASES: Array<[string, string]> = [
   ["CRM integrado", "Integrated CRM"],
   ["precio especial · + $150 setup fee", "launch price · + $150 setup fee"],
   ["precio especial · + $199 setup fee", "launch price · + $199 setup fee"],
-  ["¿Más preguntas?", "More questions?"],
 
   // ── Planes / Productos ────────────────────────────────────────────────────
   // Long phrases first to avoid partial matches
@@ -2765,28 +2719,57 @@ const PHRASES: Array<[string, string]> = [
   ["Ver Featured Realtor →", "View Featured Realtor →"],
   ["Ver Hot Spot →", "View Hot Spot →"],
   ["Ver Deal →", "View Deal →"],
-  ["Preguntas frecuentes", "Frequently asked questions"],
+
+  // ── Regression additions (filters, statuses, popups, toasts) ──
+  ["Hasta", "Up to"],
+  ["Desde", "From"],
+  ["Precio mínimo", "Minimum price"],
+  ["Precio máximo", "Maximum price"],
+  ["Área mínima", "Minimum area"],
+  ["Área máxima", "Maximum area"],
+  ["MUY BAJA", "VERY LOW"],
+  ["MUY ALTA", "VERY HIGH"],
+  ["MUY SALUDABLE", "VERY HEALTHY"],
+  ["SALUDABLE", "HEALTHY"],
+  ["PRECAUCIÓN", "CAUTION"],
+  ["ALERTA", "ALERT"],
+  ["Local comercial", "Commercial space"],
+  ["Quitar de comparación", "Remove from comparison"],
+  ["Este listing ya no está disponible, pero puedes ver similares", "This listing is no longer available, but you can see similar ones"],
+  ["Este listing ya no está disponible", "This listing is no longer available"],
+  ["Antigüedad no especificada", "Age not specified"],
+  ["Volver al Valle", "Back to the Valley"],
+  ["Fuente: datos reales del barrio", "Source: real neighborhood data"],
+  ["Amenidades del mercado", "Market amenities"],
+  ["Error al crear la alerta", "Error creating the alert"],
+  ["Intenta de nuevo.", "Try again."],
+  ["No pudimos registrar la visita.", "We couldn't register the visit."],
+  ["bajo la mediana", "below the median"],
+  ["Más reciente", "Most recent"],
+  ["Menor precio", "Lowest price"],
+  ["Mayor precio", "Highest price"],
+  ["Disponible", "Available"],
+  ["Reservado", "Reserved"],
+  ["Vendido", "Sold"],
+  ["Sin amoblar", "Unfurnished"],
+  ["Alquiler", "Rental"],
+  ["Parqueadero", "Parking"],
+  ["Yield estimado", "Estimated yield"],
+  ["Dato real disponible próximamente con escrituras SNR", "Real data coming soon from SNR deeds"],
+  ["Compartir", "Share"],
+  ["Moneda", "Currency"],
+  ["En construcción", "Under construction"],
+  ["Sobre planos", "Off-plan"],
 ];
 
-/* Tokens that should never be translated (brand, neighborhood names, etc.) */
+/* Tokens that should never be translated (brand, neighborhood names, etc.).
+ * NOTE: UI labels and API category values (MUY SEGURO, ALTA, BAJA, Seguridad...)
+ * are NOT protected any more: they have EN entries in PHRASES and must translate. */
 const PROTECT = new Set([
-  "Medellin Social", "Medellín", "Aburrá", "Airbnb", "Belén", "Estadio",
+  "Medellin Social", "Medellín Social", "Medellín", "Aburrá", "Airbnb", "Belén", "Estadio",
   "Laureles", "Robledo", "Aranjuez", "El Poblado", "El Rodeo",
   "Mapbox", "Fincaraíz", "Metrocuadrado", "PBN", "ADR", "CDT",
   "Google", "PSE", "Nequi",
-
-  // Panel section labels & API category values — always shown in Spanish
-  "Seguridad", "Salud financiera", "Índice verde", "Valorización",
-  "Actividad de Mercado", "Tiempo estimado", "Listings destacados",
-  "Simular inversión aquí",
-  "Renta media", "RENTA MEDIA", "Rendimiento estimado",
-  // Categoria values from the API (returned as Spanish strings from dbt)
-  "MUY SEGURO", "SEGURO", "POCO SEGURO", "PELIGROSO",
-  "MUY VERDE", "VERDE", "POCO VERDE",
-  "ALTA", "MEDIA", "BAJA", "MUY BAJA", "MÍNIMA",
-  "MUY SALUDABLE", "SALUDABLE", "PRECAUCIÓN", "ALERTA",
-  "Sin remates activos ✅",
-  "Fuente: avisos judiciales públicos",
 ]);
 
 // Sort once, longest phrases first so substrings don't pre-empt phrases.
@@ -2796,19 +2779,70 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Word-boundary matching (Unicode-aware) — a plain substring match would
-// mangle proper nouns that happen to contain a short phrase, e.g. DB-cased
-// "BUENOS AIRES" contains "BUENO" → would become "GOODS AIRES".
+const hasLetters = (s: string) => (s.match(/\p{L}/gu) ?? []).length;
+const isAllUpper = (s: string) => hasLetters(s) > 1 && s === s.toUpperCase() && s !== s.toLowerCase();
+const capFirst = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+const lowerFirst = (s: string) =>
+  s.length > 1 && s.charAt(1) === s.charAt(1).toUpperCase() && s.charAt(1) !== s.charAt(1).toLowerCase()
+    ? s // acronym / proper noun ("WhatsApp", "ROI"): keep
+    : s.charAt(0).toLowerCase() + s.slice(1);
+const startsUpper = (s: string) => {
+  const m = s.match(/\p{L}/u);
+  return !!m && m[0] === m[0].toUpperCase() && m[0] !== m[0].toLowerCase();
+};
+
+/** Re-apply the casing of what was actually matched ("hasta" -> "up to", "DESDE" -> "FROM"). */
+function matchCase(matched: string, es: string, en: string): string {
+  if (matched === es) return en;
+  if (isAllUpper(matched)) return en.toUpperCase();
+  if (isAllUpper(es)) {
+    // all-caps label key matched only with exact casing (see regex build), defensive:
+    return en;
+  }
+  const mUp = startsUpper(matched);
+  const kUp = startsUpper(es);
+  if (mUp && !kUp) return capFirst(en);
+  if (!mUp && kUp) return lowerFirst(en);
+  return en;
+}
+
+// Unicode-aware boundaries on LETTERS only (so "3hab", "2baños", "100m²" match
+// while "BUENOS AIRES" still never becomes "GOODS AIRES"). Matching is
+// case-insensitive, except all-caps label keys (BAJA, ALTA, BAJO...) which only
+// match exactly: lowercase "bajo" is the preposition "under", not the label.
 const PHRASE_REGEXES = SORTED_PHRASES
   .filter(([es]) => !PROTECT.has(es))
-  .map(([es, en]) => [new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(es)}(?![\\p{L}\\p{N}])`, "gu"), en] as const);
+  .map(([es, en]) => ({
+    re: new RegExp(`(?<!\\p{L})${escapeRegExp(es)}(?!\\p{L})`, isAllUpper(es) ? "gu" : "giu"),
+    es,
+    en,
+  }));
+
+// Numeric patterns that a static phrase table cannot express ("Hace 3 días").
+const REL_UNITS: Record<string, [string, string]> = {
+  minuto: ["minute", "minutes"], hora: ["hour", "hours"], día: ["day", "days"],
+  semana: ["week", "weeks"], mes: ["month", "months"], año: ["year", "years"],
+};
+const REL_TIME_RE = /(?<!\p{L})hace (\d+) (minutos?|horas?|días?|semanas?|meses|mes|años?)(?!\p{L})/giu;
+function relTime(_m: string, n: string, unit: string): string {
+  const key = Object.keys(REL_UNITS).find((k) => unit.toLowerCase().startsWith(k));
+  const pair = key ? REL_UNITS[key] : null;
+  return `${n} ${pair ? (Number(n) === 1 ? pair[0] : pair[1]) : unit} ago`;
+}
+
+const _tsCache = new Map<string, string>();
 
 export function translateString(input: string): string {
   if (!input) return input;
-  let out = input;
-  for (const [re, en] of PHRASE_REGEXES) {
-    out = out.replace(re, en);
+  const hit = _tsCache.get(input);
+  if (hit !== undefined) return hit;
+  let out = input.replace(REL_TIME_RE, relTime);
+  for (const { re, es, en } of PHRASE_REGEXES) {
+    re.lastIndex = 0;
+    out = out.replace(re, (m) => matchCase(m, es, en));
   }
+  if (_tsCache.size > 8000) _tsCache.clear();
+  _tsCache.set(input, out);
   return out;
 }
 
@@ -2827,6 +2861,25 @@ function skipFilter(node: Node): number {
 }
 function isSkipped(t: Text): boolean {
   return t.parentElement?.closest(`[${SKIP_ATTR}]`) != null;
+}
+
+type AttrCache = Element & Record<string, string | undefined>;
+
+// Same fresh-write guard as text nodes: if the attribute is not our own last
+// translation, React wrote a new Spanish source -> re-cache it, never reuse the
+// stale first-seen value.
+function translateAttrs(el: Element) {
+  const c = el as AttrCache;
+  for (const a of TRANSLATABLE_ATTRS) {
+    if (!el.hasAttribute(a)) continue;
+    const cur = el.getAttribute(a) ?? "";
+    const esKey = `__es_${a}`;
+    const tKey = `__t_${a}`;
+    if (c[tKey] !== cur) c[esKey] = cur;
+    const next = translateString(c[esKey] ?? cur);
+    if (next !== cur) el.setAttribute(a, next);
+    c[tKey] = next;
+  }
 }
 
 function translateNode(root: Node) {
@@ -2850,21 +2903,12 @@ function translateNode(root: Node) {
       el.__t = next;
     } else if (node.nodeType === Node.ELEMENT_NODE) {
       const el = node as Element;
-      // Skip script/style
       const tag = el.tagName;
       if (tag === "SCRIPT" || tag === "STYLE") {
         node = walker.nextSibling();
         continue;
       }
-      for (const a of TRANSLATABLE_ATTRS) {
-        if (el.hasAttribute(a)) {
-          const key = `__es_${a}`;
-          const orig = (el as any)[key] ?? el.getAttribute(a) ?? "";
-          if (!(el as any)[key]) (el as any)[key] = orig;
-          const next = translateString(orig);
-          if (next !== el.getAttribute(a)) el.setAttribute(a, next);
-        }
-      }
+      translateAttrs(el);
     }
     node = walker.nextNode();
   }
@@ -2875,18 +2919,91 @@ function restoreNode(root: Node) {
   let node: Node | null = walker.currentNode;
   while (node) {
     if (node.nodeType === Node.TEXT_NODE) {
-      const el = node as Text & { __es?: string };
-      if (el.__es != null && el.nodeValue !== el.__es) el.nodeValue = el.__es;
+      const el = node as Text & { __es?: string; __t?: string };
+      // Only undo OUR translation; a fresh React write already is Spanish source.
+      if (el.__es != null && el.__t === el.nodeValue && el.nodeValue !== el.__es) el.nodeValue = el.__es;
+      el.__t = undefined;
     } else if (node.nodeType === Node.ELEMENT_NODE) {
-      const el = node as Element;
+      const el = node as AttrCache;
       for (const a of TRANSLATABLE_ATTRS) {
-        const key = `__es_${a}`;
-        const orig = (el as any)[key];
-        if (orig != null && el.getAttribute(a) !== orig) el.setAttribute(a, orig);
+        const orig = el[`__es_${a}`];
+        if (orig != null && el.getAttribute(a) === el[`__t_${a}`] && el.getAttribute(a) !== orig) el.setAttribute(a, orig);
+        el[`__t_${a}`] = undefined;
       }
     }
     node = walker.nextNode();
   }
+}
+
+/* ---- Language store (cookie + localStorage, cross-tab, sync read) ---- */
+function parseLang(v: unknown): Lang | null {
+  return v === "es" || v === "en" ? v : null;
+}
+
+function readCookieLang(): Lang | null {
+  if (typeof document === "undefined") return null;
+  const m = document.cookie.match(new RegExp(`(?:^|; )${KEY.replace(/\./g, "\\.")}=([^;]*)`));
+  return m ? parseLang(decodeURIComponent(m[1])) : null;
+}
+
+export function readStoredLang(): Lang {
+  if (typeof window === "undefined") return "es";
+  try {
+    return parseLang(window.localStorage.getItem(KEY)) ?? readCookieLang() ?? "es";
+  } catch {
+    return readCookieLang() ?? "es";
+  }
+}
+
+let currentLang: Lang | null = null;
+const langListeners = new Set<() => void>();
+let storageBound = false;
+
+function getClientLang(): Lang {
+  if (currentLang === null) {
+    currentLang = readStoredLang();
+    setFormatLang(currentLang);
+  }
+  return currentLang;
+}
+const getServerLang = (): Lang => "es";
+
+function publishLang(l: Lang) {
+  currentLang = l;
+  setFormatLang(l);
+  langListeners.forEach((cb) => cb());
+}
+
+function subscribeLang(cb: () => void): () => void {
+  langListeners.add(cb);
+  if (typeof window !== "undefined" && !storageBound) {
+    storageBound = true;
+    window.addEventListener("storage", (e) => {
+      if (e.key === KEY || e.key === null) {
+        const next = parseLang(e.newValue) ?? readStoredLang();
+        if (next !== currentLang) publishLang(next);
+      }
+    });
+  }
+  return () => {
+    langListeners.delete(cb);
+  };
+}
+
+export function persistLang(l: Lang): void {
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(KEY, l);
+    } catch {
+      /* storage blocked */
+    }
+    try {
+      document.cookie = `${KEY}=${l}; path=/; max-age=31536000; SameSite=Lax`;
+    } catch {
+      /* cookies blocked */
+    }
+  }
+  publishLang(l);
 }
 
 /* ---- Context ---- */
@@ -2894,30 +3011,54 @@ type Ctx = { lang: Lang; setLang: (l: Lang) => void; toggle: () => void; t: (s: 
 const LangCtx = createContext<Ctx>({ lang: "es", setLang: () => {}, toggle: () => {}, t: (s) => s });
 
 let observer: MutationObserver | null = null;
+let titleObserver: MutationObserver | null = null;
+
+// useLayoutEffect on the client so the translation lands before first paint.
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+let titleEs: string | null = null;
+let titleT: string | null = null;
+function translateTitle() {
+  const cur = document.title;
+  if (titleT !== cur) titleEs = cur; // fresh write by a route/drawer
+  const next = translateString(titleEs ?? cur);
+  if (next !== document.title) document.title = next;
+  titleT = next;
+}
+function restoreTitle() {
+  if (titleEs != null && titleT === document.title) document.title = titleEs;
+  titleEs = null;
+  titleT = null;
+}
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const [lang, setLangState] = useState<Lang>("es");
-
-  // Load persisted lang on mount
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = (localStorage.getItem(KEY) as Lang | null) ?? "es";
-    setLangState(stored);
-  }, []);
+  // SSR + hydration render "es" (matches server HTML); the client snapshot is
+  // read synchronously right after hydration, before paint.
+  const lang = useSyncExternalStore(subscribeLang, getClientLang, getServerLang);
 
   // Apply translation when lang changes; observe DOM mutations while in EN.
-  useEffect(() => {
+  useIsoLayoutEffect(() => {
     if (typeof window === "undefined") return;
     document.documentElement.lang = lang;
 
-    // Stop any previous observer first.
+    // Stop any previous observers first.
     if (observer) {
       observer.disconnect();
       observer = null;
     }
+    if (titleObserver) {
+      titleObserver.disconnect();
+      titleObserver = null;
+    }
 
     if (lang === "en") {
       translateNode(document.body);
+      translateTitle();
+      const titleEl = document.querySelector("title");
+      if (titleEl) {
+        titleObserver = new MutationObserver(() => translateTitle());
+        titleObserver.observe(titleEl, { childList: true, characterData: true, subtree: true });
+      }
       observer = new MutationObserver((mutations) => {
         for (const m of mutations) {
           if (m.type === "childList") {
@@ -2932,8 +3073,9 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
             if (next !== t.nodeValue) t.nodeValue = next;
             t.__t = next;
           } else if (m.type === "attributes" && m.attributeName) {
-            if (TRANSLATABLE_ATTRS.includes(m.attributeName)) {
-              translateNode(m.target);
+            if (TRANSLATABLE_ATTRS.includes(m.attributeName) && m.target.nodeType === Node.ELEMENT_NODE) {
+              const el = m.target as Element;
+              if (!el.closest(`[${SKIP_ATTR}]`)) translateAttrs(el);
             }
           }
         }
@@ -2947,6 +3089,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       });
     } else {
       restoreNode(document.body);
+      restoreTitle();
     }
 
     return () => {
@@ -2954,22 +3097,22 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
         observer.disconnect();
         observer = null;
       }
+      if (titleObserver) {
+        titleObserver.disconnect();
+        titleObserver = null;
+      }
     };
   }, [lang]);
 
-  const setLang = useCallback((l: Lang) => {
-    setLangState(l);
-    if (typeof window !== "undefined") {
-      localStorage.setItem(KEY, l);
-      // La unidad de área deriva del idioma en useUnit() (es→m², en→ft²), vía
-      // el contexto — ya no hay toggle manual ni evento que sincronizar.
-    }
-  }, []);
-  const toggle = useCallback(() => setLang(lang === "es" ? "en" : "es"), [lang, setLang]);
+  const setLang = useCallback((l: Lang) => persistLang(l), []);
+  const toggle = useCallback(() => persistLang(lang === "es" ? "en" : "es"), [lang]);
   const t = useCallback((s: string) => (lang === "en" ? translateString(s) : s), [lang]);
 
   return <LangCtx.Provider value={{ lang, setLang, toggle, t }}>{children}</LangCtx.Provider>;
 }
+
+/** @internal exposed for tests only */
+export const __i18nInternals = { translateNode, restoreNode, readStoredLang, PROTECT };
 
 export function useLang() {
   return useContext(LangCtx);

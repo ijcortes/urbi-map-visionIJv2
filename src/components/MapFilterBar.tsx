@@ -11,7 +11,9 @@ import {
 } from "@/lib/icons";
 import { useIsPro } from "@/components/LockedField";
 import { useLang } from "@/lib/i18n";
-import { useTrm } from "@/hooks/useTrm";
+import { usePriceFormat } from "@/hooks/usePriceFormat";
+import { CurrencyToggle } from "@/components/CurrencyToggle";
+import { parsePriceInput } from "@/lib/format";
 import { useUnit } from "@/hooks/useUnit";
 import type { MapTab } from "./MapNavbar";
 import type { BarrioOption } from "@/lib/adapters";
@@ -303,42 +305,17 @@ function FilterPill({
 
 // ─── Label helpers ────────────────────────────────────────────────────────────
 
-// ARRIENDO: por valor — < $1M en K (700K), >= $1M en millones (1.5M).
-function fmtCOPRent(v: number): string {
-  if (v < 1_000_000) return `$${Math.round(v / 1_000)}K`;
-  return `$${(v / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-}
+// Etiquetas compactas (solo chips de slider): formatCompact de lib/format vía usePriceFormat.
+type PriceFmt = (cop: number) => string;
 
-// VENTA: siempre en millones. "B" no existe — en Colombia billón = 10^12.
-// ≥1,000M → "$1.500M" (punto de miles para legibilidad).
-function fmtCOPBuy(v: number): string {
-  const m = Math.round(v / 1_000_000);
-  if (v < 10_000_000) return `$${(v / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  return `$${m.toLocaleString("es-CO")}M`;
-}
-
-// USD label (own thresholds): <$1k exact, <$1M in k, >=$1M in M.
-function fmtUSD(v: number): string {
-  if (v < 1_000) return `$${Math.round(v)}`;
-  if (v < 1_000_000) return `$${(v / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
-  return `$${(v / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-}
-
-// Values are always COP internally; EN convierte el LABEL a USD. ES usa el
-// formato según operación: venta → millones, arriendo → K/M por valor.
-function fmtPrice(cop: number, lang: string, trm: number, isRent: boolean): string {
-  if (lang === "en") return fmtUSD(cop / trm);
-  return isRent ? fmtCOPRent(cop) : fmtCOPBuy(cop);
-}
-
-function precioLabel(f: SharedFilters, isRent: boolean, lang: string, trm: number): string {
+function precioLabel(f: SharedFilters, isRent: boolean, lang: string, fmtPrice: PriceFmt): string {
   // Este label vive en un span data-i18n-skip (gotcha #1 cache-poisoning), así que
   // el diccionario DOM no lo toca — hay que devolver EN aquí mismo.
   const en = lang === "en";
   if (f.precioMin !== null && f.precioMax !== null)
-    return `${fmtPrice(f.precioMin, lang, trm, isRent)} – ${fmtPrice(f.precioMax, lang, trm, isRent)}`;
-  if (f.precioMax !== null) return `${en ? "Up to" : "Hasta"} ${fmtPrice(f.precioMax, lang, trm, isRent)}`;
-  if (f.precioMin !== null) return `${en ? "From" : "Desde"} ${fmtPrice(f.precioMin, lang, trm, isRent)}`;
+    return `${fmtPrice(f.precioMin)} – ${fmtPrice(f.precioMax)}`;
+  if (f.precioMax !== null) return `${en ? "Up to" : "Hasta"} ${fmtPrice(f.precioMax)}`;
+  if (f.precioMin !== null) return `${en ? "From" : "Desde"} ${fmtPrice(f.precioMin)}`;
   return en ? (isRent ? "Price/mo" : "Price") : (isRent ? "Precio/mes" : "Precio");
 }
 
@@ -402,46 +379,43 @@ function useAreaFieldText(
 }
 
 // precioMin/precioMax en SharedFilters siempre están en COP (canónico para la
-// API); en EN el usuario teclea USD → convertir en el borde (×trm). Mismo patrón
-// de texto-local que el área para que el número no se corra bajo el dedo al
-// teclear ni al cambiar de idioma. Sin esto, teclear "1200" en EN mandaba
-// precio=1200 COP (bajo el piso de 500K) → cero resultados.
-function copToDisplay(cop: number | null, lang: string, trm: number): number | null {
-  if (cop === null) return null;
-  return lang === "en" ? Math.round(cop / trm) : cop;
-}
-function displayToCop(v: number | null, lang: string, trm: number): number | null {
-  if (v === null) return null;
-  return lang === "en" ? Math.round(v * trm) : v;
-}
+// API). El usuario teclea en su moneda de visualización (COP|USD, independiente
+// del idioma) → se convierte a COP con la TRM única (usePriceFormat.toCop).
+// Texto libre ("2,500" / "2.500" / "2500"), commit con debounce y recalculo
+// cuando cambia la moneda/TRM (p.ej. al cargar la TRM).
+const PRICE_DEBOUNCE_MS = 350;
 function usePriceFieldText(
   copValue: number | null,
-  lang: string,
-  trm: number,
+  pf: { currency: string; toCop: (v: number) => number; toDisplay: (cop: number) => number },
   onCommit: (cop: number | null) => void,
 ) {
+  const show = (cop: number | null) => (cop === null ? "" : String(Math.round(pf.toDisplay(cop))));
   const lastCop = useRef(copValue);
-  const [text, setText] = useState<string>(() => copToDisplay(copValue, lang, trm)?.toString() ?? "");
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latest = useRef({ pf, onCommit });
+  latest.current = { pf, onCommit };
+  const [text, setText] = useState<string>(() => show(copValue));
 
+  // valor externo (reset, slider) o cambio de moneda/TRM → recalcular el texto
   useEffect(() => {
-    if (copValue !== lastCop.current) {
-      lastCop.current = copValue;
-      setText(copToDisplay(copValue, lang, trm)?.toString() ?? "");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [copValue]);
-
-  useEffect(() => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
     lastCop.current = copValue;
-    setText(copToDisplay(copValue, lang, trm)?.toString() ?? "");
+    setText(show(copValue));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lang]);
+  }, [copValue, pf.currency, pf.toCop]);
+
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const handleChange = (raw: string) => {
     setText(raw);
-    const cop = raw ? displayToCop(Number(raw), lang, trm) : null;
-    lastCop.current = cop;
-    onCommit(cop);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      const n = parsePriceInput(raw);
+      const cop = n === null ? null : latest.current.pf.toCop(n);
+      lastCop.current = cop;
+      latest.current.onCommit(cop);
+    }, PRICE_DEBOUNCE_MS);
   };
 
   return { text, handleChange };
@@ -527,14 +501,14 @@ function NumInput({
 }
 
 function PrecioPanel({
-  filters, isRent, onChange, onClose, lang, trm,
+  filters, isRent, onChange, onClose, lang, fmtPrice,
 }: {
   filters: SharedFilters;
   isRent: boolean;
   onChange: (f: Partial<SharedFilters>) => void;
   onClose: () => void;
   lang: string;
-  trm: number;
+  fmtPrice: PriceFmt;
 }) {
   const TOTAL_MIN = 0;
   // Ranges scaled to where listings actually live, not the p99 outlier tail:
@@ -598,7 +572,7 @@ function PrecioPanel({
     // Range labels van en spans data-i18n-skip → traducir aquí.
     if (v <= TOTAL_MIN) return lang === "en" ? "Min" : "Mín";
     if (v >= TOTAL_MAX) return lang === "en" ? "Max" : "Máx";
-    return fmtPrice(v, lang, trm, isRent);
+    return fmtPrice(v);
   };
 
   const thumbStyle: React.CSSProperties = {
@@ -613,6 +587,7 @@ function PrecioPanel({
 
   return (
     <div style={{ ...panelBase, minWidth: 300, userSelect: "none" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}><CurrencyToggle compact /></div>
       {/* Range labels */}
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
         <span data-i18n-skip="true" style={{ fontSize: 13, fontWeight: 700, color: C.teal }}>{fmt(curMin)}</span>
@@ -707,8 +682,9 @@ function PrecioPanel({
 // ─── AreaPanel ────────────────────────────────────────────────────────────────
 
 function AreaPanel({
-  filters, onChange, onClose,
+  filters, onChange, onClose, unit,
 }: {
+  unit: "m2" | "sqft";
   filters: SharedFilters;
   onChange: (f: Partial<SharedFilters>) => void;
   onClose: () => void;
@@ -751,7 +727,7 @@ function AreaPanel({
   const fmt = (v: number) => {
     if (v <= TOTAL_MIN) return "0";
     if (v >= TOTAL_MAX) return "Sin límite";
-    return `${v} m²`;
+    return `${Math.round((unit === "sqft" ? v * M2_PER_FT2 : v)).toLocaleString(unit === "sqft" ? "en-US" : "es-CO")} ${unit === "sqft" ? "ft²" : "m²"}`;
   };
 
   const thumbStyle: React.CSSProperties = {
@@ -1085,13 +1061,19 @@ export function MapFilterBar({
 }: MapFilterBarProps) {
   const isPro = useIsPro();
   const { lang } = useLang();
-  const trm = useTrm();
+  const pf = usePriceFormat();
   const { unit } = useUnit();
   const areaUnitLabel = unit === "sqft" ? "ft²" : "m²";
   const areaMinField = useAreaFieldText(filters.areaMin, unit, (m2) => onFiltersChange({ areaMin: m2 }));
   const areaMaxField = useAreaFieldText(filters.areaMax, unit, (m2) => onFiltersChange({ areaMax: m2 }));
-  const precioMinField = usePriceFieldText(filters.precioMin, lang, trm, (cop) => onFiltersChange({ precioMin: cop }));
-  const precioMaxField = usePriceFieldText(filters.precioMax, lang, trm, (cop) => onFiltersChange({ precioMax: cop }));
+  const precioMinField = usePriceFieldText(filters.precioMin, pf, (cop) => {
+    if (cop !== null && filters.precioMax !== null && cop > filters.precioMax) return;
+    onFiltersChange({ precioMin: cop });
+  });
+  const precioMaxField = usePriceFieldText(filters.precioMax, pf, (cop) => {
+    if (cop !== null && filters.precioMin !== null && cop < filters.precioMin) return;
+    onFiltersChange({ precioMax: cop });
+  });
   const [open, setOpen] = useState<DropdownId | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mobileMore, setMobileMore] = useState(false);
@@ -1259,7 +1241,7 @@ export function MapFilterBar({
       {/* Precio */}
       <div style={{ position: "relative", flexShrink: 0 }}>
         <FilterPill
-          label={precioLabel(filters, isRent, lang, trm)}
+          label={precioLabel(filters, isRent, lang, pf.formatPriceCompact)}
           active={precioActive}
           onClear={() => onFiltersChange({ precioMin: null, precioMax: null })}
           onClick={(a) => toggle("precio", a)}
@@ -1412,15 +1394,16 @@ export function MapFilterBar({
 
         {/* Precio */}
         <div style={{ marginBottom: 20 }}>
-          <span style={labelSm}>{isRent ? "Precio / mes" : "Precio"} ({lang === "en" ? "USD" : "COP"})</span>
+          <span style={labelSm}>{isRent ? "Precio / mes" : "Precio"} ({pf.currency})</span>
+          <span style={{ marginLeft: 8 }}><CurrencyToggle compact /></span>
           <div style={{ display: "flex", gap: 8 }}>
             <input
-              type="number" placeholder="Mínimo" aria-label="Precio mínimo" value={precioMinField.text}
+              type="text" inputMode="numeric" autoComplete="off" placeholder="Mínimo" aria-label="Precio mínimo" value={precioMinField.text}
               onChange={(e) => precioMinField.handleChange(e.target.value)}
               style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 13, outline: "none", color: C.ink, background: "#fff" }}
             />
             <input
-              type="number" placeholder="Máximo" aria-label="Precio máximo" value={precioMaxField.text}
+              type="text" inputMode="numeric" autoComplete="off" placeholder="Máximo" aria-label="Precio máximo" value={precioMaxField.text}
               onChange={(e) => precioMaxField.handleChange(e.target.value)}
               style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 13, outline: "none", color: C.ink, background: "#fff" }}
             />
@@ -1702,7 +1685,7 @@ export function MapFilterBar({
       case "precio":
         return (
           <div ref={dropdownRef} style={wrapStyle}>
-            <PrecioPanel filters={filters} isRent={isRent} onChange={onFiltersChange} onClose={close} lang={lang} trm={trm} />
+            <PrecioPanel filters={filters} isRent={isRent} onChange={onFiltersChange} onClose={close} lang={lang} fmtPrice={pf.formatPriceCompact} />
           </div>
         );
       case "habBanos":
