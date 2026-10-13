@@ -42,6 +42,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
+from api.limiter import limiter
 from api.utils import ghl_client
 
 router = APIRouter()
@@ -118,10 +119,17 @@ _HANDLERS = {
 
 
 @router.post("/ghl")
+@limiter.limit("120/minute")
 async def recibir_webhook_ghl(request: Request):
     body = await request.body()
+    if len(body) > 1_000_000:
+        raise HTTPException(status_code=413, detail="payload demasiado grande")
     try:
         event = ghl_client.verificar_webhook(body, dict(request.headers))
+    except ghl_client.WebhookNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except ghl_client.WebhookAuthError:
+        raise HTTPException(status_code=401, detail="firma de webhook inválida")
     except NotImplementedError as e:
         raise HTTPException(status_code=501, detail=str(e))
     except ValueError as e:

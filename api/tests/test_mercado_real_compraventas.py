@@ -6,6 +6,8 @@ from datetime import date
 import asyncpg
 import pytest
 
+pytestmark = pytest.mark.require_db  # needs a live Postgres (conn refused in CI sandbox)
+
 # Mismo LATERAL que _BARRIO_SQL, aislado para poder probarlo sin levantar la API.
 _MERCADO_REAL_SQL = """
 WITH ultimo AS (

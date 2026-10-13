@@ -12,6 +12,8 @@ import time
 import asyncpg
 import pytest
 
+pytestmark = pytest.mark.require_db  # needs a live Postgres (conn refused in CI sandbox)
+
 from api.routers import listings as L
 
 ALL_NULL = (None, None, None, None, None, None, None, None, False,

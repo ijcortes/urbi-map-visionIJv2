@@ -18,11 +18,13 @@ from __future__ import annotations
 
 import hmac
 import os
+import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 
 from api.db import get_pool
+from api.limiter import limiter
 
 router = APIRouter()
 
@@ -75,14 +77,18 @@ def _lead(r) -> dict:
 
 
 @router.get("/leads", dependencies=[Depends(require_ghl_token)])
+@limiter.limit("60/minute")
 async def listar_leads(
+    request: Request,
     since: str | None = Query(default=None, description="ISO 8601; solo leads creados después"),
     estado: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     pool=Depends(get_pool),
 ):
     """Descubrimiento/polling: Talal lo llama en un workflow programado con
-    `since` = el `created_at` del último lead que ya trajo."""
+    `since` = el `created_at` del último lead que ya trajo.
+    Con `since` el orden es ASC (el cursor avanza sin saltarse leads cuando
+    hay más de `limit`); sin `since`, DESC (los más recientes primero)."""
     desde = None
     if since:
         try:
@@ -96,7 +102,7 @@ async def listar_leads(
         _LEAD_SELECT + """
         WHERE ($1::timestamptz IS NULL OR v.created_at > $1)
           AND ($2::text IS NULL OR v.estado = $2)
-        ORDER BY v.created_at DESC
+        ORDER BY v.created_at """ + ("ASC" if desde else "DESC") + """
         LIMIT $3
         """,
         desde, estado, limit,
@@ -105,8 +111,13 @@ async def listar_leads(
 
 
 @router.get("/leads/{visita_id}", dependencies=[Depends(require_ghl_token)])
-async def obtener_lead(visita_id: str, pool=Depends(get_pool)):
+@limiter.limit("120/minute")
+async def obtener_lead(request: Request, visita_id: str, pool=Depends(get_pool)):
     """GET por ID — para re-sincronizar un lead puntual desde GHL."""
+    try:
+        uuid.UUID(visita_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Lead no encontrado")
     row = await pool.fetchrow(_LEAD_SELECT + " WHERE v.id = $1", visita_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead no encontrado")
