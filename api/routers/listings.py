@@ -1,7 +1,11 @@
 import asyncio
 import hashlib
+import json
+import logging
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -11,8 +15,18 @@ from api.config import USD_TO_COP
 from api.db import get_pool
 from api.dependencies import get_current_user, get_optional_user, is_agente
 from api.limiter import limiter
+from api.services.asignador_service import asignar_intake
+from api.services.intake_service import get_or_create_owner
 from api.services.personalizacion import calcular_relevancia, get_match_label, PRESUPUESTO_MAX
-from api.utils.email import notify_admin_reclamo
+
+logger = logging.getLogger(__name__)
+
+# tipo_inmueble scrapeado → enum intake_tipo_inmueble (apartamento|casa|local|oficina|lote|finca)
+_INTAKE_TIPO = {
+    "apartamento": "apartamento", "apartaestudio": "apartamento",
+    "casa": "casa", "local": "local", "oficina": "oficina",
+    "bodega": "local", "lote": "lote", "finca": "finca",
+}
 
 router = APIRouter()
 
@@ -1818,15 +1832,18 @@ async def reclamar_listing(
     current_user: dict = Depends(get_current_user),
 ):
     """Un dueño/agente reclama un listing YA scrapeado (sin dueño en el sistema).
-    Nace 'pendiente'; el admin verifica (fase 1 manual). Al verificar → lead al
-    realtor de zona vía intake/asignador (fase 2, aún no cableado)."""
+    El reclamo se guarda y enruta como LEAD al realtor de zona (intake/asignador);
+    el realtor verifica la propiedad al trabajar el lead — no hay gate de admin."""
     if not req.nombre.strip() or not req.telefono.strip():
         raise HTTPException(400, "Nombre y teléfono son obligatorios")
 
     pool = get_pool()
-    # Reverse-lookup del url + fuente desde el hash int (mismo patrón que /vista).
+    # Reverse-lookup desde el hash int (mismo patrón que /vista) — trae lo que
+    # el intake necesita para asignar zona.
     row = await pool.fetchrow(
-        """SELECT url, fuente FROM staging.stg_listings_unificado
+        """SELECT url, fuente, lat, lon, tipo_operacion, tipo_inmueble,
+                  barrio_id, precio_cop, area_m2, habitaciones, banos
+           FROM staging.stg_listings_unificado
            WHERE ('x'||substr(md5(url),1,8))::bit(32)::int = $1
            LIMIT 1""",
         listing_id,
@@ -1860,14 +1877,56 @@ async def reclamar_listing(
         )
         return {"ok": True, "estado": existing or "pendiente", "ya_reclamado": True}
 
-    # Notifica al admin para verificación manual. No tumba el flujo si el email falla.
-    try:
-        await notify_admin_reclamo(
-            nombre=req.nombre.strip(), telefono=req.telefono.strip(),
-            email=(req.email or "").strip(), matricula=(req.matricula_declarada or "").strip(),
-            listing_url=listing_url, mensaje=(req.mensaje or "").strip(),
-        )
-    except Exception:
-        pass
+    # Enruta el reclamo como lead al realtor de zona (reusa intake/asignador del
+    # flujo owner-publish). El realtor verifica la propiedad trabajando el lead.
+    # Falla suave: si la asignación revienta, el reclamo YA quedó guardado.
+    operacion = "arriendo" if (row["tipo_operacion"] or "") == "arriendo" else "venta"
+    tipo_intake = _INTAKE_TIPO.get((row["tipo_inmueble"] or "").lower(), "apartamento")
+    if row["lat"] is not None and row["lon"] is not None:
+        try:
+            owner_id = await get_or_create_owner(current_user, pool)
+            barrio_id = row["barrio_id"]
+            zona_codigo = str(barrio_id) if barrio_id is not None else None
+            barrio_nom = municipio_nom = None
+            if barrio_id is not None:
+                brow = await pool.fetchrow(
+                    "SELECT nombre, municipio FROM raw.barrios WHERE id = $1", barrio_id
+                )
+                if brow:
+                    barrio_nom, municipio_nom = brow["nombre"], brow["municipio"]
+            intake_id = str(uuid.uuid4())
+            hab = int(row["habitaciones"]) if row["habitaciones"] is not None else None
+            ban = int(row["banos"]) if row["banos"] is not None else None
+            declaraciones = {"origen": "reclamo", "listing_url": listing_url,
+                             "matricula_declarada": (req.matricula_declarada or "").strip() or None}
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO intake (
+                        id, owner_id, listing_id, estado, operacion, tipo_inmueble,
+                        geom, municipio, barrio, zona_nivel, zona_codigo,
+                        direccion_aprox, precio_esperado, area_m2, habitaciones,
+                        banos, declaraciones
+                    ) VALUES (
+                        $1, $2, NULL, 'nuevo', $3, $4,
+                        ST_SetSRID(ST_MakePoint($5, $6), 4326), $7, $8, 'barrio', $9,
+                        $10, $11, $12, $13, $14, $15::jsonb
+                    )
+                    """,
+                    intake_id, owner_id, operacion, tipo_intake,
+                    row["lon"], row["lat"], municipio_nom, barrio_nom, zona_codigo,
+                    (req.mensaje or "").strip() or None, row["precio_cop"],
+                    row["area_m2"], hab, ban,
+                    json.dumps(declaraciones),
+                )
+            await asignar_intake(
+                SimpleNamespace(
+                    id=intake_id, estado="nuevo", agent_id=None,
+                    zona_codigo=zona_codigo, geom=f"POINT({row['lon']} {row['lat']})",
+                ),
+                pool,
+            )
+        except Exception:
+            logger.exception("reclamar_listing: intake/asignación falló para %s", listing_url)
 
     return {"ok": True, "estado": "pendiente"}

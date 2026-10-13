@@ -66,8 +66,8 @@ export function ReclamarListingModal({
             <div className="mb-3 text-4xl">✅</div>
             <h3 className="mb-2 text-lg font-bold text-[#111418]">Reclamo enviado</h3>
             <p className="mb-5 text-sm leading-relaxed text-[#5B5F5C]">
-              Verificaremos que el inmueble es tuyo y te contactaremos. Una vez confirmado,
-              podrás gestionarlo y conectarte con un agente.
+              Un agente de tu zona te contactará para verificar que el inmueble es tuyo y
+              ayudarte a gestionarlo.
             </p>
             <button
               onClick={onClose}
@@ -81,8 +81,8 @@ export function ReclamarListingModal({
           <>
             <h3 className="mb-1 text-lg font-bold text-[#111418]">¿Este inmueble es tuyo?</h3>
             <p className="mb-4 text-sm leading-relaxed text-[#5B5F5C]">
-              Reclámalo para corregir sus datos, actualizar el precio y conectarte con un
-              agente. Verificamos la propiedad antes de activarlo.
+              Reclámalo y un agente de tu zona te contactará para verificarlo y ayudarte a
+              corregir los datos, actualizar el precio y gestionar la venta o arriendo.
             </p>
 
             <div className="grid gap-3">
