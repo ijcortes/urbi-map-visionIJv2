@@ -30,7 +30,7 @@ export function ComparadorOnboarding({ onClose }: { onClose: () => void }) {
           <h2 className="font-display text-lg font-semibold text-[#111418]">
             ¿Cómo funciona el comparador?
           </h2>
-          <button onClick={handleClose} className="text-[#6E726E] hover:text-[#111418]">
+          <button onClick={handleClose} aria-label="Cerrar" className="grid h-11 w-11 place-items-center text-[#6E726E] hover:text-[#111418]">
             <X className="h-4 w-4" />
           </button>
         </div>

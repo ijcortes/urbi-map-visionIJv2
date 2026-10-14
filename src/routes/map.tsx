@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { RouteError, RoutePending } from "@/components/RouteStates";
 import { useEffect, useRef, useState } from "react";
 import { API_ENDPOINTS } from "@/config/api";
 import { useTarget, type Target } from "@/contexts/TargetContext";
@@ -31,6 +32,8 @@ import { AnimatePresence } from "framer-motion";
 
 export const Route = createFileRoute("/map")({
   component: MapPage,
+  errorComponent: RouteError,
+  pendingComponent: RoutePending,
 });
 
 // Zillow-style popup rollout flag — false restores the old ListingMiniPopup.

@@ -256,7 +256,7 @@ function EventosPage() {
               <p style={{ color: K.muted, fontSize: '1.05rem', marginBottom: 12 }}>
                 {t('Aún no hay eventos aquí.', 'No events here yet.')}
               </p>
-              <a href="#" style={{ color: K.coral, fontWeight: 700, textDecoration: 'none' }}>
+              <a href="/publicar" style={{ color: K.coral, fontWeight: 700, textDecoration: 'none' }}>
                 {t('¿Tienes uno? Publícalo →', 'Have one? Publish it →')}
               </a>
             </div>

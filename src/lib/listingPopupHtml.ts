@@ -137,9 +137,9 @@ export function buildListingPopupHTML(
   const waUrl  = `https://wa.me/+573122502394?text=${waText}`;
   const btnBase = `cursor:pointer;padding:6px 10px;border-radius:6px;font-size:11px;font-weight:600;border:1px solid;`;
   const btnSrc = url
-    ? `<button onclick="window.open('${url.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, "&quot;")}','_blank')" style="${btnBase}background:transparent;border-color:#E5E0D5;color:#5B5F5C;">${sourceLabel}</button>`
+    ? `<button onclick="window.open('${url.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, "&quot;")}','_blank','noopener,noreferrer')" style="${btnBase}background:transparent;border-color:#E5E0D5;color:#5B5F5C;">${sourceLabel}</button>`
     : "";
-  const btnWa = `<button onclick="window.open('${waUrl}','_blank')" style="${btnBase}background:#0A5C36;border-color:#0A5C36;color:#FFFFFF;">${t.agent}</button>`;
+  const btnWa = `<button onclick="window.open('${waUrl}','_blank','noopener,noreferrer')" style="${btnBase}background:#0A5C36;border-color:#0A5C36;color:#FFFFFF;">${t.agent}</button>`;
   const sec = precio_cop ? secondary(precio_cop, ctx) : null;
 
   // Everything is already localized here; data-i18n-skip keeps the DOM walker

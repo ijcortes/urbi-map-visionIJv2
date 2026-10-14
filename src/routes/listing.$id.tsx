@@ -1,4 +1,5 @@
 import { createFileRoute, redirect, Link } from "@tanstack/react-router";
+import { RouteError, RoutePending } from "@/components/RouteStates";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft, Bed, Bath, Maximize2, Building2, Calendar,
@@ -20,6 +21,8 @@ export const Route = createFileRoute("/listing/$id")({
     throw redirect({ to: "/map", search: { listing: Number(params.id) } });
   },
   component: ListingPage,
+  errorComponent: RouteError,
+  pendingComponent: RoutePending,
 });
 
 const SOURCE_LABEL: Record<string, string> = {

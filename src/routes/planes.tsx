@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { RouteError, RoutePending } from "@/components/RouteStates";
 import { createFileRoute } from "@tanstack/react-router";
 import { ComunidadLayout } from "@/components/comunidad/ComunidadLayout";
 import { PLAN_PRICES as PP } from "@/config/ghl";
@@ -33,6 +34,8 @@ const FAQ = [
 export const Route = createFileRoute("/planes")({
   validateSearch: () => ({}),
   component: PlanesPage,
+  errorComponent: RouteError,
+  pendingComponent: RoutePending,
 });
 
 function PlanesPage() {

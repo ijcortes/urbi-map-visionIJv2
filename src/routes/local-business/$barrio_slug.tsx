@@ -710,7 +710,7 @@ function LocalBusinessPage() {
           {!isLoading && hasArea && tiendas.length === 0 && (
             <div style={{ textAlign: 'center', padding: '60px 2rem' }}>
               <p style={{ color: K.muted, marginBottom: 12 }}>{t('Sin resultados.', 'No results.')}</p>
-              <a href="#" style={{ color: K.coral, fontWeight: 700, textDecoration: 'none' }}>
+              <a href="/planes" style={{ color: K.coral, fontWeight: 700, textDecoration: 'none' }}>
                 {t('Publicar mi negocio →', 'List my business →')}
               </a>
             </div>

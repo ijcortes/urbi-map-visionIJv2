@@ -1,4 +1,5 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { RouteError, RoutePending } from "@/components/RouteStates";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Inbox, MapPinned, Plus } from "@/lib/icons";
@@ -40,6 +41,8 @@ import {
 } from "@/hooks/useRealtorDashboard";
 
 export const Route = createFileRoute("/realtor/dashboard")({
+  errorComponent: RouteError,
+  pendingComponent: RoutePending,
   beforeLoad: () => {
     if (typeof window === "undefined") return;
     const raw = localStorage.getItem("medellin-social.user");

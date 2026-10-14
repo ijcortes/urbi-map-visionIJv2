@@ -85,7 +85,8 @@ export function ListingMiniPopup({ listing, onClose, onViewMore }: Props) {
 
           <button
             onClick={onClose}
-            className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-black/50 text-white transition hover:bg-black/70"
+            aria-label="Cerrar"
+            className="absolute right-2 top-2 grid h-11 w-11 md:h-6 md:w-6 place-items-center rounded-full bg-black/50 text-white transition hover:bg-black/70"
           >
             <X className="h-3.5 w-3.5" />
           </button>

@@ -425,7 +425,7 @@ function AlertModal({ listing, onClose }: { listing: ApiListingDetail; onClose: 
             <BellRing className="h-5 w-5 text-[#0F8A4F]" />
             <span className="font-semibold text-[#111418]">Alerta de precio</span>
           </div>
-          <button onClick={onClose} className="text-[#5B5F5C] hover:text-[#111418]"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="grid h-11 w-11 place-items-center text-[#5B5F5C] hover:text-[#111418]"><X className="h-4 w-4" /></button>
         </div>
         <p className="mb-4 text-sm text-[#5B5F5C]">
           Te avisamos si esta propiedad baja de precio o aparece algo similar en{" "}
@@ -1770,7 +1770,8 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                 </span>
                 <button
                   onClick={onClose}
-                  className="grid h-7 w-7 place-items-center rounded-lg text-[#5B5F5C] transition hover:bg-[#F3F0E8] hover:text-[#111418]"
+                  aria-label="Cerrar"
+                  className="grid h-11 w-11 place-items-center rounded-lg text-[#5B5F5C] transition hover:bg-[#F3F0E8] hover:text-[#111418]"
                 >
                   <X className="h-4 w-4" />
                 </button>
