@@ -60,7 +60,15 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 API_URL = "https://www.metrocuadrado.com"
 # Extraído del HTML embebido: env.apiKey en config de Next.js RSC
-API_KEY = os.getenv("METROCUADRADO_API_KEY", "P1MfFHfQMOtL16Zpg36NcntJYCLFm8FqFfudnavl")
+API_KEY = os.getenv("METROCUADRADO_API_KEY", "").strip()  # never hard-code; see .env.example
+
+
+def _require_api_key() -> str:
+    if not API_KEY:
+        raise RuntimeError(
+            "METROCUADRADO_API_KEY is not set. Export it (see .env.example) before running the Metrocuadrado scraper."
+        )
+    return API_KEY
 PAGE_SIZE = 50  # n.L=50, obligatorio — otras sizes retornan 0 resultados
 
 # Municipios del Valle de Aburrá — slug URL → nombre display
@@ -95,7 +103,7 @@ BASE_CONFIGS = [
     {"tipo_inmueble": "lote",          "tipo_operacion": "venta"},
 ]
 
-HEADERS = {
+_BASE_HEADERS = {
     "User-Agent": os.getenv(
         "SCRAPER_USER_AGENT",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -104,7 +112,6 @@ HEADERS = {
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
     "Content-Type": "application/json",
-    "X-Api-Key": API_KEY,
     "Referer": "https://www.metrocuadrado.com/",
 }
 
@@ -472,7 +479,7 @@ class MetrocuadradoScraper:
         self.municipios = municipios or ["medellin"]
         self.since_date = since_date
         self._session = requests.Session()
-        self._session.headers.update(HEADERS)
+        self._session.headers.update({**_BASE_HEADERS, "X-Api-Key": _require_api_key()})
 
     def _get_page(self, tipo_inmueble: str, tipo_operacion: str,
                   from_offset: int, city: str) -> dict | None:

@@ -18,4 +18,10 @@ ENV PYTHONUNBUFFERED=1 \
 
 EXPOSE 8000
 
+# Run unprivileged. The API only reads /app (no volumes, uploads go to R2) and
+# binds $PORT (> 1024); alembic needs network + DATABASE_URL only. If a Railway
+# volume is ever mounted, make it writable for uid 10001 (RAILWAY_RUN_UID=10001).
+RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin app
+USER app
+
 CMD sh -c "alembic upgrade head && uvicorn api.main:app --host 0.0.0.0 --port ${PORT}"

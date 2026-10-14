@@ -2,6 +2,11 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# NOTE: intentionally NOT dropping to a non-root USER: the container's only job is
+# running cron(8) as PID 1 (needs root to read /etc/cron.d and setuid per job).
+# It has no listener and no public domain. Revisit if moved to a scheduler
+# (Railway cron / Airflow) that does not need crond.
+
 # System deps: cron + libpq for psycopg2 + gcc for some packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cron libpq-dev gcc \

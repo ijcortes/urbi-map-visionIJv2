@@ -29,4 +29,9 @@ RUN cp -r public/data dist/client/data
 ENV NODE_ENV=production
 EXPOSE 8080
 
+# Run unprivileged. server.mjs only READS /app (dist, public) and listens on a
+# port > 1024, so no write access or capabilities are needed. `node` (uid 1000)
+# ships with the official node image.
+USER node
+
 CMD ["node", "/app/server.mjs"]

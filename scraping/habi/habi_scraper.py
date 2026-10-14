@@ -10,7 +10,7 @@ Strategy (reverse-engineered 2026-08-23):
 
         GET https://apiv2.habi.co/listing-global-api/get_properties
             ?offset=N&limit=200&filters={}&country=CO
-            header: x-api-key: VnXl0bdH2gaVltgd7hJuHPOrMZAlvLa5KGHJsrr6
+            header: x-api-key: <HABI_API_KEY from env>
 
     No Akamai bot-check on this endpoint — plain requests works, no
     Playwright/browser needed. Paginate offset until more_available=False,
@@ -40,6 +40,7 @@ Run:
   python scraping/habi/habi_scraper.py [--dry-run] [--no-detail] [--max-pages N]
 """
 
+import os
 import argparse
 import json
 import re
@@ -61,7 +62,17 @@ from config import (
 )
 
 API_URL = "https://apiv2.habi.co/listing-global-api/get_properties"
-API_KEY = "VnXl0bdH2gaVltgd7hJuHPOrMZAlvLa5KGHJsrr6"
+# Portal web-client key. NOT stored in the repo: set HABI_API_KEY in the
+# environment (see .env.example). The value is never logged.
+API_KEY = os.getenv("HABI_API_KEY", "").strip()
+
+
+def _require_api_key() -> str:
+    if not API_KEY:
+        raise RuntimeError(
+            "HABI_API_KEY is not set. Export it (see .env.example) before running the Habi scraper."
+        )
+    return API_KEY
 BASE_URL = "https://habi.co"
 IMG_BASE = "https://d3hzflklh28tts.cloudfront.net"
 PAGE_LIMIT = 200
@@ -78,8 +89,11 @@ MUNICIPIO_HINT = {
     "La Estrella": "LA ESTRELLA",
 }
 
-HEADERS = {
-    "x-api-key": API_KEY,
+def _headers() -> dict:
+    return {**_BASE_HEADERS, "x-api-key": _require_api_key()}
+
+
+_BASE_HEADERS = {
     "Accept": "application/json, text/plain, */*",
     "Referer": "https://habi.co/",
     "User-Agent": (
@@ -92,7 +106,7 @@ HEADERS = {
 def fetch_all_valle_aburra(max_pages: int | None) -> list[dict]:
     """Paginate the nationwide feed, keep only Valle de Aburrá listings."""
     session = requests.Session()
-    session.headers.update(HEADERS)
+    session.headers.update(_headers())
 
     matched: list[dict] = []
     offset = 0
