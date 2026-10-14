@@ -6,12 +6,13 @@ from typing import Optional
 import bcrypt
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from api.db import get_pool
-from api.dependencies import JWT_ALGORITHM, JWT_SECRET, get_current_user
+from api.dependencies import JWT_ALGORITHM, JWT_SECRET, get_current_user, token_key
 from api.limiter import email_throttle, limiter
 
 _APP_URL = os.getenv("APP_URL", "https://medellinsocial.com")
@@ -104,7 +105,8 @@ def _make_token(user_id: int, token_version: int = 0) -> str:
     now = datetime.now(timezone.utc)
     expire = now + timedelta(hours=_jwt_expiry_hours())
     return jwt.encode(
-        {"sub": str(user_id), "exp": expire, "iat": now, "tv": int(token_version or 0)},
+        {"sub": str(user_id), "exp": expire, "iat": now, "tv": int(token_version or 0),
+         "jti": secrets.token_urlsafe(16)},
         JWT_SECRET,
         algorithm=JWT_ALGORITHM,
     )
@@ -145,7 +147,7 @@ async def _issue_verification(pool, user_id: int, to: str, nombre: str) -> None:
     await _send_quietly(send_verify_email, to=to, nombre=nombre, verify_url=verify_url)
 
 
-async def _mark_verified_login(pool, user_id: int) -> int:
+async def _mark_verified_login(pool, user_id: int) -> int:  # pool or connection
     """Called when the caller just PROVED inbox ownership (Google / magic link /
     password-reset). Marks the email verified and returns the token_version to
     put in the new JWT.
@@ -174,6 +176,13 @@ async def _get_perfil(pool, user_id: int) -> Optional[dict]:
     return dict(row) if row else None
 
 
+_USER_SELECT = """SELECT id, email, nombre, apellido, activo, plan, google_sub,
+                  perfil_busqueda, onboarding_completado, origen_registro,
+                  EXISTS(SELECT 1 FROM agent a
+                         WHERE a.usuario_id = usuarios.id
+                           AND a.estado = 'activo') AS es_agente
+           FROM usuarios"""
+
 _GOOGLE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
 
 
@@ -196,7 +205,7 @@ async def _verify_google_id_token(id_token: str) -> dict:
         raise HTTPException(status_code=401, detail="Token de Google inválido")
     if claims.get("email_verified") not in ("true", True):
         raise HTTPException(status_code=401, detail="Correo de Google no verificado")
-    if not claims.get("email"):
+    if not claims.get("email") or not claims.get("sub"):
         raise HTTPException(status_code=401, detail="Token de Google inválido")
     return claims
 
@@ -301,51 +310,20 @@ async def login(request: Request, req: LoginRequest = Body(...)):
     )
 
 
-@router.post("/google", response_model=AuthResponse)
-@limiter.limit("10/minute")
-async def google_login(request: Request, req: GoogleAuthRequest = Body(...)):
-    """Login or auto-register via Google Sign-In. Google already verified the
-    email, so accounts created/matched here are trusted (email_verificado=TRUE)."""
-    claims = await _verify_google_id_token(req.id_token)
-    email = _normalizar_email(claims["email"])
-    pool = get_pool()
+def _google_email_is_authoritative(claims: dict, email: str) -> bool:
+    """True when Google itself is the authority on this mailbox, so a verified Google identity may be
+    merged onto an existing row with the same address without a fresh inbox challenge: Gmail
+    addresses, or a Workspace domain (`hd` claim equal to the email domain). For any other address
+    `email_verified` can outlive the mailbox (domain/mailbox changed hands), see
+    https://developers.google.com/identity/gsi/web/guides/verify-google-id-token"""
+    domain = email.rsplit("@", 1)[-1]
+    if domain in ("gmail.com", "googlemail.com"):
+        return True
+    hd = str(claims.get("hd") or "").lower()
+    return bool(hd) and hd == domain
 
-    row = await pool.fetchrow(
-        """SELECT id, email, nombre, apellido, activo, plan,
-                  perfil_busqueda, onboarding_completado, origen_registro,
-                  EXISTS(SELECT 1 FROM agent a
-                         WHERE a.usuario_id = usuarios.id
-                           AND a.estado = 'activo') AS es_agente
-           FROM usuarios WHERE email = $1""",
-        email,
-    )
-    if row is None:
-        password_hash = _hash_password(secrets.token_urlsafe(32))
-        user_id = await pool.fetchval(
-            """
-            INSERT INTO usuarios (email, password_hash, nombre, apellido, origen_registro, email_verificado)
-            VALUES ($1, $2, $3, $4, 'google', TRUE)
-            RETURNING id
-            """,
-            email, password_hash, claims.get("given_name"), claims.get("family_name"),
-        )
-        row = await pool.fetchrow(
-            """SELECT id, email, nombre, apellido, activo, plan,
-                      perfil_busqueda, onboarding_completado, origen_registro,
-                      EXISTS(SELECT 1 FROM agent a
-                             WHERE a.usuario_id = usuarios.id
-                               AND a.estado = 'activo') AS es_agente
-               FROM usuarios WHERE id = $1""",
-            user_id,
-        )
-    elif not row["activo"]:
-        raise HTTPException(status_code=403, detail="Cuenta desactivada")
 
-    # Google proved inbox ownership: merge onto an existing (maybe pre-registered,
-    # unverified) row, invalidating any password/tokens an impostor set on it.
-    tv = await _mark_verified_login(pool, row["id"])
-    token = _make_token(row["id"], tv)
-    perfil = await _get_perfil(pool, row["id"])
+def _auth_response(row, token: str, perfil) -> "AuthResponse":
     return AuthResponse(
         token=token,
         user=UserBasic(
@@ -356,6 +334,95 @@ async def google_login(request: Request, req: GoogleAuthRequest = Body(...)):
         ),
         perfil_inversor=perfil,
     )
+
+
+async def _issue_magic_link(pool, background: BackgroundTasks, email: str) -> None:
+    from api.utils.email import send_magic_link
+
+    if not email_throttle.allow(f"magic:{email}"):
+        return  # per-email cap (mail-bombing / token-clobber)
+    token = secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc) + timedelta(minutes=15)
+    await pool.execute(
+        """INSERT INTO magic_link_tokens (email, token, expires_at)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (email) DO UPDATE
+               SET token = EXCLUDED.token, expires_at = EXCLUDED.expires_at, used = FALSE""",
+        email, token, expires,
+    )
+    login_url = f"{_APP_URL}/login/verificar?token={token}"
+    background.add_task(_send_quietly, send_magic_link, to=email, login_url=login_url)
+
+
+_GOOGLE_CHALLENGE_MSG = (
+    "Para proteger tu cuenta te enviamos un enlace de acceso a tu correo. Ábrelo para continuar."
+)
+
+
+@router.post("/google", response_model=AuthResponse)
+@limiter.limit("10/minute")
+async def google_login(
+    request: Request, background: BackgroundTasks, req: GoogleAuthRequest = Body(...),
+):
+    """Login or auto-register via Google Sign-In.
+
+    Accounts are identified by Google's stable `sub` (persisted in usuarios.google_sub); once linked,
+    that is all that authenticates a Google login. An e-mail match is only trusted to LINK a
+    Google identity to a pre-existing row when Google is authoritative for the mailbox (Gmail /
+    Workspace `hd`) and the address is not reserved (ADMIN_EMAIL). Anything else gets a 202 and a
+    fresh magic link: a stale `email_verified=true` on a recycled third-party mailbox must not
+    hand over an existing account."""
+    claims = await _verify_google_id_token(req.id_token)
+    email = _normalizar_email(claims["email"])
+    sub = str(claims["sub"])
+    pool = get_pool()
+
+    row = await pool.fetchrow(_USER_SELECT + " WHERE google_sub = $1", sub)
+    if row is not None:
+        # Authenticated by the verified Google identity itself (the e-mail on Google's side may have changed).
+        if not row["activo"]:
+            raise HTTPException(status_code=403, detail="Cuenta desactivada")
+        tv = await pool.fetchval(
+            "UPDATE usuarios SET last_login = NOW() WHERE id = $1 RETURNING token_version", row["id"])
+        return _auth_response(row, _make_token(row["id"], tv), await _get_perfil(pool, row["id"]))
+
+    authoritative = _google_email_is_authoritative(claims, email) and email not in _reserved_emails()
+    row = await pool.fetchrow(_USER_SELECT + " WHERE email = $1", email)
+    if row is not None:
+        if row["google_sub"] is not None or not authoritative:
+            # Linked to a different Google identity, or the address cannot be trusted: prove the inbox.
+            await _issue_magic_link(pool, background, email)
+            return JSONResponse(
+                status_code=202, content={"challenge": "email", "message": _GOOGLE_CHALLENGE_MSG})
+        if not row["activo"]:
+            raise HTTPException(status_code=403, detail="Cuenta desactivada")
+        # Merge: link the sub, invalidating any password/tokens an impostor set on an unverified row.
+        tv = await _mark_verified_login(pool, row["id"])
+        await pool.execute(
+            "UPDATE usuarios SET google_sub = $2 WHERE id = $1 AND google_sub IS NULL", row["id"], sub)
+        return _auth_response(row, _make_token(row["id"], tv), await _get_perfil(pool, row["id"]))
+
+    if email in _reserved_emails():
+        await _issue_magic_link(pool, background, email)
+        return JSONResponse(
+            status_code=202, content={"challenge": "email", "message": _GOOGLE_CHALLENGE_MSG})
+
+    user_id = await pool.fetchval(
+        """
+        INSERT INTO usuarios (email, password_hash, nombre, apellido, origen_registro, email_verificado, google_sub)
+        VALUES ($1, $2, $3, $4, 'google', TRUE, $5)
+        ON CONFLICT DO NOTHING
+        RETURNING id
+        """,
+        email, _hash_password(secrets.token_urlsafe(32)), claims.get("given_name"), claims.get("family_name"), sub,
+    )
+    if user_id is None:  # lost a race against another sign-in for the same identity: use the challenge
+        await _issue_magic_link(pool, background, email)
+        return JSONResponse(
+            status_code=202, content={"challenge": "email", "message": _GOOGLE_CHALLENGE_MSG})
+    row = await pool.fetchrow(_USER_SELECT + " WHERE id = $1", user_id)
+    tv = await pool.fetchval("SELECT token_version FROM usuarios WHERE id = $1", user_id)
+    return _auth_response(row, _make_token(user_id, tv), await _get_perfil(pool, user_id))
 
 
 @router.get("/me", response_model=AuthResponse)
@@ -411,7 +478,7 @@ async def logout(
     pool = get_pool()
     await pool.execute(
         "INSERT INTO token_blacklist (token, usuario_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        credentials.credentials, current_user["id"],
+        token_key(credentials.credentials), current_user["id"],
     )
 
 
@@ -424,10 +491,14 @@ async def refresh_token(
 ):
     """Exchange a valid token for a fresh 30-day token. Old token is blacklisted."""
     pool = get_pool()
-    await pool.execute(
-        "INSERT INTO token_blacklist (token, usuario_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        credentials.credentials, current_user["id"],
+    # Atomic: only the request that actually revokes the old token may mint its successor.
+    revoked = await pool.fetchval(
+        "INSERT INTO token_blacklist (token, usuario_id) VALUES ($1, $2) "
+        "ON CONFLICT DO NOTHING RETURNING id",
+        token_key(credentials.credentials), current_user["id"],
     )
+    if revoked is None:
+        raise HTTPException(status_code=401, detail="Token revocado")
     new_token = _make_token(current_user["id"], current_user.get("token_version", 0))
     perfil = await _get_perfil(pool, current_user["id"])
     return AuthResponse(
@@ -446,22 +517,17 @@ async def refresh_token(
 @limiter.limit("10/minute")
 async def verify_email(request: Request, token: str):
     pool = get_pool()
-    row = await pool.fetchrow(
-        "SELECT usuario_id, expires_at, used FROM email_verification_tokens WHERE token = $1",
-        token,
-    )
-    if row is None or row["used"]:
-        raise HTTPException(status_code=400, detail="Token inválido o ya utilizado")
-    if row["expires_at"] < datetime.now(timezone.utc):
-        raise HTTPException(status_code=400, detail="Token expirado. Regístrate de nuevo o solicita reenvío.")
     async with pool.acquire() as conn:
         async with conn.transaction():
-            await conn.execute(
-                "UPDATE usuarios SET email_verificado = TRUE WHERE id = $1", row["usuario_id"]
+            # Atomic single use: of N concurrent requests exactly one gets the row back.
+            uid = await conn.fetchval(
+                "UPDATE email_verification_tokens SET used = TRUE "
+                "WHERE token = $1 AND used = FALSE AND expires_at > NOW() RETURNING usuario_id",
+                token,
             )
-            await conn.execute(
-                "UPDATE email_verification_tokens SET used = TRUE WHERE token = $1", token
-            )
+            if uid is None:
+                raise HTTPException(status_code=400, detail="Token inválido, expirado o ya utilizado")
+            await conn.execute("UPDATE usuarios SET email_verificado = TRUE WHERE id = $1", uid)
     return {"ok": True, "message": "Correo verificado correctamente"}
 
 
@@ -513,32 +579,24 @@ async def forgot_password(
 @limiter.limit("5/minute")
 async def reset_password(request: Request, req: ResetPasswordRequest = Body(...)):
     pool = get_pool()
-    row = await pool.fetchrow(
-        """
-        SELECT usuario_id, expires_at, used
-        FROM password_reset_tokens
-        WHERE token = $1
-        """,
-        req.token,
-    )
-    if row is None or row["used"]:
-        raise HTTPException(status_code=400, detail="Token inválido o ya utilizado")
-    if row["expires_at"] < datetime.now(timezone.utc):
-        raise HTTPException(status_code=400, detail="Token expirado. Solicita uno nuevo.")
-
     new_hash = _hash_password(req.new_password)
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # Atomic single use: the token is consumed and the password changed in ONE transaction,
+            # so two racing requests cannot both change the password.
+            uid = await conn.fetchval(
+                "UPDATE password_reset_tokens SET used = TRUE "
+                "WHERE token = $1 AND used = FALSE AND expires_at > NOW() RETURNING usuario_id",
+                req.token,
+            )
+            if uid is None:
+                raise HTTPException(status_code=400, detail="Token inválido, expirado o ya utilizado")
             # The reset link went to the inbox, so it also proves ownership of
             # the email; token_version + 1 revokes every session issued before.
             await conn.execute(
                 "UPDATE usuarios SET password_hash = $1, email_verificado = TRUE, "
                 "token_version = token_version + 1 WHERE id = $2",
-                new_hash, row["usuario_id"],
-            )
-            await conn.execute(
-                "UPDATE password_reset_tokens SET used = TRUE WHERE token = $1",
-                req.token,
+                new_hash, uid,
             )
 
     return {"message": "Contraseña actualizada correctamente"}
@@ -564,23 +622,9 @@ async def request_magic_link(
     """Send a one-click login link. Works whether or not the email is already
     registered — verifying it auto-creates the account, same trust model as
     Google Sign-In (a clicked link from their inbox proves email ownership)."""
-    from api.utils.email import send_magic_link
-
     pool = get_pool()
     generic = {"message": "Si el correo existe o es válido, recibirás un link para ingresar."}
-    if not email_throttle.allow(f"magic:{req.email}"):
-        return generic  # per-email cap (mail-bombing / token-clobber); same answer
-    token = secrets.token_urlsafe(32)
-    expires = datetime.now(timezone.utc) + timedelta(minutes=15)
-    await pool.execute(
-        """INSERT INTO magic_link_tokens (email, token, expires_at)
-           VALUES ($1, $2, $3)
-           ON CONFLICT (email) DO UPDATE
-               SET token = EXCLUDED.token, expires_at = EXCLUDED.expires_at, used = FALSE""",
-        req.email, token, expires,
-    )
-    login_url = f"{_APP_URL}/login/verificar?token={token}"
-    background.add_task(_send_quietly, send_magic_link, to=req.email, login_url=login_url)
+    await _issue_magic_link(pool, background, req.email)  # per-email throttle inside; same answer either way
     return generic
 
 
@@ -588,49 +632,30 @@ async def request_magic_link(
 @limiter.limit("10/minute")
 async def verify_magic_link(request: Request, req: MagicLinkVerifyRequest = Body(...)):
     pool = get_pool()
-    row = await pool.fetchrow(
-        "SELECT email, expires_at, used FROM magic_link_tokens WHERE token = $1",
-        req.token,
-    )
-    if row is None or row["used"]:
-        raise HTTPException(status_code=400, detail="Link inválido o ya utilizado")
-    if row["expires_at"] < datetime.now(timezone.utc):
-        raise HTTPException(status_code=400, detail="Link expirado. Solicita uno nuevo.")
-
-    email = row["email"]
-    user = await pool.fetchrow(
-        """SELECT id, email, nombre, apellido, activo, plan,
-                  perfil_busqueda, onboarding_completado, origen_registro,
-                  EXISTS(SELECT 1 FROM agent a
-                         WHERE a.usuario_id = usuarios.id
-                           AND a.estado = 'activo') AS es_agente
-           FROM usuarios WHERE email = $1""",
-        email,
-    )
-    if user is None:
-        password_hash = _hash_password(secrets.token_urlsafe(32))
-        user_id = await pool.fetchval(
-            """
-            INSERT INTO usuarios (email, password_hash, origen_registro, email_verificado)
-            VALUES ($1, $2, 'magic_link', TRUE)
-            RETURNING id
-            """,
-            email, password_hash,
-        )
-        user = await pool.fetchrow(
-            """SELECT id, email, nombre, apellido, activo, plan,
-                      perfil_busqueda, onboarding_completado, origen_registro,
-                      EXISTS(SELECT 1 FROM agent a
-                             WHERE a.usuario_id = usuarios.id
-                               AND a.estado = 'activo') AS es_agente
-               FROM usuarios WHERE id = $1""",
-            user_id,
-        )
-    elif not user["activo"]:
-        raise HTTPException(status_code=403, detail="Cuenta desactivada")
-
-    await pool.execute("UPDATE magic_link_tokens SET used = TRUE WHERE token = $1", req.token)
-    tv = await _mark_verified_login(pool, user["id"])
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            # Atomic single use (see reset_password); the account mutation shares the transaction.
+            email = await conn.fetchval(
+                "UPDATE magic_link_tokens SET used = TRUE "
+                "WHERE token = $1 AND used = FALSE AND expires_at > NOW() RETURNING email",
+                req.token,
+            )
+            if email is None:
+                raise HTTPException(status_code=400, detail="Link inválido, expirado o ya utilizado")
+            user = await conn.fetchrow(_USER_SELECT + " WHERE email = $1", email)
+            if user is None:
+                user_id = await conn.fetchval(
+                    """
+                    INSERT INTO usuarios (email, password_hash, origen_registro, email_verificado)
+                    VALUES ($1, $2, 'magic_link', TRUE)
+                    RETURNING id
+                    """,
+                    email, _hash_password(secrets.token_urlsafe(32)),
+                )
+                user = await conn.fetchrow(_USER_SELECT + " WHERE id = $1", user_id)
+            elif not user["activo"]:
+                raise HTTPException(status_code=403, detail="Cuenta desactivada")
+            tv = await _mark_verified_login(conn, user["id"])
     token = _make_token(user["id"], tv)
     perfil = await _get_perfil(pool, user["id"])
     return AuthResponse(

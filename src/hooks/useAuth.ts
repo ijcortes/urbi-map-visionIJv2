@@ -87,11 +87,15 @@ export function useLogin() {
 export function useGoogleLogin() {
   return useMutation({
     mutationFn: async (data: { id_token: string }) => {
-      const res = await apiFetch<AuthResponse>(API_ENDPOINTS.googleLogin, {
+      const res = await apiFetch<AuthResponse & { challenge?: string; message?: string }>(API_ENDPOINTS.googleLogin, {
         method: "POST",
         body: JSON.stringify(data),
         skipAuth: true,
       });
+      // 202: the Google address could not be trusted on its own; a sign-in link was e-mailed instead.
+      if (res.challenge || !res.token) {
+        throw new Error(res.message || "Te enviamos un enlace de acceso a tu correo.");
+      }
       storeAuth(res);
       return res;
     },

@@ -18,6 +18,31 @@ if not JWT_SECRET or len(JWT_SECRET) < 32:
 JWT_ALGORITHM = "HS256"
 
 
+def _canonical_token(token: str) -> str:
+    """Canonical base64url form of the signature segment. PyJWT decodes the signature leniently
+    (padding, non-zero trailing bits, stray characters are ignored), so several different strings
+    carry the same valid signature; the blacklist must treat them as one token."""
+    head, _, sig = token.rpartition(".")
+    try:
+        raw = jwt.utils.base64url_decode(sig.encode())
+    except Exception:
+        return token
+    return f"{head}.{jwt.utils.base64url_encode(raw).decode()}"
+
+
+def blacklist_key(token: str, payload: dict) -> str:
+    """Revocation key of a token whose signature was ALREADY verified: its random jti, or, for
+    tokens issued before jti existed, the canonicalised token string."""
+    jti = payload.get("jti")
+    return f"jti:{jti}" if jti else _canonical_token(token)
+
+
+def token_key(token: str) -> str:
+    """blacklist_key() of a token; raises PyJWTError when the token does not verify."""
+    payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM], options={"require": ["exp", "sub"]})
+    return blacklist_key(token, payload)
+
+
 async def _get_user_from_token(token: str) -> dict:
     try:
         payload = jwt.decode(
@@ -30,9 +55,9 @@ async def _get_user_from_token(token: str) -> dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
 
     pool = get_pool()
-    # Check blacklist
+    # Check blacklist (by jti / canonical signature, not by the raw string the client sent)
     blacklisted = await pool.fetchval(
-        "SELECT 1 FROM token_blacklist WHERE token = $1", token
+        "SELECT 1 FROM token_blacklist WHERE token = $1", blacklist_key(token, payload)
     )
     if blacklisted:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revocado")

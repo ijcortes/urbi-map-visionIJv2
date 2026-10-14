@@ -115,7 +115,7 @@ async def test_pre_hijack_password_is_dead_after_google_login(client, monkeypatc
     await _register(client, email)
 
     async def fake(_t):
-        return {"email": email, "given_name": "V", "family_name": "V"}
+        return {"sub": "sub-h1", "hd": "example.com", "email": email, "given_name": "V", "family_name": "V"}
 
     monkeypatch.setattr(auth_mod, "_verify_google_id_token", fake)
     r = await client.post("/api/v1/auth/google", json={"id_token": "x"})
