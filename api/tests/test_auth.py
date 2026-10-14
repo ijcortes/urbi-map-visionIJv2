@@ -4,7 +4,7 @@ Tests that need a real DB are skipped via the `require_db` marker — run them
 with:  pytest -m require_db --env integration
 """
 import pytest
-from jose import jwt
+import jwt
 
 from api.routers.auth import _hash_password, _verify_password, _make_token
 from api.dependencies import JWT_SECRET, JWT_ALGORITHM
@@ -39,9 +39,16 @@ async def test_register_then_login(client):
     email = "pytest_user@example.com"
     payload = {"email": email, "password": "Test1234!", "nombre": "Pytest", "apellido": "User"}
 
+    from api.db import get_pool
+    await get_pool().execute("DELETE FROM usuarios WHERE email = $1", email)  # idempotent re-runs
     r = await client.post("/api/v1/auth/register", json=payload)
-    assert r.status_code in (201, 409)  # 409 if already registered from prior run
+    assert r.status_code == 201
+    assert "token" not in r.json()  # no session until the email is verified
 
+    r = await client.post("/api/v1/auth/login", json={"email": email, "password": "Test1234!"})
+    assert r.status_code == 403  # unverified
+
+    await get_pool().execute("UPDATE usuarios SET email_verificado = TRUE WHERE email = $1", email)
     r = await client.post("/api/v1/auth/login", json={"email": email, "password": "Test1234!"})
     assert r.status_code == 200
     data = r.json()
