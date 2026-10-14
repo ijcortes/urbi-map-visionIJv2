@@ -185,6 +185,41 @@ async def test_webhook_auth_matrix(client, monkeypatch):
     assert (await client.post(url, json={"object_type": "visita"}, headers=bearer)).status_code == 501
 
 
+async def test_webhook_authenticates_before_reading_body(client, monkeypatch):
+    monkeypatch.setenv("GHL_WEBHOOK_SECRET", "s3cret-value")
+    url = "/api/v1/webhook/ghl"
+    consumed = []
+
+    async def body():
+        consumed.append(1)
+        yield b"x" * 10
+
+    r = await client.post(url, content=body())
+    assert r.status_code == 401
+    # body is never pulled for unauthenticated callers (server may not drain it at all)
+    big = b"x" * 1_000_001
+    assert (await client.post(url, content=big)).status_code == 401
+
+
+async def test_webhook_oversize_rejected_with_running_limit(client, monkeypatch):
+    monkeypatch.setenv("GHL_WEBHOOK_SECRET", "s3cret-value")
+    url = "/api/v1/webhook/ghl"
+    ok = {"X-Webhook-Secret": "s3cret-value"}
+    # Content-Length precheck
+    assert (await client.post(url, content=b"x" * 1_000_001, headers=ok)).status_code == 413
+
+    # chunked (no Content-Length): stops once the running total passes the limit
+    pulled = []
+
+    async def chunks():
+        for _ in range(100):
+            pulled.append(1)
+            yield b"x" * 100_000
+
+    r = await client.post(url, content=chunks(), headers=ok)
+    assert r.status_code == 413
+
+
 # ── /ghl/leads pull ──────────────────────────────────────────────────────────
 class LeadPool:
     def __init__(self):

@@ -82,6 +82,24 @@ def _sniff_image_ext(b: bytes) -> str | None:
     return None
 
 
+async def read_upload_bounded(upload, limit: int = MAX_UPLOAD_BYTES) -> bytes:
+    """Read an UploadFile in chunks, aborting with 413 as soon as `limit` is
+    exceeded (never buffers an oversized body in full)."""
+    from fastapi import HTTPException
+    declared = getattr(upload, "size", None)
+    if declared is not None and declared > limit:
+        raise HTTPException(status_code=413, detail="archivo demasiado grande (max 10 MB)")
+    buf = bytearray()
+    while True:
+        chunk = await upload.read(64 * 1024)
+        if not chunk:
+            break
+        buf += chunk
+        if len(buf) > limit:
+            raise HTTPException(status_code=413, detail="archivo demasiado grande (max 10 MB)")
+    return bytes(buf)
+
+
 def validate_image_upload(file_bytes: bytes) -> str:
     """Return the sniffed extension or raise HTTP 413/415. Rejects SVG/HTML/exe
     masquerading as images (stored XSS on the public bucket)."""

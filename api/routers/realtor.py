@@ -17,7 +17,7 @@ from api.routers.barrios import BarrioResponse, _BARRIO_SQL, _build_response
 from api.services.asignador_service import AsignadorError, sweep_asignados_vencidos, tomar_del_pool
 from api.services.listing_service import TRANSICIONES_VALIDAS, datos_minimos_completos
 from api.utils import ghl_client
-from api.utils.storage import upload_file
+from api.utils.storage import read_upload_bounded, upload_file
 
 router = APIRouter()
 
@@ -109,7 +109,7 @@ async def subir_foto_perfil(
     agent = await _agent_del_usuario(user, pool, exigir_activo=False)
     if not (foto.filename and foto.size):
         raise HTTPException(status_code=400, detail="Foto inválida")
-    url = await upload_file(await foto.read(), foto.filename, folder="agentes")
+    url = await upload_file(await read_upload_bounded(foto), foto.filename, folder="agentes")
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE agent SET foto_url = $2, updated_at = NOW() WHERE id = $1",
@@ -391,7 +391,7 @@ async def subir_fotos(
         for i, f in enumerate(fotos):
             if not (f.filename and f.size):
                 continue
-            url = await upload_file(await f.read(), f.filename, folder="listings")
+            url = await upload_file(await read_upload_bounded(f), f.filename, folder="listings")
             await conn.execute(
                 "INSERT INTO listing_media (listing_id, url, orden, es_portada) "
                 "VALUES ($1, $2, $3, $4)",

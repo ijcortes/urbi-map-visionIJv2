@@ -26,7 +26,7 @@ from api.services.intake_service import _aplica, get_or_create_owner
 from api.services.listing_service import datos_minimos_completos
 from api.utils import ghl_client
 from api.utils.email import ADMIN_EMAIL, _wrap, send_email
-from api.utils.storage import upload_file
+from api.utils.storage import read_upload_bounded, upload_file
 
 logger = logging.getLogger(__name__)
 
@@ -314,7 +314,7 @@ async def crear_listing(
 
     foto_urls: list[str] = []
     for f in fotos_validas:
-        foto_urls.append(await upload_file(await f.read(), f.filename or "foto.jpg", folder="listings"))
+        foto_urls.append(await upload_file(await read_upload_bounded(f), f.filename or "foto.jpg", folder="listings"))
 
     listing_id = str(uuid.uuid4())
     slug = f"{(municipio_nom or 'med')[:6]}-{listing_id[:8]}".lower().replace(" ", "-")

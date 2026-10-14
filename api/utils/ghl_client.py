@@ -167,6 +167,30 @@ class WebhookAuthError(Exception):
     """Bad / missing webhook secret (401)."""
 
 
+def autenticar_webhook(headers: dict) -> None:
+    """Header-only authentication (no body needed, so callers can reject BEFORE
+    buffering the body). Raises WebhookNotConfigured | WebhookAuthError."""
+    secret = os.getenv("GHL_WEBHOOK_SECRET") or GHL_WEBHOOK_SECRET
+    if not secret:
+        raise WebhookNotConfigured("GHL webhook no configurado (falta GHL_WEBHOOK_SECRET)")
+    h = {k.lower(): v for k, v in headers.items()}
+    supplied = h.get("x-webhook-secret") or ""
+    if not supplied and h.get("authorization", "").lower().startswith("bearer "):
+        supplied = h["authorization"][7:].strip()
+    if not supplied or not hmac.compare_digest(supplied.encode(), secret.encode()):
+        raise WebhookAuthError("firma de webhook inválida")
+
+
+def parsear_evento(payload: bytes) -> dict:
+    try:
+        event = json.loads(payload or b"")
+    except (ValueError, UnicodeDecodeError):
+        raise ValueError("payload no es JSON válido")
+    if not isinstance(event, dict):
+        raise ValueError("payload debe ser un objeto JSON")
+    return event
+
+
 def verificar_webhook(payload: bytes, headers: dict) -> dict:
     """Authenticate + parse an inbound GHL webhook. Returns the parsed event.
 
@@ -177,22 +201,8 @@ def verificar_webhook(payload: bytes, headers: dict) -> dict:
     environment -> WebhookNotConfigured (503), never an open endpoint.
     Raises WebhookNotConfigured | WebhookAuthError | ValueError (malformed body).
     """
-    secret = os.getenv("GHL_WEBHOOK_SECRET") or GHL_WEBHOOK_SECRET
-    if not secret:
-        raise WebhookNotConfigured("GHL webhook no configurado (falta GHL_WEBHOOK_SECRET)")
-    h = {k.lower(): v for k, v in headers.items()}
-    supplied = h.get("x-webhook-secret") or ""
-    if not supplied and h.get("authorization", "").lower().startswith("bearer "):
-        supplied = h["authorization"][7:].strip()
-    if not supplied or not hmac.compare_digest(supplied.encode(), secret.encode()):
-        raise WebhookAuthError("firma de webhook inválida")
-    try:
-        event = json.loads(payload or b"")
-    except (ValueError, UnicodeDecodeError):
-        raise ValueError("payload no es JSON válido")
-    if not isinstance(event, dict):
-        raise ValueError("payload debe ser un objeto JSON")
-    return event
+    autenticar_webhook(headers)
+    return parsear_evento(payload)
 
 
 # ── Outbound: nuestras tablas -> GHL ─────────────────────────────────────────

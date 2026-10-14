@@ -118,18 +118,32 @@ _HANDLERS = {
 }
 
 
+MAX_WEBHOOK_BYTES = 1_000_000
+
+
 @router.post("/ghl")
 @limiter.limit("120/minute")
 async def recibir_webhook_ghl(request: Request):
-    body = await request.body()
-    if len(body) > 1_000_000:
-        raise HTTPException(status_code=413, detail="payload demasiado grande")
+    # 1) Authenticate from headers alone, BEFORE touching the body.
     try:
-        event = ghl_client.verificar_webhook(body, dict(request.headers))
+        ghl_client.autenticar_webhook(dict(request.headers))
     except ghl_client.WebhookNotConfigured as e:
         raise HTTPException(status_code=503, detail=str(e))
     except ghl_client.WebhookAuthError:
         raise HTTPException(status_code=401, detail="firma de webhook inválida")
+    # 2) Bounded read: Content-Length precheck + running byte limit while streaming.
+    cl = request.headers.get("content-length")
+    if cl and cl.isdigit() and int(cl) > MAX_WEBHOOK_BYTES:
+        raise HTTPException(status_code=413, detail="payload demasiado grande")
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > MAX_WEBHOOK_BYTES:
+            raise HTTPException(status_code=413, detail="payload demasiado grande")
+        chunks.append(chunk)
+    try:
+        event = ghl_client.parsear_evento(b"".join(chunks))
     except NotImplementedError as e:
         raise HTTPException(status_code=501, detail=str(e))
     except ValueError as e:

@@ -1,7 +1,7 @@
 import pytest
 from fastapi import HTTPException
 
-from api.utils.storage import MAX_UPLOAD_BYTES, validate_image_upload
+from api.utils.storage import MAX_UPLOAD_BYTES, read_upload_bounded, validate_image_upload
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 20
 JPG = b"\xff\xd8\xff\xe0" + b"0" * 20
@@ -57,3 +57,35 @@ def test_db_data_error_is_422_not_500():
     r = TestClient(app, raise_server_exceptions=False).get("/boom")
     assert r.status_code == 422
     assert asyncpg.exceptions.DataError in m.app.exception_handlers  # registered on the real app
+
+
+class _FakeUpload:
+    def __init__(self, total, size=None):
+        self.total, self.size, self.reads = total, size, 0
+
+    async def read(self, n=-1):
+        if self.total <= 0:
+            return b""
+        self.reads += 1
+        k = min(n, self.total)
+        self.total -= k
+        return b"0" * k
+
+
+async def test_bounded_upload_read_stops_early():
+    up = _FakeUpload(MAX_UPLOAD_BYTES * 50)
+    with pytest.raises(HTTPException) as e:
+        await read_upload_bounded(up)
+    assert e.value.status_code == 413
+    assert up.reads <= MAX_UPLOAD_BYTES // (64 * 1024) + 2  # never read the whole 500 MB
+
+
+async def test_bounded_upload_declared_size_rejected_without_reading():
+    up = _FakeUpload(10, size=MAX_UPLOAD_BYTES + 1)
+    with pytest.raises(HTTPException):
+        await read_upload_bounded(up)
+    assert up.reads == 0
+
+
+async def test_bounded_upload_small_ok():
+    assert len(await read_upload_bounded(_FakeUpload(1000))) == 1000
