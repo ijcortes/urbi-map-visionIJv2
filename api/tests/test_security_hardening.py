@@ -29,14 +29,26 @@ def test_upload_rejects_oversize():
 def test_prod_hides_docs_and_dev_origins(monkeypatch):
     import importlib
     import api.main as m
-    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
     monkeypatch.delenv("EXPOSE_DOCS", raising=False)
+    # Fail closed: neither ENV nor RAILWAY_ENVIRONMENT set -> production behaviour.
+    monkeypatch.delenv("ENV", raising=False)
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT", raising=False)
     m2 = importlib.reload(m)
     try:
         assert m2.app.docs_url is None and m2.app.openapi_url is None
         assert "http://localhost:3000" not in m2._build_origins()
+        # A Railway env literally named "development" must NOT open docs either.
+        monkeypatch.setenv("RAILWAY_ENVIRONMENT", "development")
+        m3 = importlib.reload(m)
+        assert m3.app.docs_url is None
+        # Dev behaviour only when ENV=dev is explicit.
+        monkeypatch.setenv("ENV", "dev")
+        m4 = importlib.reload(m)
+        assert m4.app.docs_url == "/docs"
+        assert "http://localhost:3000" in m4._build_origins()
     finally:
-        monkeypatch.delenv("RAILWAY_ENVIRONMENT")
+        monkeypatch.delenv("ENV", raising=False)
+        monkeypatch.delenv("RAILWAY_ENVIRONMENT", raising=False)
         importlib.reload(m)
 
 

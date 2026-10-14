@@ -4,9 +4,9 @@ import json
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Request
-from api.limiter import limiter
+from api.limiter import client_ip, event_throttle, limiter, view_throttle
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from api.db import get_pool
 from api.dependencies import get_optional_user
@@ -14,14 +14,25 @@ from api.dependencies import get_optional_user
 router = APIRouter()
 
 
+_MAX_METADATA_BYTES = 4096
+
+
 class TrackEvent(BaseModel):
-    session_id: str
-    event_type: str
-    entity_type: Optional[str] = None
-    entity_id: Optional[str] = None
+    # Anonymous endpoint: every field is size-capped so one call cannot bloat the DB.
+    session_id: str = Field(min_length=1, max_length=100)
+    event_type: str = Field(min_length=1, max_length=60)
+    entity_type: Optional[str] = Field(default=None, max_length=60)
+    entity_id: Optional[str] = Field(default=None, max_length=600)
     barrio_id: Optional[int] = None
-    duration_ms: Optional[int] = None
+    duration_ms: Optional[int] = Field(default=None, ge=0, le=86_400_000)
     metadata: Optional[dict[str, Any]] = None
+
+    @field_validator("metadata")
+    @classmethod
+    def _metadata_small(cls, v):
+        if v is not None and len(json.dumps(v, default=str)) > _MAX_METADATA_BYTES:
+            raise ValueError("metadata demasiado grande")
+        return v
 
 
 @router.post("")
@@ -34,6 +45,15 @@ async def track(
     pool = get_pool()
     usuario_id: Optional[int] = current_user["id"] if current_user else None
     metadata = req.metadata or {}
+
+    # De-duplicate so a loop cannot inflate view counts: one 'listing_view' per
+    # (IP, entity) per 30 min; any other event with an entity once per 5 s.
+    # Dropped events still answer ok (no oracle, no client retry storm).
+    if req.entity_id and not req.event_type.endswith(("_close", "_exit")):
+        key = f"{client_ip(request)}|{req.event_type}|{req.entity_type}|{req.entity_id}"
+        throttle = view_throttle if req.event_type == "listing_view" else event_throttle
+        if not throttle.allow(key):
+            return JSONResponse(content={"ok": True}, status_code=200)
 
     # Backfill duration on matching open/entry event
     if req.event_type.endswith(("_close", "_exit")):

@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from api.db import get_pool
 from api.dependencies import get_current_user, get_optional_user, is_agente
-from api.limiter import _client_ip, limiter
+from api.limiter import _client_ip, limiter, view_throttle
 from api.services.asignador_service import asignar_intake
 from api.services.intake_service import get_or_create_owner
 from api.services.personalizacion import calcular_relevancia, get_match_label, PRESUPUESTO_MAX
@@ -2004,10 +2004,21 @@ async def registrar_vista(
     listing_url: str = url_row["url"]
     usuario_id: Optional[int] = current_user["id"] if current_user else None
 
-    ip_raw = request.headers.get("X-Forwarded-For", request.client.host if request.client else "")
+    # Trusted-proxy-aware IP (api.limiter): a spoofed X-Forwarded-For can neither
+    # mint fresh "visitors" nor dodge the per-IP+listing de-duplication below.
+    ip_raw = _client_ip(request)
     ip_hash = hashlib.sha256(ip_raw.encode()).hexdigest()[:16] if ip_raw else None
 
     session_id = f"anon-{ip_hash or 'unknown'}"
+
+    # One counted view per (IP, listing) per 30 min.
+    if not view_throttle.allow(f"{ip_raw}|listing_view|listing|{listing_url}"):
+        vistas = await pool.fetchval(
+            """SELECT COUNT(*)::int FROM public.user_events
+               WHERE event_type = 'listing_view' AND entity_type = 'listing' AND entity_id = $1""",
+            listing_url,
+        )
+        return {"ok": True, "vistas": vistas or 0}
 
     try:
         await pool.execute(

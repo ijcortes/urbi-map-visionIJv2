@@ -32,7 +32,7 @@ def _send_visita_email(req: "VisitaRequest", fecha: Optional[datetime]) -> None:
     remitente = os.getenv("SMTP_FROM") or os.getenv("SMTP_USER") or "noreply@medellinsocial.com"
     cuando = fecha.strftime("%Y-%m-%d %H:%M") if fecha else "sin fecha propuesta"
     msg = EmailMessage()
-    msg["Subject"] = f"Nueva solicitud de visita — {req.listing_url}"
+    msg["Subject"] = " ".join(f"Nueva solicitud de visita — {req.listing_url}".split())  # no CR/LF
     msg["From"] = remitente
     msg["To"] = RENTAL_INQUIRIES_TO
     msg.set_content(
