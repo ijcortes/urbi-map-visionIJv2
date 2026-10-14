@@ -111,3 +111,22 @@ export function viewportCacheKey(params: URLSearchParams, zone: ZoneSelection): 
   for (const k of ["min_lng", "min_lat", "max_lng", "max_lat"]) p.delete(k);
   return p.toString();
 }
+
+export interface GeoSelection {
+  activeComuna: string | null;
+  activeComunaCd: number | null;
+  activeMunicipio: string | null;
+}
+
+/**
+ * A barrio click/navigation REPLACES the whole geographic selection: the municipality /
+ * comuna are derived from the barrio itself so a stale one (e.g. Envigado, left from an
+ * earlier pick) can never be intersected with the new barrio by the backend.
+ * Medellín barrios carry cd_comuna -> comuna selection; other municipalities -> municipio.
+ */
+export function geoSelectionForBarrio(b: { cd_comuna?: number | null; comuna?: string | null; municipio?: string | null }): GeoSelection {
+  if (b.cd_comuna != null) {
+    return { activeComuna: b.comuna || null, activeComunaCd: b.cd_comuna, activeMunicipio: null };
+  }
+  return { activeComuna: null, activeComunaCd: null, activeMunicipio: b.municipio || null };
+}

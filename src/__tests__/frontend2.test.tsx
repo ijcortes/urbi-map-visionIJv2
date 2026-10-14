@@ -168,3 +168,22 @@ describe("favorites key", () => {
     expect(src("components/ListingDrawer.tsx")).toContain("toggleFav(favKey(listing)");
   });
 });
+
+import { geoSelectionForBarrio } from "@/lib/listingParams";
+describe("barrio click replaces the whole geographic selection", () => {
+  it("Medellín barrio -> comuna selection, municipio cleared (no stale Envigado)", () => {
+    expect(geoSelectionForBarrio({ cd_comuna: 14, comuna: "El Poblado", municipio: "Medellín" }))
+      .toEqual({ activeComuna: "El Poblado", activeComunaCd: 14, activeMunicipio: null });
+  });
+  it("other-municipality barrio -> municipio derived from the barrio, comuna cleared", () => {
+    expect(geoSelectionForBarrio({ cd_comuna: null, comuna: "", municipio: "Envigado" }))
+      .toEqual({ activeComuna: null, activeComunaCd: null, activeMunicipio: "Envigado" });
+  });
+  it("map.tsx applies it on map barrio click and selector navigation", () => {
+    const m = src("routes/map.tsx");
+    const click = m.slice(m.indexOf("function handleMapBarrioClick"));
+    expect(click.slice(0, 600)).toContain("applyGeoSelection(geoSelectionForBarrio(");
+    const nav = m.slice(m.indexOf("function handleBarrioNavigate"));
+    expect(nav.slice(0, 300)).toContain("applyGeoSelection(geoSelectionForBarrio(");
+  });
+});

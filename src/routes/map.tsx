@@ -19,6 +19,7 @@ import type { ApiListing } from "@/lib/adapters";
 import { auth } from "@/lib/auth";
 import { track } from "@/lib/tracking";
 import { useListings, useBarriosRaw, type ListingsApiFilters } from "@/hooks/useBarrios";
+import { geoSelectionForBarrio } from "@/lib/listingParams";
 import { barrioToNeighborhood, barrioToOption, type BarrioOption } from "@/lib/adapters";
 import { useMemo } from "react";
 import { ListingDrawer } from "@/components/ListingDrawer";
@@ -481,8 +482,17 @@ function MapPageInner() {
     setActiveBarrioInComune(null);
   }
 
+  // A barrio selection replaces the whole zone (no stale municipio/comuna).
+  function applyGeoSelection(g: ReturnType<typeof geoSelectionForBarrio>) {
+    setActiveComuna(g.activeComuna);
+    setActiveComunaCd(g.activeComunaCd);
+    setActiveMunicipio(g.activeMunicipio);
+    setViewLevel("barrios");
+  }
+
   // Called from MLSPanel all-barrios selector
   function handleBarrioNavigate(opt: BarrioOption) {
+    applyGeoSelection(geoSelectionForBarrio({ cd_comuna: opt.cd_comuna, comuna: opt.comuna, municipio: opt.municipio }));
     const apiBarrio = barriosRaw?.find((b) => b.barrio_id === opt.id);
     if (apiBarrio) {
       setMlsBarrio(barrioToNeighborhood(apiBarrio));
@@ -618,7 +628,9 @@ function MapPageInner() {
     const b = (barriosRaw ?? []).find((x) => x.barrio_id === barrioId);
     if (!b) return;
     setGlobalSearch(false);
-    setMlsBarrio(barrioToNeighborhood(b));
+    const n = barrioToNeighborhood(b);
+    applyGeoSelection(geoSelectionForBarrio(n));
+    setMlsBarrio(n);
     setMapView("listings");
     setSelected(null);
     setActiveBarrioInComune(null);
