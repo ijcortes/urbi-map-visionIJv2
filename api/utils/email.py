@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import smtplib
 import asyncio
+from html import escape as _html_escape
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
@@ -27,6 +28,26 @@ _SMTP_USER  = os.getenv("SMTP_USER", "")
 _SMTP_PASS  = os.getenv("SMTP_PASS", "")
 _FROM       = os.getenv("EMAIL_FROM", _SMTP_USER)
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "edwardgiraldo101@gmail.com")
+
+
+def esc(value: object) -> str:
+    """HTML-escape a user-controlled value before it is interpolated into an
+    email template (text nodes AND double-quoted attributes). Every user field
+    must go through this: the templates are sent from the platform's own
+    sender, so unescaped input would be a phishing relay."""
+    return _html_escape("" if value is None else str(value), quote=True)
+
+
+def safe_url(url: object) -> str:
+    """Escaped URL for href attributes; anything that is not http(s) becomes '#'."""
+    u = ("" if url is None else str(url)).strip()
+    if not u.lower().startswith(("http://", "https://")):
+        return "#"
+    return _html_escape(u, quote=True)
+
+
+def _one_line(value: str) -> str:
+    return " ".join(str(value).replace("\r", " ").replace("\n", " ").split())
 
 
 def _send_sync(to: str, subject: str, html: str) -> None:
@@ -50,6 +71,9 @@ def _send_sync(to: str, subject: str, html: str) -> None:
 
 async def send_email(to: str, subject: str, html: str) -> None:
     from api.utils.gmail_api import is_configured, send_via_gmail_api
+
+    subject = _one_line(subject)  # user data in subjects must not inject headers
+    to = _one_line(to)
 
     if is_configured():
         await send_via_gmail_api(to, subject, html)
@@ -78,16 +102,21 @@ def _wrap(body: str) -> str:
 
 
 async def notify_admin_new_agente(nombre: str, cedula: str, email: str, telefono: str, admin_url: str) -> None:
+    nombre_h = esc(nombre)
+    cedula_h = esc(cedula)
+    email_h = esc(email)
+    telefono_h = esc(telefono)
+    admin_url_h = safe_url(admin_url)
     html = _wrap(f"""
       <h3 style="color:#1D9E75">Nueva solicitud de agente</h3>
       <table style="width:100%;border-collapse:collapse">
-        <tr><td style="padding:6px;color:#62736d;width:140px">Nombre</td><td style="padding:6px;font-weight:600">{nombre}</td></tr>
-        <tr><td style="padding:6px;color:#62736d">Cédula</td><td style="padding:6px">{cedula}</td></tr>
-        <tr><td style="padding:6px;color:#62736d">Email</td><td style="padding:6px">{email}</td></tr>
-        <tr><td style="padding:6px;color:#62736d">Teléfono</td><td style="padding:6px">{telefono}</td></tr>
+        <tr><td style="padding:6px;color:#62736d;width:140px">Nombre</td><td style="padding:6px;font-weight:600">{nombre_h}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Cédula</td><td style="padding:6px">{cedula_h}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Email</td><td style="padding:6px">{email_h}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Teléfono</td><td style="padding:6px">{telefono_h}</td></tr>
       </table>
       <div style="margin-top:20px">
-        <a href="{admin_url}" style="background:#1D9E75;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">
+        <a href="{admin_url_h}" style="background:#1D9E75;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">
           Ver en panel admin
         </a>
       </div>
@@ -99,17 +128,23 @@ async def notify_admin_reclamo(
     nombre: str, telefono: str, email: str, matricula: str,
     listing_url: str, mensaje: str,
 ) -> None:
+    nombre_h = esc(nombre)
+    telefono_h = esc(telefono)
+    email_h = esc(email)
+    matricula_h = esc(matricula)
+    mensaje_h = esc(mensaje)
+    listing_url_h = safe_url(listing_url)
     html = _wrap(f"""
       <h3 style="color:#1D9E75">Alguien reclama un inmueble</h3>
       <table style="width:100%;border-collapse:collapse">
-        <tr><td style="padding:6px;color:#62736d;width:140px">Nombre</td><td style="padding:6px;font-weight:600">{nombre}</td></tr>
-        <tr><td style="padding:6px;color:#62736d">Teléfono</td><td style="padding:6px">{telefono}</td></tr>
-        <tr><td style="padding:6px;color:#62736d">Email</td><td style="padding:6px">{email}</td></tr>
-        <tr><td style="padding:6px;color:#62736d">Matrícula</td><td style="padding:6px">{matricula or '—'}</td></tr>
-        <tr><td style="padding:6px;color:#62736d">Mensaje</td><td style="padding:6px">{mensaje or '—'}</td></tr>
+        <tr><td style="padding:6px;color:#62736d;width:140px">Nombre</td><td style="padding:6px;font-weight:600">{nombre_h}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Teléfono</td><td style="padding:6px">{telefono_h}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Email</td><td style="padding:6px">{email_h}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Matrícula</td><td style="padding:6px">{(matricula_h or '—')}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Mensaje</td><td style="padding:6px">{(mensaje_h or '—')}</td></tr>
       </table>
       <div style="margin-top:16px">
-        <a href="{listing_url}" style="color:#1D9E75">Ver listing reclamado →</a>
+        <a href="{listing_url_h}" style="color:#1D9E75">Ver listing reclamado →</a>
       </div>
       <p style="margin-top:12px;color:#62736d;font-size:13px">Verifica la propiedad antes de aprobar.</p>
     """)
@@ -117,12 +152,14 @@ async def notify_admin_reclamo(
 
 
 async def notify_agente_aprobado(email: str, nombre: str, dashboard_url: str) -> None:
+    nombre_h = esc(nombre)
+    dashboard_url_h = safe_url(dashboard_url)
     html = _wrap(f"""
       <h3 style="color:#1D9E75">¡Tu cuenta de agente fue aprobada!</h3>
-      <p>Hola {nombre},</p>
+      <p>Hola {nombre_h},</p>
       <p>Tu solicitud ha sido revisada y aprobada. Ya puedes publicar listings en Medellín Social.</p>
       <div style="margin-top:20px">
-        <a href="{dashboard_url}" style="background:#1D9E75;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">
+        <a href="{dashboard_url_h}" style="background:#1D9E75;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">
           Ir a mi perfil
         </a>
       </div>
@@ -134,13 +171,15 @@ async def notify_agente_aprobado(email: str, nombre: str, dashboard_url: str) ->
 
 
 async def send_verify_email(to: str, nombre: str, verify_url: str) -> None:
-    nombre_display = nombre or to
+    nombre_h = esc(nombre)
+    verify_url_h = safe_url(verify_url)
+    nombre_display = esc(nombre or to)
     html = _wrap(f"""
       <h3 style="color:#1D9E75">Confirma tu correo electrónico</h3>
       <p>Hola {nombre_display},</p>
       <p>Gracias por registrarte en Medellín Social. Haz clic en el botón para confirmar tu correo:</p>
       <div style="margin-top:24px">
-        <a href="{verify_url}"
+        <a href="{verify_url_h}"
            style="background:#1D9E75;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:15px">
           Confirmar correo
         </a>
@@ -153,13 +192,15 @@ async def send_verify_email(to: str, nombre: str, verify_url: str) -> None:
 
 
 async def send_reset_password(to: str, nombre: str, reset_url: str) -> None:
-    nombre_display = nombre or to
+    nombre_h = esc(nombre)
+    reset_url_h = safe_url(reset_url)
+    nombre_display = esc(nombre or to)
     html = _wrap(f"""
       <h3 style="color:#1D9E75">Restablecer contraseña</h3>
       <p>Hola {nombre_display},</p>
       <p>Recibimos una solicitud para restablecer tu contraseña. Haz clic en el botón:</p>
       <div style="margin-top:24px">
-        <a href="{reset_url}"
+        <a href="{reset_url_h}"
            style="background:#1D9E75;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:15px">
           Restablecer contraseña
         </a>
@@ -172,11 +213,12 @@ async def send_reset_password(to: str, nombre: str, reset_url: str) -> None:
 
 
 async def send_magic_link(to: str, login_url: str) -> None:
+    login_url_h = safe_url(login_url)
     html = _wrap(f"""
       <h3 style="color:#1D9E75">Tu link para ingresar</h3>
       <p>Haz clic en el botón para entrar a Medellín Social — sin contraseña:</p>
       <div style="margin-top:24px">
-        <a href="{login_url}"
+        <a href="{login_url_h}"
            style="background:#1D9E75;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:15px">
           Ingresar a Medellín Social
         </a>
@@ -189,16 +231,18 @@ async def send_magic_link(to: str, login_url: str) -> None:
 
 
 async def send_invite_agencia(to: str, agency_nombre: str, invitado_por, invite_url: str) -> None:
+    agency_nombre_h = esc(agency_nombre)
+    invite_url_h = safe_url(invite_url)
     html = _wrap(f"""
-      <h3 style="color:#1D9E75">Te invitan a unirte a {agency_nombre}</h3>
+      <h3 style="color:#1D9E75">Te invitan a unirte a {agency_nombre_h}</h3>
       <p>Hola,</p>
-      <p><strong>{invitado_por.nombre if hasattr(invitado_por, 'nombre') else 'El equipo'}</strong>
-         te invita a formar parte de <strong>{agency_nombre}</strong> en Medellín Social.</p>
+      <p><strong>{esc(invitado_por.nombre) if hasattr(invitado_por, 'nombre') else 'El equipo'}</strong>
+         te invita a formar parte de <strong>{agency_nombre_h}</strong> en Medellín Social.</p>
       <p style="color:#62736d;font-size:13px">
         Como agente miembro recibirás leads de la agencia y podrás gestionar listings en su nombre.
       </p>
       <div style="margin-top:24px">
-        <a href="{invite_url}"
+        <a href="{invite_url_h}"
            style="background:#1D9E75;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:15px">
           Aceptar invitación
         </a>
@@ -211,16 +255,19 @@ async def send_invite_agencia(to: str, agency_nombre: str, invitado_por, invite_
 
 
 async def notify_agente_rechazado(email: str, nombre: str, motivo: str, formulario_url: str) -> None:
+    nombre_h = esc(nombre)
+    motivo_h = esc(motivo)
+    formulario_url_h = safe_url(formulario_url)
     html = _wrap(f"""
       <h3 style="color:#D85A30">Solicitud — información adicional requerida</h3>
-      <p>Hola {nombre},</p>
+      <p>Hola {nombre_h},</p>
       <p>Revisamos tu solicitud y necesitamos que corrijas lo siguiente:</p>
       <blockquote style="border-left:3px solid #D85A30;padding:8px 16px;background:#FAECE7;border-radius:0 6px 6px 0;color:#14201d">
-        {motivo}
+        {motivo_h}
       </blockquote>
       <p>Una vez corregida la información puedes reenviar tu solicitud:</p>
       <div style="margin-top:16px">
-        <a href="{formulario_url}" style="background:#D85A30;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">
+        <a href="{formulario_url_h}" style="background:#D85A30;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">
           Corregir y reenviar
         </a>
       </div>

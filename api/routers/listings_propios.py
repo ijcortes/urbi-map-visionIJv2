@@ -25,7 +25,7 @@ from api.services.asignador_service import asignar_intake
 from api.services.intake_service import _aplica, get_or_create_owner
 from api.services.listing_service import datos_minimos_completos
 from api.utils import ghl_client
-from api.utils.email import ADMIN_EMAIL, _wrap, send_email
+from api.utils.email import ADMIN_EMAIL, _wrap, esc, send_email
 from api.utils.storage import read_upload_bounded, upload_file
 
 logger = logging.getLogger(__name__)
@@ -578,10 +578,10 @@ async def _notify_admin_new_listing(
       <h3 style="color:#1D9E75">Nueva propiedad pendiente de revisión</h3>
       <table style="width:100%;border-collapse:collapse">
         <tr><td style="padding:6px;color:#62736d;width:140px">ID</td><td style="padding:6px;font-weight:600">#{listing_id}</td></tr>
-        <tr><td style="padding:6px;color:#62736d">Tipo</td><td style="padding:6px">{tipo_inmueble} · {tipo_operacion}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Tipo</td><td style="padding:6px">{esc(tipo_inmueble)} · {esc(tipo_operacion)}</td></tr>
         <tr><td style="padding:6px;color:#62736d">Precio</td><td style="padding:6px">{precio_fmt}</td></tr>
-        <tr><td style="padding:6px;color:#62736d">Contacto</td><td style="padding:6px">{nombre_contacto or '—'}</td></tr>
-        <tr><td style="padding:6px;color:#62736d">Email</td><td style="padding:6px">{email_contacto or '—'}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Contacto</td><td style="padding:6px">{esc(nombre_contacto) or '—'}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Email</td><td style="padding:6px">{esc(email_contacto) or '—'}</td></tr>
       </table>
       <p style="margin-top:16px;font-size:13px;color:#62736d">
         Este listing está en estado <strong>pendiente</strong> hasta que lo apruebes.
@@ -761,13 +761,13 @@ async def _notify_agente_nueva_solicitud(
     html = _wrap(f"""
       <h3 style="color:#1D9E75">Nueva solicitud de gestión — #{sol_id}</h3>
       <p style="font-size:14px;color:#1A1208">
-        Hola <strong>{agente.get('nombre','')}</strong>, un propietario quiere que gestiones su propiedad.
+        Hola <strong>{esc(agente.get('nombre',''))}</strong>, un propietario quiere que gestiones su propiedad.
       </p>
       <table style="width:100%;border-collapse:collapse;margin:12px 0">
-        <tr><td style="padding:6px;color:#62736d;width:150px">Tipo</td><td style="padding:6px">{listing['tipo_inmueble']} · {listing['tipo_operacion']}</td></tr>
+        <tr><td style="padding:6px;color:#62736d;width:150px">Tipo</td><td style="padding:6px">{esc(listing['tipo_inmueble'])} · {esc(listing['tipo_operacion'])}</td></tr>
         <tr><td style="padding:6px;color:#62736d">Precio</td><td style="padding:6px">{precio_fmt}</td></tr>
-        <tr><td style="padding:6px;color:#62736d">Propietario</td><td style="padding:6px">{propietario.get('nombre','')} {propietario.get('apellido','')}</td></tr>
-        <tr><td style="padding:6px;color:#62736d">Email contacto</td><td style="padding:6px">{propietario.get('email','—')}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Propietario</td><td style="padding:6px">{esc(propietario.get('nombre',''))} {esc(propietario.get('apellido',''))}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Email contacto</td><td style="padding:6px">{esc(propietario.get('email','—'))}</td></tr>
       </table>
       <a href="{_APP_URL}/solicitudes"
          style="display:inline-block;background:#1D9E75;color:#fff;padding:10px 20px;border-radius:6px;font-weight:700;text-decoration:none;font-size:13px">
@@ -790,7 +790,7 @@ async def _notify_propietario_respuesta(
         titulo = "¡Tu propiedad ya está activa!"
         detalle = f"""
           <p style="font-size:14px;color:#1A1208;margin-bottom:12px">
-            El agente <strong>{agente_nombre}</strong> aceptó gestionar tu propiedad.
+            El agente <strong>{esc(agente_nombre)}</strong> aceptó gestionar tu propiedad.
             Tu listing está ahora <strong>activo</strong> en el MLS de Medellín Social.
           </p>
           <a href="{_APP_URL}/mis-listings"
@@ -802,7 +802,7 @@ async def _notify_propietario_respuesta(
         titulo = "Actualización sobre tu solicitud"
         detalle = f"""
           <p style="font-size:14px;color:#1A1208">
-            El agente <strong>{agente_nombre}</strong> no pudo aceptar tu solicitud en este momento.
+            El agente <strong>{esc(agente_nombre)}</strong> no pudo aceptar tu solicitud en este momento.
             Puedes conectar con otro agente desde tu panel.
           </p>
           <a href="{_APP_URL}/conectar-agente?listing_id={listing_id}"
@@ -812,7 +812,7 @@ async def _notify_propietario_respuesta(
         """
     html = _wrap(f"""
       <h3 style="color:#1D9E75">{titulo}</h3>
-      <p style="font-size:14px;color:#1A1208;margin-bottom:8px">Hola <strong>{propietario_nombre}</strong>,</p>
+      <p style="font-size:14px;color:#1A1208;margin-bottom:8px">Hola <strong>{esc(propietario_nombre)}</strong>,</p>
       {detalle}
     """)
     await send_email(propietario_email, titulo, html)
