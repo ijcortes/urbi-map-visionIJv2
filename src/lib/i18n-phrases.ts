@@ -67,6 +67,7 @@ export const PHRASES: Array<[string, string]> = [
   ["Ver leyenda de tipos", "View type legend"],
   ["Tipos", "Types"],
   ["Cerrar leyenda", "Close legend"],
+  ["No se pudo copiar el link", "Could not copy the link"],
   ["Ver listado →", "View listing →"],
   ["Apto", "Apt"],
   // ── ListingDrawer — resto del popup (form visita, confirmación, badges) ──

@@ -28,3 +28,17 @@ describe("map legend + studio label regressions", () => {
     }
   });
 });
+
+import { copyText } from "@/lib/clipboard";
+describe("copyText never throws", () => {
+  it("returns false (no rejection) when clipboard write is denied", async () => {
+    const orig = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: () => Promise.reject(new Error("denied")) } });
+    await expect(copyText("x")).resolves.toBeTypeOf("boolean");
+    if (orig) Object.defineProperty(navigator, "clipboard", orig); else delete (navigator as any).clipboard;
+  });
+  it("works when clipboard API is missing", async () => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    await expect(copyText("x")).resolves.toBeTypeOf("boolean");
+  });
+});

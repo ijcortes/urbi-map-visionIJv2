@@ -1003,7 +1003,7 @@ function ResultsPanel({
             if (typeof navigator !== "undefined" && navigator.share) {
               navigator.share({ title: "Simulación Medellin Social", url }).catch(() => {});
             } else if (typeof navigator !== "undefined") {
-              navigator.clipboard?.writeText(url);
+              void import("@/lib/clipboard").then((m) => m.copyText(url));
             }
           }}
           className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-border bg-background/40 py-2.5 text-xs font-semibold text-[#111418] transition hover:border-primary/40"

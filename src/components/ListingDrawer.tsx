@@ -26,6 +26,7 @@ import { useFavoritosListings } from "@/hooks/useFavoritosListings";
 import { auth } from "@/lib/auth";
 import { ReclamarListingModal } from "@/components/ReclamarListingModal";
 import { toast } from "sonner";
+import { copyText } from "@/lib/clipboard";
 import type { ApiListingDetail, ApiListingAgente, ApiListingAgentes, SimilarListing } from "@/lib/adapters";
 import { toEmbedSrc } from "@/lib/embed";
 import { PhotoGallery } from "@/components/PhotoGallery";
@@ -1090,7 +1091,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
 
   function handleShare() {
     const url = `${window.location.origin}/map?listing=${listingId}`;
-    navigator.clipboard.writeText(url).then(() => toast.success("Link copiado ✅"));
+    void copyText(url).then((ok) => (ok ? toast.success("Link copiado ✅") : toast.error("No se pudo copiar el link")));
   }
 
   // ─── Reusable fragments ────────────────────────────────────────────────────

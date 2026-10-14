@@ -14,6 +14,7 @@ import type { ApiListingDetail } from "@/lib/adapters";
 import { SiteNavbar } from "@/components/SiteNavbar";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { toast } from "sonner";
+import { copyText } from "@/lib/clipboard";
 import { OriginalListingLink } from "@/components/OriginalListingLink";
 
 export const Route = createFileRoute("/listing/$id")({
@@ -202,7 +203,7 @@ export function ListingDetailContent({
 
   function handleShare() {
     const url = `${window.location.origin}/map?listing=${listing.id}`;
-    navigator.clipboard.writeText(url).then(() => toast.success("Link copiado ✅"));
+    void copyText(url).then((ok) => (ok ? toast.success("Link copiado ✅") : toast.error("No se pudo copiar el link")));
   }
 
   return (
