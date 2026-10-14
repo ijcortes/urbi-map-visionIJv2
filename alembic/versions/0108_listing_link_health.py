@@ -89,30 +89,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Restore url_activa for rows this system turned off, so a rollback does not leave
-    # listings hidden by a mirror nobody maintains any more.
+    # raw.*.activo / url_activa are NOT touched here: the rows Retire really switched off are restored
+    # by 0110's downgrade from public.listing_link_transitions (previous values logged), so a rollback
+    # never resurrects a listing that a scraper disabled on its own.
     op.execute("""
-    DO $$
-    DECLARE t text;
-    BEGIN
-      FOREACH t IN ARRAY ARRAY['listings_metrocuadrado','listings_fincaraiz'] LOOP
-        IF to_regclass('raw.' || t) IS NOT NULL
-           AND to_regclass('public.listing_link_health') IS NOT NULL THEN
-          EXECUTE format(
-            'UPDATE raw.%I r SET url_activa = NULL FROM public.listing_link_health h
-              WHERE h.url = r.url AND h.deactivated_at IS NOT NULL', t);
-        END IF;
-      END LOOP;
-      IF to_regclass('public.listing_link_health') IS NOT NULL THEN
-        FOREACH t IN ARRAY ARRAY['listings_metrocuadrado','listings_fincaraiz','listings_habi','listings_casadolcecasa'] LOOP
-          IF to_regclass('raw.' || t) IS NOT NULL THEN
-            EXECUTE format(
-              'UPDATE raw.%I r SET activo = true FROM public.listing_link_health h
-                WHERE h.url = r.url AND h.deactivation_reason LIKE ''link_checker:%%''', t);
-          END IF;
-        END LOOP;
-      END IF;
-    END $$;
     DROP TABLE IF EXISTS public.listing_link_digest_log;
     DROP TABLE IF EXISTS public.listing_link_review_used;
     DROP TABLE IF EXISTS public.listing_link_reports;

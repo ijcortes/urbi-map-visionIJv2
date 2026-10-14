@@ -34,6 +34,9 @@ def next_state(prev: dict | None, result: str, *, now: datetime, cfg: Settings,
         "review_notified_at": p.get("review_notified_at"),
         "review_batch": p.get("review_batch"),
         "keep_until": p.get("keep_until"),
+        "review_generation": p.get("review_generation") or 0,
+        "first_notified_at": p.get("first_notified_at"),
+        "last_gone_confirmed_at": p.get("last_gone_confirmed_at"),
         "confirmed_gone_now": False,
         "recovered": False,
     }
@@ -41,7 +44,7 @@ def next_state(prev: dict | None, result: str, *, now: datetime, cfg: Settings,
         st["recovered"] = st["url_status"] in ("gone", "pending_review")
         st.update(url_status=result, consecutive_failures=0, consecutive_gone=0,
                   first_gone_at=None, last_gone_at=None, last_ok_at=now, check_error=None,
-                  review_notified_at=None, review_batch=None)
+                  review_notified_at=None, review_batch=None, first_notified_at=None, last_gone_confirmed_at=None)
     elif result == GONE:
         last = st["last_gone_at"]
         gap = timedelta(hours=cfg.strike_gap_hours)
@@ -49,11 +52,14 @@ def next_state(prev: dict | None, result: str, *, now: datetime, cfg: Settings,
             st["consecutive_gone"] += 1
             st["last_gone_at"] = now
             st["first_gone_at"] = st["first_gone_at"] or now
+        st["last_gone_confirmed_at"] = now       # conclusive 'gone' observation (auto-retire needs a recent one)
         kept = p.get("keep_until") is not None and p["keep_until"] > now   # human said "keep": do not re-propose yet
         if st["consecutive_gone"] >= cfg.strikes and not kept:
             if st["url_status"] not in ("gone", "pending_review"):
                 st["confirmed_gone_now"] = True      # NEW review candidate; nothing is deactivated here
                 st["url_status"] = "pending_review"
+                st["review_generation"] += 1         # new pending episode: invalidates tokens of older ones
+                st["first_notified_at"] = None
     elif result == BLOCKED:
         if st["url_status"] in ("unknown", "blocked"):
             st["url_status"] = "blocked"

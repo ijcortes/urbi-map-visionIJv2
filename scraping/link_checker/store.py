@@ -35,9 +35,22 @@ async def fetch_queue(conn, sources: list[str], limit: int, older_than: timedelt
     return [dict(r) for r in rows]
 
 
-async def load_prev(conn, urls: list[str]) -> dict[str, dict]:
-    rows = await conn.fetch("SELECT * FROM public.listing_link_health WHERE url = ANY($1::text[])", urls)
+async def load_prev(conn, urls: list[str], *, lock: bool = False) -> dict[str, dict]:
+    rows = await conn.fetch(
+        "SELECT * FROM public.listing_link_health WHERE url = ANY($1::text[])" + (" FOR UPDATE" if lock else ""), urls)
     return {r["url"]: dict(r) for r in rows}
+
+
+async def locked_update(conn, url: str, fuente: str, compute) -> dict:
+    """Persist one check result without ever overwriting a newer human decision: the health row is
+    re-read under a row lock INSIDE the transaction and `compute(prev)` derives the next state from
+    that fresh row (a Keep/Retire committed during the HTTP fetch is therefore seen, not clobbered;
+    one that arrives later waits on the lock)."""
+    async with conn.transaction():
+        prev = (await load_prev(conn, [url], lock=True)).get(url)
+        st = compute(prev)
+        await save_state(conn, url, fuente, st)
+        return st
 
 
 async def save_state(conn, url: str, fuente: str, st: dict[str, Any]) -> None:
@@ -46,8 +59,8 @@ async def save_state(conn, url: str, fuente: str, st: dict[str, Any]) -> None:
         INSERT INTO public.listing_link_health
             (url, fuente, url_status, last_result, http_status, final_url, last_checked_at, last_ok_at,
              consecutive_failures, consecutive_gone, first_gone_at, last_gone_at, check_error, priority,
-             review_notified_at, review_batch)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+             review_notified_at, review_batch, review_generation, first_notified_at, last_gone_confirmed_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
         ON CONFLICT (url) DO UPDATE SET
             fuente = EXCLUDED.fuente, url_status = EXCLUDED.url_status, last_result = EXCLUDED.last_result,
             http_status = EXCLUDED.http_status, final_url = EXCLUDED.final_url,
@@ -55,12 +68,15 @@ async def save_state(conn, url: str, fuente: str, st: dict[str, Any]) -> None:
             consecutive_failures = EXCLUDED.consecutive_failures, consecutive_gone = EXCLUDED.consecutive_gone,
             first_gone_at = EXCLUDED.first_gone_at, last_gone_at = EXCLUDED.last_gone_at,
             check_error = EXCLUDED.check_error, priority = EXCLUDED.priority,
-            review_notified_at = EXCLUDED.review_notified_at, review_batch = EXCLUDED.review_batch
+            review_notified_at = EXCLUDED.review_notified_at, review_batch = EXCLUDED.review_batch,
+            review_generation = EXCLUDED.review_generation, first_notified_at = EXCLUDED.first_notified_at,
+            last_gone_confirmed_at = EXCLUDED.last_gone_confirmed_at
         """,
         url, fuente, st["url_status"], st["last_result"], st["http_status"], st["final_url"],
         st["last_checked_at"], st["last_ok_at"], st["consecutive_failures"], st["consecutive_gone"],
         st["first_gone_at"], st["last_gone_at"], (st["check_error"] or None) and st["check_error"][:300],
         st["priority"], st["review_notified_at"], st["review_batch"],
+        st["review_generation"], st["first_notified_at"], st["last_gone_confirmed_at"],
     )
 
 

@@ -117,14 +117,17 @@ async def run(conn, cfg: Settings, *, sources: list[str] | None = None, limit: i
         result = SUSPECT if (v.result == GONE and src in braked) else v.result
         rep.checked += 1
         rep.per_source[src][result] += 1
-        st = next_state(prev.get(url), result, now=now, cfg=cfg, http_status=f.status,
-                        final_url=f.final_url if f.final_url != url else None, error=v.reason if v.result != OK else None)
+        def compute(p, _r=result, _f=f, _v=v, _u=url):
+            return next_state(p, _r, now=now, cfg=cfg, http_status=_f.status,
+                              final_url=_f.final_url if _f.final_url != _u else None, error=_v.reason if _v.result != OK else None)
         log.debug("%s %s -> %s (%s)", src, url, result, v.reason)
         if dry_run:
+            st = compute(prev.get(url))
             if st["confirmed_gone_now"]:
                 rep.candidates.append((src, url))      # would-be review candidate
             continue
-        await store.save_state(conn, url, src, st)
+        # fresh row under lock: never overwrite a Keep/Retire that landed while this run was fetching
+        st = await store.locked_update(conn, url, src, compute)
         if st["confirmed_gone_now"]:
             rep.candidates.append((src, url))          # link hidden via status; listing stays ACTIVE until a human approves
         elif st["recovered"]:
@@ -141,7 +144,7 @@ async def run(conn, cfg: Settings, *, sources: list[str] | None = None, limit: i
         send_alert(a, cfg.alert_webhook if not dry_run else "")
     if not dry_run:
         from api.services import link_review
-        rep.auto_retired = await link_review.auto_retire(conn)     # no-op unless LINK_AUTO_RETIRE_AFTER_DAYS > 0
+        rep.auto_retired = await link_review.auto_retire(conn, rep.braked_sources)     # no-op unless LINK_AUTO_RETIRE_AFTER_DAYS > 0
         rep.digest = await link_review.maybe_send_digest(conn, sender=sender, braked=rep.braked_sources, alerts=rep.alerts)
         log.info("review digest: %s", rep.digest)
     return rep

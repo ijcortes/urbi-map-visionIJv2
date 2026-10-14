@@ -62,7 +62,7 @@ async def confirm_action(request: Request, t: str = Query(...)):
         async with conn.transaction():
             if not await lr.consume_token(conn, tok):
                 return _page("Link already used", f"<p>{_MSG['used']}</p>", 410)
-            res = await lr.apply_decision(conn, tok["action"], str(tok["target"]), who="email-link")
+            res = await lr.apply_decision(conn, tok["action"], str(tok["target"]), who="email-link", gen=tok["gen"])
     if tok["action"] == "keep":
         return _page("Kept", f"<p>Done. Kept: {res['kept']}. The link is shown again.</p>")
     return _page("Retired", f"<p>Done. Listings retired: {res['retired']} (already-decided items were skipped).</p>")

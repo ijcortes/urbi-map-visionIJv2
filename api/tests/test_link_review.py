@@ -24,7 +24,7 @@ def _env(monkeypatch, tmp_path):
 
 # ── tokens (no DB) ────────────────────────────────────────────────────────────
 def test_token_roundtrip_and_tamper_detection():
-    t = lr.sign_token("retire", "https://x.example/a", now=NOW)
+    t = lr.sign_token("retire", "https://x.example/a", gen=0, now=NOW)
     p = lr.verify_token(t, now=NOW + timedelta(days=1))
     assert p["action"] == "retire" and p["target"] == "https://x.example/a"
     body, sig = t.split(".")
@@ -41,13 +41,13 @@ def test_token_roundtrip_and_tamper_detection():
 
 
 def test_token_expiry_and_missing_secret(monkeypatch):
-    t = lr.sign_token("keep", "u", ttl=timedelta(days=7), now=NOW)
+    t = lr.sign_token("keep", "u", gen=0, ttl=timedelta(days=7), now=NOW)
     with pytest.raises(lr.TokenError) as e:
         lr.verify_token(t, now=NOW + timedelta(days=7, seconds=1))
     assert e.value.kind == "expired"
     monkeypatch.setenv("LINK_REVIEW_SECRET", "short")
     with pytest.raises(lr.TokenError) as e:
-        lr.sign_token("keep", "u")
+        lr.sign_token("keep", "u", gen=0)
     assert e.value.kind == "unconfigured"
 
 
@@ -83,6 +83,7 @@ async def _clean(c):
     await c.execute("DELETE FROM public.listing_link_health WHERE url LIKE 'https://lh-test.example/%'")
     await c.execute("DELETE FROM public.listing_link_reports WHERE url LIKE 'https://lh-test.example/%'")
     await c.execute("DELETE FROM public.listing_link_review_used")
+    await c.execute("DELETE FROM public.listing_link_transitions WHERE url LIKE 'https://lh-test.example/%'")
     await c.execute("DELETE FROM public.listing_link_digest_log")
     await c.execute("DELETE FROM raw.listings_metrocuadrado WHERE url LIKE 'https://lh-test.example/%'")
     await c.execute("DELETE FROM staging.stg_listings_unificado WHERE url LIKE 'https://lh-test.example/%'")
@@ -115,7 +116,7 @@ class Sender:
 async def _act(conn, tok_str):
     tok = lr.verify_token(tok_str)
     assert await lr.consume_token(conn, tok)
-    return tok, await lr.apply_decision(conn, tok["action"], tok["target"])
+    return tok, await lr.apply_decision(conn, tok["action"], tok["target"], gen=tok["gen"])
 
 
 @pytest.mark.require_db
@@ -159,6 +160,8 @@ async def test_reminder_after_7_days_never_silent_retirement(conn):
 @pytest.mark.asyncio
 async def test_auto_retire_only_when_opted_in(conn, monkeypatch):
     await _seed(conn, U_P1, notified=NOW - timedelta(days=20), first_gone=datetime.now(timezone.utc) - timedelta(days=20))
+    await conn.execute("UPDATE public.listing_link_health SET first_notified_at = now() - interval '20 days', "
+                       "last_result='gone', last_gone_confirmed_at = now() - interval '1 hour' WHERE url=$1", U_P1)
     monkeypatch.setenv("LINK_AUTO_RETIRE_AFTER_DAYS", "14")
     assert await lr.auto_retire(conn) == 1
     assert await conn.fetchval("SELECT activo FROM raw.listings_metrocuadrado WHERE url=$1", U_P1) is False
@@ -194,19 +197,19 @@ async def test_retire_keep_replay_and_retire_all(conn):
     for u in (U_P1, U_P2, U_P3):
         await _seed(conn, u)
     # retire: deactivates raw row, status gone; replay rejected
-    t = lr.sign_token("retire", U_P1)
+    t = lr.sign_token("retire", U_P1, gen=0)
     tok, res = await _act(conn, t)
     assert res["retired"] == 1
     assert await conn.fetchval("SELECT activo FROM raw.listings_metrocuadrado WHERE url=$1", U_P1) is False
     assert await conn.fetchval("SELECT url_status FROM public.listing_link_health WHERE url=$1", U_P1) == "gone"
     assert not await lr.consume_token(conn, lr.verify_token(t))          # replay
     # keep: listing untouched, link restored (unknown), proposals suppressed
-    await _act(conn, lr.sign_token("keep", U_P2))
+    await _act(conn, lr.sign_token("keep", U_P2, gen=0))
     row = await conn.fetchrow("SELECT url_status, keep_until FROM public.listing_link_health WHERE url=$1", U_P2)
     assert row["url_status"] == "unknown" and row["keep_until"] > datetime.now(timezone.utc) + timedelta(days=29)
     assert await conn.fetchval("SELECT activo FROM raw.listings_metrocuadrado WHERE url=$1", U_P2) is True
     # a second action on an already-decided item is a harmless no-op
-    _, res = await _act(conn, lr.sign_token("retire", U_P2))
+    _, res = await _act(conn, lr.sign_token("retire", U_P2, gen=0))
     assert res["retired"] == 0
     # retire_all for a batch
     bid = await conn.fetchval("INSERT INTO public.listing_link_digest_log (kind) VALUES ('candidates') RETURNING id")
@@ -239,7 +242,7 @@ async def test_queue_orders_priority_then_oldest_and_skips_inactive(conn):
 @pytest.mark.asyncio
 async def test_get_confirm_page_never_acts_post_does(client, conn):
     await _seed(conn, U_P1)
-    t = lr.sign_token("retire", U_P1)
+    t = lr.sign_token("retire", U_P1, gen=0)
     r = await client.get("/api/v1/link-review/confirm", params={"t": t})
     assert r.status_code == 200 and "Confirm" in r.text and "<form method=post" in r.text
     assert await conn.fetchval("SELECT url_status FROM public.listing_link_health WHERE url=$1", U_P1) == "pending_review"
@@ -259,10 +262,10 @@ async def test_get_confirm_page_never_acts_post_does(client, conn):
 @pytest.mark.asyncio
 async def test_post_keep_bad_and_expired_tokens(client, conn):
     await _seed(conn, U_P2)
-    r = await client.post("/api/v1/link-review/confirm", params={"t": lr.sign_token("keep", U_P2)})
+    r = await client.post("/api/v1/link-review/confirm", params={"t": lr.sign_token("keep", U_P2, gen=0)})
     assert r.status_code == 200 and "Kept: 1" in r.text
     assert (await client.post("/api/v1/link-review/confirm", params={"t": "x.y"})).status_code == 400
-    old = lr.sign_token("retire", U_P1, now=datetime.now(timezone.utc) - timedelta(days=30))
+    old = lr.sign_token("retire", U_P1, gen=0, now=datetime.now(timezone.utc) - timedelta(days=30))
     r = await client.post("/api/v1/link-review/confirm", params={"t": old})
     assert r.status_code == 400 and "expired" in r.text
 

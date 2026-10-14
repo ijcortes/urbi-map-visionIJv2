@@ -220,7 +220,10 @@ class FakeDB:
         async def fq(conn, sources, limit, older): return self.queue
         async def lp(conn, urls): return self.prev
         async def ss(conn, url, fuente, st): self.saved[url] = st
+        async def lu(conn, url, fuente, compute):
+            st = compute(self.prev.get(url)); self.saved[url] = st; return st
         async def mso(conn, fuente, urls): pass
+        monkeypatch.setattr(store, "locked_update", lu)
         async def deact(*a, **k): self.deactivated.append(a)
         monkeypatch.setattr(store, "fetch_queue", fq)
         monkeypatch.setattr(store, "load_prev", lp)
@@ -230,7 +233,7 @@ class FakeDB:
         from api.services import link_review
         monkeypatch.setattr(link_review, "deactivate_listing", deact)
 
-        async def auto(conn): return 0
+        async def auto(conn, braked=()): return 0
         async def digest(conn, **k):
             self.digest_args = k
             return {"sent": False}

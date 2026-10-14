@@ -10,7 +10,8 @@ Env:
   LINK_REVIEW_SECRET      HMAC signing key (>= 16 chars; required to create action links)
   LINK_REVIEW_BASE_URL    public API base used in e-mail links, e.g. https://api.example.com
   LINK_REVIEW_TOKEN_TTL_DAYS (default 7) / LINK_REVIEW_REMINDER_DAYS (7) / LINK_REVIEW_KEEP_DAYS (30)
-  LINK_AUTO_RETIRE_AFTER_DAYS  optional; default OFF
+  LINK_AUTO_RETIRE_AFTER_DAYS  optional; default OFF. Counted from the FIRST successful notification (first_notified_at)
+  LINK_AUTO_RETIRE_EVIDENCE_HOURS (48) auto-retire also needs a conclusive 'gone' check this recent, source not braked
   LINK_REVIEW_FALLBACK_DIR     where the digest HTML goes when e-mail cannot be sent (default ./link_review_digests)
 """
 from __future__ import annotations
@@ -43,34 +44,57 @@ SOURCES: dict[str, tuple[str, bool, bool]] = {
 
 # ── activation primitives (the only code that touches raw.*.activo) ───────────────────────────
 
-async def deactivate_listing(conn, fuente: str, url: str, reason: str) -> bool:
+async def deactivate_listing(conn, fuente: str, url: str, reason: str) -> int:
     """THE single place that turns a listing off. Reached only through apply_decision('retire') (human
     click) or auto_retire() (explicit opt-in env). Never from the checker itself, never in --dry-run.
-    Sets raw.<source>.activo=false (+url_activa=false where present); records deactivated_at and
-    deactivation_reason ('link_checker: ...') on the health row. Reversible: reactivate_listing()."""
+    Switches off raw.<source>.activo (+url_activa where present) for the rows that are STILL active and
+    logs each row it really changed, with its previous values, in public.listing_link_transitions.
+    Only when at least one raw row transitioned is deactivated_at / deactivation_reason ('link_checker: ...')
+    set on the health row; a listing something else already disabled is therefore never ours to restore.
+    Returns the number of raw rows transitioned. Reversible: reactivate_listing()."""
     table, can, mirrors = SOURCES.get(fuente, (None, False, False))
+    n = 0
     if can:
+        name = table.split(".", 1)[1]
         extra = ", url_activa = FALSE, url_validada_at = now()" if mirrors else ""
-        await conn.execute(f"UPDATE {table} SET activo = FALSE{extra} WHERE url = $1 AND activo IS NOT FALSE", url)
-    await conn.execute(
-        "UPDATE public.listing_link_health SET deactivated_at = now(), deactivation_reason = $2 WHERE url = $1",
-        url, f"link_checker: {reason}"[:300])
-    return can
+        prev_cols = "activo, url_activa, url_validada_at" if mirrors else "activo, NULL::boolean AS url_activa, NULL::timestamptz AS url_validada_at"
+        n = await conn.fetchval(
+            f"""WITH old AS (SELECT ctid AS cid, {prev_cols} FROM {table}
+                              WHERE url = $1 AND activo IS NOT FALSE FOR UPDATE),
+                     upd AS (UPDATE {table} t SET activo = FALSE{extra} FROM old WHERE t.ctid = old.cid RETURNING 1),
+                     log AS (INSERT INTO public.listing_link_transitions (url, tabla, prev_activo, prev_url_activa, prev_url_validada_at)
+                             SELECT $1, $2, activo, url_activa, url_validada_at FROM old RETURNING 1)
+                SELECT (SELECT count(*) FROM upd)::int""", url, name)
+    if n:
+        await conn.execute(
+            "UPDATE public.listing_link_health SET deactivated_at = now(), deactivation_reason = $2 WHERE url = $1",
+            url, f"link_checker: {reason}"[:300])
+    return n
 
 
 async def reactivate_listing(conn, fuente: str, url: str) -> bool:
-    """Undo deactivate_listing() (link recovered or manual rollback). Only rows this system turned off."""
+    """Undo deactivate_listing() (link recovered or manual rollback): restores exactly the raw rows that
+    were logged as transitioned, to their previous values. True when something was restored."""
     table, can, mirrors = SOURCES.get(fuente, (None, False, False))
-    row = await conn.fetchrow(
-        "SELECT 1 FROM public.listing_link_health WHERE url = $1 AND deactivation_reason LIKE 'link_checker:%'", url)
-    if not row:
+    if not can:
         return False
-    if can:
-        extra = ", url_activa = TRUE, url_validada_at = now()" if mirrors else ""
-        await conn.execute(f"UPDATE {table} SET activo = TRUE{extra} WHERE url = $1", url)
+    name = table.split(".", 1)[1]
+    logged = await conn.fetch(
+        "SELECT id, prev_activo, prev_url_activa, prev_url_validada_at FROM public.listing_link_transitions "
+        "WHERE url = $1 AND tabla = $2 AND reverted_at IS NULL ORDER BY id", url, name)
+    if not logged:
+        return False
+    first = logged[0]
+    if mirrors:
+        await conn.execute(f"UPDATE {table} SET activo = $2, url_activa = $3, url_validada_at = $4 WHERE url = $1",
+                           url, first["prev_activo"], first["prev_url_activa"], first["prev_url_validada_at"])
+    else:
+        await conn.execute(f"UPDATE {table} SET activo = $2 WHERE url = $1", url, first["prev_activo"])
+    await conn.execute("UPDATE public.listing_link_transitions SET reverted_at = now() WHERE id = ANY($1::bigint[])",
+                       [r["id"] for r in logged])
     await conn.execute(
         "UPDATE public.listing_link_health SET deactivated_at = NULL, deactivation_reason = NULL WHERE url = $1", url)
-    return can
+    return True
 
 
 # ── signed single-use tokens ──────────────────────────────────────────────────────────────────
@@ -96,11 +120,15 @@ def _unb64(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 
-def sign_token(action: str, target: str, *, ttl: timedelta | None = None, now: datetime | None = None) -> str:
-    """action: retire | keep | retire_all. target: listing url (retire/keep) or digest batch id (retire_all)."""
+def sign_token(action: str, target: str, *, gen: int | None = None, ttl: timedelta | None = None,
+               now: datetime | None = None) -> str:
+    """action: retire | keep | retire_all. target: listing url (retire/keep) or digest batch id (retire_all).
+    gen: review generation of the pending episode the link was issued for (required for retire/keep)."""
     now = now or datetime.now(timezone.utc)
     ttl = ttl or timedelta(days=float(os.getenv("LINK_REVIEW_TOKEN_TTL_DAYS", "7")))
     payload = {"a": action, "t": target, "j": secrets.token_hex(8), "e": int((now + ttl).timestamp())}
+    if gen is not None:
+        payload["g"] = int(gen)
     body = _b64(json.dumps(payload, separators=(",", ":")).encode())
     sig = _b64(hmac.new(_secret(), body.encode(), hashlib.sha256).digest())
     return f"{body}.{sig}"
@@ -121,7 +149,10 @@ def verify_token(token: str, *, now: datetime | None = None) -> dict:
         raise TokenError("malformed")
     if now.timestamp() > exp:
         raise TokenError("expired")
-    return {"action": action, "target": target, "jti": jti, "exp": exp}
+    gen = payload.get("g")
+    if action in ("retire", "keep") and not isinstance(gen, int):
+        raise TokenError("malformed")      # no episode bound: cannot be matched against the current review
+    return {"action": action, "target": target, "jti": jti, "exp": exp, "gen": gen}
 
 
 async def token_is_used(conn, jti: str) -> bool:
@@ -138,9 +169,20 @@ async def consume_token(conn, tok: dict) -> bool:
 
 # ── decisions ─────────────────────────────────────────────────────────────────────────────────
 
-async def _retire_one(conn, url: str, who: str) -> bool:
+async def _lock_pending(conn, url: str, gen: int | None):
+    """Row-lock the health row and return it only while it is STILL pending_review (and, when gen is
+    given, still in the episode the caller's link was issued for). Concurrent Keep/Retire/checker
+    updates of the same listing serialize on this lock; after waiting, the WHERE is re-evaluated."""
     row = await conn.fetchrow(
-        "SELECT fuente FROM public.listing_link_health WHERE url = $1 AND url_status = 'pending_review'", url)
+        "SELECT fuente, review_generation FROM public.listing_link_health "
+        "WHERE url = $1 AND url_status = 'pending_review' FOR UPDATE", url)
+    if not row or (gen is not None and row["review_generation"] != gen):
+        return None
+    return row
+
+
+async def _retire_one(conn, url: str, who: str, gen: int | None = None) -> bool:
+    row = await _lock_pending(conn, url, gen)
     if not row:
         return False
     await conn.execute(
@@ -149,26 +191,33 @@ async def _retire_one(conn, url: str, who: str) -> bool:
     return True
 
 
-async def _keep_one(conn, url: str) -> bool:
+async def _keep_one(conn, url: str, gen: int | None = None) -> bool:
+    row = await _lock_pending(conn, url, gen)
+    if not row:
+        return False
     days = float(os.getenv("LINK_REVIEW_KEEP_DAYS", "30"))
-    r = await conn.execute(
+    await conn.execute(
         """UPDATE public.listing_link_health
               SET url_status='unknown', review_decision='keep', reviewed_at=now(),
                   keep_until = now() + make_interval(secs => $2), consecutive_gone=0, first_gone_at=NULL,
-                  last_gone_at=NULL, review_notified_at=NULL, review_batch=NULL
-            WHERE url=$1 AND url_status='pending_review'""", url, days * 86400)
-    return r.endswith(" 1")
+                  last_gone_at=NULL, last_gone_confirmed_at=NULL, review_notified_at=NULL,
+                  first_notified_at=NULL, review_batch=NULL
+            WHERE url=$1""", url, days * 86400)
+    return True
 
 
-async def apply_decision(conn, action: str, target: str, who: str = "email-link") -> dict:
-    """Perform a (verified, consumed) decision. Items no longer pending_review are skipped, never errors."""
+async def apply_decision(conn, action: str, target: str, who: str = "email-link", gen: int | None = None) -> dict:
+    """Perform a (verified, consumed) decision. Items no longer pending_review, or whose pending episode
+    (review_generation) differs from the one the link was issued for, are skipped, never errors.
+    Run inside a transaction: the row locks live until it commits."""
     if action == "retire":
-        return {"retired": int(await _retire_one(conn, target, who)), "kept": 0}
+        return {"retired": int(await _retire_one(conn, target, who, gen)), "kept": 0}
     if action == "keep":
-        return {"retired": 0, "kept": int(await _keep_one(conn, target))}
+        return {"retired": 0, "kept": int(await _keep_one(conn, target, gen))}
     if action == "retire_all":
         urls = [r["url"] for r in await conn.fetch(
-            "SELECT url FROM public.listing_link_health WHERE review_batch = $1 AND url_status='pending_review'", int(target))]
+            "SELECT url FROM public.listing_link_health WHERE review_batch = $1 AND url_status='pending_review' ORDER BY url",
+            int(target))]
         n = 0
         for u in urls:
             n += int(await _retire_one(conn, u, who))
@@ -176,17 +225,25 @@ async def apply_decision(conn, action: str, target: str, who: str = "email-link"
     raise ValueError(action)
 
 
-async def auto_retire(conn) -> int:
-    """Opt-in only (LINK_AUTO_RETIRE_AFTER_DAYS > 0): retire candidates unreviewed that long after first notice."""
+async def auto_retire(conn, braked: list[str] | tuple[str, ...] = ()) -> int:
+    """Opt-in only (LINK_AUTO_RETIRE_AFTER_DAYS > 0). Retires a candidate only when ALL hold:
+    the grace period since the FIRST successful notification (first_notified_at, never reset by
+    reminders) has elapsed; the latest check was a conclusive 'gone' (not blocked/error/gone_suspect);
+    that gone evidence is recent (LINK_AUTO_RETIRE_EVIDENCE_HOURS, default 48); its source is not braked."""
     days = float(os.getenv("LINK_AUTO_RETIRE_AFTER_DAYS", "0") or 0)
     if days <= 0:
         return 0
+    evidence = float(os.getenv("LINK_AUTO_RETIRE_EVIDENCE_HOURS", "48") or 48)
     urls = [r["url"] for r in await conn.fetch(
-        "SELECT url FROM public.listing_link_health WHERE url_status='pending_review' "
-        "AND first_gone_at < now() - make_interval(secs => $1) AND review_notified_at IS NOT NULL", days * 86400)]
+        """SELECT url FROM public.listing_link_health
+            WHERE url_status='pending_review' AND last_result='gone'
+              AND first_notified_at IS NOT NULL AND first_notified_at < now() - make_interval(secs => $1)
+              AND last_gone_confirmed_at > now() - make_interval(secs => $2)
+              AND NOT (fuente = ANY($3::text[]))""", days * 86400, evidence * 3600, list(braked))]
     n = 0
     for u in urls:
-        n += int(await _retire_one(conn, u, f"auto-retire after {days:g}d"))
+        async with conn.transaction():
+            n += int(await _retire_one(conn, u, f"auto-retire after {days:g}d"))
     return n
 
 
@@ -202,7 +259,7 @@ def recipients() -> list[str]:
 async def _candidates(conn, reminder_days: float) -> list[dict]:
     rows = await conn.fetch(
         """SELECT h.url, h.fuente, h.http_status, h.final_url, h.check_error, h.first_gone_at, h.last_gone_at,
-                  h.report_count, h.review_notified_at,
+                  h.report_count, h.review_notified_at, h.review_generation,
                   s.direccion_raw, s.barrio_raw, s.precio_cop,
                   ('x'||substr(md5(h.url),1,8))::bit(32)::int AS listing_id
              FROM public.listing_link_health h
@@ -245,8 +302,8 @@ def render_digest(cands: list[dict], *, base_url: str | None, batch_id: int | No
                 why = (why + " " if why else "") + esc(str(c["check_error"]))
             act = ""
             if base_url:
-                act = (f"<a href='{esc(_link(base_url, sign_token('retire', c['url'])))}'>Retire</a> | "
-                       f"<a href='{esc(_link(base_url, sign_token('keep', c['url'])))}'>Keep</a>")
+                act = (f"<a href='{esc(_link(base_url, sign_token('retire', c['url'], gen=c.get('review_generation'))))}'>Retire</a> | "
+                       f"<a href='{esc(_link(base_url, sign_token('keep', c['url'], gen=c.get('review_generation'))))}'>Keep</a>")
             fd = lambda d: d.strftime("%Y-%m-%d") if d else "-"
             rows.append(
                 "<tr>" + "".join(f"<td style='border:1px solid #ddd;padding:4px'>{x}</td>" for x in [
@@ -307,7 +364,11 @@ async def maybe_send_digest(conn, *, sender: Sender | None, braked: list[str], a
         log.warning("LINK_REVIEW_EMAILS %s: digest written to %s instead of e-mail",
                     "unset" if not to else "delivery failed", f)
     if cands:
+        # first_notified_at is IMMUTABLE once set (reminders only move review_notified_at) and only starts
+        # the auto-retire grace clock after a delivery that carried working action links.
         await conn.execute(
-            "UPDATE public.listing_link_health SET review_notified_at=$2, review_batch=$3 WHERE url = ANY($1::text[])",
-            [c["url"] for c in cands], now, batch_id)
+            "UPDATE public.listing_link_health SET review_notified_at=$2, review_batch=$3, "
+            "first_notified_at = CASE WHEN $4 THEN COALESCE(first_notified_at, $2) ELSE first_notified_at END "
+            "WHERE url = ANY($1::text[]) AND url_status = 'pending_review'",
+            [c["url"] for c in cands], now, batch_id, bool(delivered and links_on))
     return {"sent": delivered, "file": not delivered, "n_items": len(cands), "batch_id": batch_id, "subject": subject}
