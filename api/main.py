@@ -18,7 +18,8 @@ from api.db import create_pool, close_pool, get_pool
 from api import parametros
 from api.cache import refresh_listings_cache, run_periodic_cache_refresh
 from api.limiter import limiter
-from api.routers import admin, admin_agentes, afiliados, agency, alertas, asignador, auth, barrios, business, calculadora, comparador, comunidad, comunidad_posts, comunas, embajadores, favoritos, ghl_leads, ghl_webhook, historial, intake, listings, listings_propios, moderacion, oportunidades, pasantias, realtor, stats, suscripciones, tracking, trm, usuario, visitas, zonas
+from api.utils.body_limit import BodySizeLimitMiddleware
+from api.routers import admin, admin_agentes, afiliados, agency, alertas, asignador, auth, barrios, business, calculadora, comparador, comunidad, comunidad_posts, comunas, embajadores, favoritos, ghl_leads, ghl_webhook, historial, intake, link_review, listings, listings_propios, moderacion, oportunidades, pasantias, realtor, stats, suscripciones, tracking, trm, usuario, visitas, zonas
 
 # Sentry — only active when SENTRY_DSN is set (optional in local/test)
 _SENTRY_DSN = os.getenv("SENTRY_DSN", "")
@@ -37,7 +38,11 @@ if _SENTRY_DSN:
 
 logger = structlog.get_logger()
 
-_IS_PROD = bool(os.getenv("RAILWAY_ENVIRONMENT")) and os.getenv("RAILWAY_ENVIRONMENT") != "development"
+# Fail closed: production behaviour (no /docs, no localhost CORS origins) is the
+# DEFAULT. Dev behaviour requires ENV=dev (or development/local) explicitly; a
+# missing or misnamed RAILWAY_ENVIRONMENT no longer opens anything up.
+_IS_DEV = os.getenv("ENV", "").strip().lower() in ("dev", "development", "local")
+_IS_PROD = not _IS_DEV
 
 _DEV_ORIGINS = [
     "http://localhost:3000",
@@ -95,7 +100,7 @@ app = FastAPI(
     description="Motor de decisión de inversión inmobiliaria — Valle de Aburrá",
     version="1.0.0",
     lifespan=lifespan,
-    # Swagger/OpenAPI exposed only outside production (set EXPOSE_DOCS=1 to override).
+    # Swagger/OpenAPI exposed only when ENV=dev (set EXPOSE_DOCS=1 to override).
     docs_url=None if _IS_PROD and not os.getenv("EXPOSE_DOCS") else "/docs",
     redoc_url=None if _IS_PROD and not os.getenv("EXPOSE_DOCS") else "/redoc",
     openapi_url=None if _IS_PROD and not os.getenv("EXPOSE_DOCS") else "/openapi.json",
@@ -165,6 +170,7 @@ async def security_headers(request: Request, call_next):
     return response
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_build_origins(),
@@ -180,6 +186,7 @@ app.add_middleware(
 app.include_router(auth.router,          prefix="/api/v1/auth",          tags=["auth"])
 app.include_router(barrios.router,       prefix="/api/v1/barrios",        tags=["barrios"])
 app.include_router(listings.router,      prefix="/api/v1/listings",       tags=["listings"])
+app.include_router(link_review.router,   prefix="/api/v1/link-review",    tags=["link-review"])
 app.include_router(calculadora.router,   prefix="/api/v1/calculadora",    tags=["calculadora"])
 app.include_router(oportunidades.router, prefix="/api/v1/oportunidades",  tags=["oportunidades"])
 app.include_router(usuario.router,       prefix="/api/v1/usuario",        tags=["usuario"])

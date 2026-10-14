@@ -19,7 +19,19 @@ if not ADMIN_EMAIL:
 
 
 def require_admin(user: dict = Depends(get_current_user)) -> dict:
-    if user["email"] != ADMIN_EMAIL:
+    """Admin = the seeded ADMIN_EMAIL account AND its email proven (email_verificado).
+
+    Fails closed: ADMIN_EMAIL is mandatory at import, the row must already exist
+    (get_current_user needs a real usuarios row), and /auth/register refuses
+    ADMIN_EMAIL, so the row can only be created by proving inbox ownership
+    (Google sign-in or magic link), which also sets email_verificado.
+    """
+    admin_email = (ADMIN_EMAIL or "").strip().lower()
+    if (
+        not admin_email
+        or (user.get("email") or "").strip().lower() != admin_email
+        or user.get("email_verificado") is not True
+    ):
         raise HTTPException(status_code=403, detail="No autorizado")
     return user
 
@@ -1273,3 +1285,32 @@ async def test_email(
         "<p>SMTP funciona correctamente desde Medellín Social.</p>",
     )
     return {"ok": True, "sent_to": target}
+
+
+# ── Listing link health ────────────────────────────────────────────────────────
+
+@router.get("/link-health/summary")
+async def link_health_summary(admin: dict = Depends(require_admin)):
+    """Counts per source/status + age of the oldest check (staleness of the checker)."""
+    pool = get_pool()
+    rows = await pool.fetch(
+        """SELECT fuente, url_status, COUNT(*)::int AS n, MIN(last_checked_at) AS oldest_check
+             FROM public.listing_link_health GROUP BY fuente, url_status ORDER BY fuente, url_status""")
+    oldest = await pool.fetchval("SELECT MIN(last_checked_at) FROM public.listing_link_health")
+    never = await pool.fetchval("SELECT COUNT(*)::int FROM public.listing_link_health WHERE last_checked_at IS NULL")
+    pending = await pool.fetchval("SELECT COUNT(*)::int FROM public.listing_link_health WHERE url_status='pending_review'")
+    now = datetime.now(timezone.utc)
+    by_source: dict = {}
+    for r in rows:
+        d = by_source.setdefault(r["fuente"], {"statuses": {}, "oldest_check_age_hours": None})
+        d["statuses"][r["url_status"]] = r["n"]
+        if r["oldest_check"]:
+            age = round((now - r["oldest_check"]).total_seconds() / 3600, 1)
+            if d["oldest_check_age_hours"] is None or age > d["oldest_check_age_hours"]:
+                d["oldest_check_age_hours"] = age
+    return {
+        "by_source": by_source,
+        "oldest_check_age_hours": round((now - oldest).total_seconds() / 3600, 1) if oldest else None,
+        "never_checked": never or 0,
+        "pending_review": pending or 0,
+    }

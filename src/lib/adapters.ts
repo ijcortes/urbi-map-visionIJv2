@@ -301,6 +301,8 @@ export type ApiListing = {
   verificado?: boolean | null;
   // URL availability — present after validate_listings_urls.py has run
   disponible_actualmente?: boolean | null;
+  // Original-link health from the API: url is already null when gone/pending_review/error
+  link_status?: "unknown" | "ok" | "redirected" | "pending_review" | "gone" | "error" | null;
   fecha_ultima_verificacion?: string | null;
   favoritos_count?: number | null;
   foto_principal?: string | null;

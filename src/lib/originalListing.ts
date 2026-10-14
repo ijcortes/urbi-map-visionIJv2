@@ -1,4 +1,7 @@
-export type OriginalListingSource = { url?: string | null; fuente?: string | null };
+export type OriginalListingSource = { id?: number | null; url?: string | null; fuente?: string | null; link_status?: string | null };
+
+/** Link states for which the original link must not be shown (also nulled server-side). */
+export const DEAD_LINK_STATUSES = ["gone", "pending_review", "error"];
 
 /**
  * External URL of the original portal listing, or null when there is none to show:
@@ -8,6 +11,7 @@ export type OriginalListingSource = { url?: string | null; fuente?: string | nul
 export function originalListingUrl(l: OriginalListingSource | null | undefined): string | null {
   if (!l) return null;
   if ((l.fuente ?? "").toLowerCase() === "propio") return null;
+  if (DEAD_LINK_STATUSES.includes(l.link_status ?? "")) return null;
   const raw = (l.url ?? "").trim();
   if (!/^https?:\/\//i.test(raw)) return null;
   try {

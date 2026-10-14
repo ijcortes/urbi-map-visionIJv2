@@ -1,0 +1,55 @@
+{
+  "_comment": "Per-portal 'listing is gone' detectors. UNVERIFIED against live portals (no network access when written): validate each list against a known-sold listing page before trusting it. Text is matched case-insensitively and accent-insensitively against the first 400 KB of the HTML body. 'index_path_regex' = final paths a dead listing redirects to (soft-404). 'needs_body' = HEAD is not enough (SPA returns 200 for dead listings).",
+  "generic": {
+    "gone_text": [
+      "inmueble no disponible",
+      "ya no esta disponible",
+      "ya no se encuentra disponible",
+      "publicacion finalizada",
+      "esta publicacion no esta disponible",
+      "el inmueble que buscas no existe",
+      "anuncio no disponible",
+      "propiedad no disponible"
+    ],
+    "blocked_text": [
+      "captcha",
+      "cf-challenge",
+      "just a moment",
+      "attention required",
+      "access denied",
+      "px-captcha",
+      "verifica que eres humano",
+      "are you a robot"
+    ],
+    "index_path_regex": [
+      "^/?$",
+      "^/(venta|arriendo|inmuebles|buscar|busqueda|search|resultados)/?$"
+    ]
+  },
+  "portals": {
+    "metrocuadrado.com": {
+      "label": "metrocuadrado",
+      "needs_body": true,
+      "gone_text": ["inmueble no disponible", "este inmueble ya no esta disponible", "no encontramos el inmueble"],
+      "index_path_regex": ["^/(apartamento|casa|inmueble|oficina|local)s?(-en-(venta|arriendo))?/?$", "^/inmuebles?/?$"]
+    },
+    "fincaraiz.com.co": {
+      "label": "fincaraiz",
+      "needs_body": true,
+      "gone_text": ["publicacion finalizada", "este inmueble ya no esta disponible", "la publicacion que buscas no esta disponible"],
+      "index_path_regex": ["^/(venta|arriendo)(/[a-z0-9\\-]+){0,2}/?$"]
+    },
+    "habi.co": {
+      "label": "habi",
+      "needs_body": true,
+      "gone_text": ["este inmueble ya no esta disponible", "propiedad no disponible"],
+      "index_path_regex": ["^/(venta-apartamentos|venta-casas|comprar)(/[a-z0-9\\-]+){0,2}/?$"]
+    },
+    "ciencuadras.com": {
+      "label": "ciencuadras",
+      "needs_body": true,
+      "gone_text": ["inmueble no disponible", "este inmueble ya no esta disponible"],
+      "index_path_regex": ["^/(venta|arriendo)(/[a-z0-9\\-]+){0,2}/?$"]
+    }
+  }
+}

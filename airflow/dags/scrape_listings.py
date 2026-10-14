@@ -12,7 +12,7 @@ Tasks:
     t3 — scrape Metrocuadrado (--since-days 4, all_valle)
     t8 — scrape Habi (Valle de Aburrá; escribe directo a DB, sin paso load separado)
     t4 — refresh analytics cache (enrich_barrios_stats)
-    t5 — validar URLs activas (url_activa, ventana 7 días)
+    t5 — shim -> scraping.link_checker (ventana 7d; el chequeo diario real es el DAG link_health_diario)
     t7 — dbt run incremental (staging/analytics dependientes de stg_listings_unificado)
 
 t7 viene de ~/urbi/airflow/dags/scrape_listings_incremental.py (2026-08-23) —

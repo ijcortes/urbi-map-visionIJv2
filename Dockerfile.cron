@@ -69,7 +69,7 @@ COPY dbt/ ./dbt/
 #   ingest / mantenimiento:
 #     03:30 día 1 del mes  load_barrios.py
 #     04:00 lunes          load_pois.py --build-analytics
-#     04:00 domingo        validate_listings_urls.py  (ya existía)
+#     09:30 diario         scraping.link_checker      (reemplaza validate_listings_urls.py semanal)
 #     12:00 día 1 del mes  run_seguridad_mensual.py
 #     11:00 diario         fetch_usd_rate.py          (parametros_diario)
 #     11:15 lunes          fetch_trm.py               (trm_semanal)
@@ -82,7 +82,7 @@ RUN printf '%s\n' \
     "PATH=/usr/local/bin:/usr/bin:/bin" \
     "0 3 * * * root cd /app && python3 scripts/refresh_data.py >> /var/log/refresh.log 2>&1" \
     "0 */6 * * * root cd /app && python3 scraping/run_comunidad.py >> /var/log/comunidad.log 2>&1" \
-    "0 4 * * 0 root cd /app && python3 scripts/validate_listings_urls.py --batch 3000 >> /var/log/validate.log 2>&1" \
+    "30 9 * * * root cd /app && python3 -m scraping.link_checker --limit 2000 >> /var/log/link_check.log 2>&1" \
     "0 8 */3 * * root cd /app && python3 scripts/run_listings_metrocuadrado.py >> /var/log/listings_m2.log 2>&1" \
     "0 9 */3 * * root cd /app && python3 scripts/run_renta_corta.py >> /var/log/renta_corta.log 2>&1" \
     "30 5 * * * root cd /app && python3 scripts/translate_descripciones.py >> /var/log/translate.log 2>&1" \

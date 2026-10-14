@@ -33,6 +33,7 @@ export const API_ENDPOINTS = {
   trm: `${API_BASE_URL}/trm`,
   listing: (id: number) => `${API_BASE_URL}/listings/${id}`,
   listingVista: (id: number) => `${API_BASE_URL}/listings/${id}/vista`,
+  listingReportBrokenLink: (id: number) => `${API_BASE_URL}/listings/${id}/report-broken-link`,
   listingReclamar: (id: number) => `${API_BASE_URL}/listings/${id}/reclamar`,
   listingSimilares: (id: number) => `${API_BASE_URL}/listings/${id}/similares`,
   listingAgente: (id: number) => `${API_BASE_URL}/listings/${id}/agente`,
