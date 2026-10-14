@@ -102,7 +102,23 @@ app = FastAPI(
 )
 
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+def _retry_after_seconds(exc: RateLimitExceeded) -> int:
+    """Window length of the limit that was hit (upper bound on the wait)."""
+    try:
+        return max(1, int(exc.limit.limit.get_expiry()))
+    except Exception:
+        return 60
+
+
+async def _rate_limited(request: Request, exc: RateLimitExceeded):
+    """slowapi's default 429 plus the standard Retry-After header (its own header
+    injection needs headers_enabled + a `response` param on every endpoint)."""
+    resp = _rate_limit_exceeded_handler(request, exc)
+    resp.headers["Retry-After"] = str(_retry_after_seconds(exc))
+    return resp
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limited)
 
 
 @app.exception_handler(asyncpg.exceptions.DataError)

@@ -89,3 +89,22 @@ async def test_bounded_upload_declared_size_rejected_without_reading():
 
 async def test_bounded_upload_small_ok():
     assert len(await read_upload_bounded(_FakeUpload(1000))) == 1000
+
+
+async def test_429_carries_retry_after():
+    from httpx import ASGITransport, AsyncClient
+    from api.limiter import limiter
+    from api.main import app
+    limiter.enabled = True
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as ac:
+            hdr = {"x-real-ip": "203.0.113.77"}
+            last = None
+            for _ in range(130):          # /webhook/ghl is 120/minute
+                last = await ac.post("/api/v1/webhook/ghl", content=b"{}", headers=hdr)
+                if last.status_code == 429:
+                    break
+            assert last.status_code == 429
+            assert int(last.headers["retry-after"]) >= 1
+    finally:
+        limiter.reset()
