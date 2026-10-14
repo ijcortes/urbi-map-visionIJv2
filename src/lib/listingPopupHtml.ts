@@ -2,6 +2,7 @@
 // (no reliance on the DOM translator, which cannot see Mapbox-injected markup
 // reliably and mangles digits+units such as "3hab").
 import { type Currency, type FmtLang, formatMoney, formatPerArea, copToUsd, formatNumber, M2_PER_FT2 } from "./format";
+import { safeHttpUrl } from "./safeUrl";
 
 export type PopupCtx = {
   lang: FmtLang;
@@ -100,7 +101,7 @@ export function buildListingPopupHTML(
   const specs = [
     areaTxt       ? `📐 ${areaTxt}` : null,
     habitaciones  ? `🛏️ ${habitaciones} ${t.beds}` : null,
-    banos         ? `🚿 ${banos} ${t.baths}` : null,
+    banos         ? `🚿 ${escapeHtml(String(banos))} ${t.baths}` : null,
   ].filter(Boolean).join("&nbsp;&nbsp;");
 
   let badgeHTML = "";
@@ -136,10 +137,13 @@ export function buildListingPopupHTML(
   const waText = encodeURIComponent(t.wa(barrio_nombre, precio_cop ? money(precio_cop, ctx) : "—"));
   const waUrl  = `https://wa.me/+573122502394?text=${waText}`;
   const btnBase = `cursor:pointer;padding:6px 10px;border-radius:6px;font-size:11px;font-weight:600;border:1px solid;`;
-  const btnSrc = url
-    ? `<button onclick="window.open('${url.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, "&quot;")}','_blank','noopener,noreferrer')" style="${btnBase}background:transparent;border-color:#E5E0D5;color:#5B5F5C;">${sourceLabel}</button>`
+  // No inline handlers: plain anchors styled as buttons. The URL must parse as
+  // http(s) (scraped data is not trusted) and is attribute-escaped.
+  const safeSrc = safeHttpUrl(url);
+  const btnSrc = safeSrc
+    ? `<a href="${escapeHtml(safeSrc)}" target="_blank" rel="noopener noreferrer" style="${btnBase}display:inline-block;text-decoration:none;background:transparent;border-color:#E5E0D5;color:#5B5F5C;">${sourceLabel}</a>`
     : "";
-  const btnWa = `<button onclick="window.open('${waUrl}','_blank','noopener,noreferrer')" style="${btnBase}background:#0A5C36;border-color:#0A5C36;color:#FFFFFF;">${t.agent}</button>`;
+  const btnWa = `<a href="${escapeHtml(waUrl)}" target="_blank" rel="noopener noreferrer" style="${btnBase}display:inline-block;text-decoration:none;background:#0A5C36;border-color:#0A5C36;color:#FFFFFF;">${t.agent}</a>`;
   const sec = precio_cop ? secondary(precio_cop, ctx) : null;
 
   // Everything is already localized here; data-i18n-skip keeps the DOM walker

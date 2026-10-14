@@ -9,6 +9,7 @@ import { useTiendas, useGrupoCounts } from '@/hooks/useTiendas'
 import { useBarriosRaw } from '@/hooks/useBarrios'
 import { GRUPOS_TIENDAS } from '@/lib/categorias_comunidad'
 import { MAPBOX_TOKEN } from '@/lib/mapboxToken'
+import { buildNegocioPopupContent } from '@/lib/negocioPopup'
 import { API_ENDPOINTS } from '@/config/api'
 import { apiFetch } from '@/lib/apiClient'
 import { useIsMobile } from '@/hooks/use-mobile'
@@ -300,23 +301,11 @@ function NegociosMap({ barrio, barrios, visible = true, isMobile }: { barrio: Ba
         map.on('click', 'negocios-pines-circle', (e) => {
           const p = e.features?.[0]?.properties
           if (!p) return
-          const mapsUrl = p.google_place_id
-            ? `https://www.google.com/maps/place/?q=place_id:${p.google_place_id}`
-            : `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}`
-          const wa = p.whatsapp || p.telefono
+          // DOM-built popup: nombre/direccion/website/foto_url are user-editable
+          // (POST /mi-negocio), so never interpolate them into an HTML string.
           new mapboxgl.Popup({ offset: 12, closeButton: true, maxWidth: 'min(220px, 78vw)' })
             .setLngLat(e.lngLat)
-            .setHTML(`<div style="font-family:system-ui;padding:2px">
-                ${p.foto_url ? `<img src="${p.foto_url}" alt="${p.nombre}" style="width:100%;height:60px;object-fit:cover;border-radius:8px;margin-bottom:6px" />` : ''}
-                <strong style="font-size:.82rem;line-height:1.25;color:${K.ink}">${p.nombre}</strong>
-                ${p.categoria ? `<div style="font-size:.62rem;color:${K.tealDeep};font-weight:700;text-transform:uppercase;margin:2px 0">${p.categoria}</div>` : ''}
-                ${p.rating_google ? `<div style="color:${K.amarillo};font-size:.75rem">★ ${Number(p.rating_google).toFixed(1)}</div>` : ''}
-                ${p.direccion ? `<div style="font-size:.66rem;color:${K.muted};margin-top:3px;line-height:1.3">${p.direccion}</div>` : ''}
-                <div style="display:flex;gap:5px;margin-top:6px;flex-wrap:wrap">
-                  ${wa ? `<a href="https://wa.me/${String(wa).replace(/\D/g, '')}" target="_blank" style="background:#25D366;color:#fff;padding:3px 8px;border-radius:999px;text-decoration:none;font-size:.62rem;font-weight:700">💬 WA</a>` : ''}
-                  <a href="${mapsUrl}" target="_blank" style="background:#4285F4;color:#fff;padding:3px 8px;border-radius:999px;text-decoration:none;font-size:.62rem;font-weight:700">📍 Maps</a>
-                  ${p.website ? `<a href="${p.website}" target="_blank" style="background:${K.coralLight};color:${K.coral};padding:3px 8px;border-radius:999px;text-decoration:none;font-size:.62rem;font-weight:700">🌐 Web</a>` : ''}
-                </div></div>`)
+            .setDOMContent(buildNegocioPopupContent(p, K))
             .addTo(map)
         })
 
