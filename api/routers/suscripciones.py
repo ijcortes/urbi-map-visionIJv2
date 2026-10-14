@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from api.config.planes import PLANES
 from api.db import get_pool
 from api.dependencies import get_current_user
-from api.utils.email import ADMIN_EMAIL, _wrap, send_email
+from api.utils.email import ADMIN_EMAIL, _wrap, esc, send_email
 from api.utils import ghl_client, stripe_client
 
 router = APIRouter()
@@ -137,19 +137,30 @@ async def registro_agente(
     if not body.nombre.strip() or not body.telefono.strip():
         raise HTTPException(400, "Nombre y teléfono son obligatorios")
 
+    # Linking an agent row to a user is only allowed for a VERIFIED owner of the
+    # row's email (the caller's own, proven, account email).
+    if current_user.get("email_verificado") is not True:
+        raise HTTPException(403, "Debes verificar tu correo antes de registrarte como agente")
+
     pool = get_pool()
+    # Never overwrite an existing usuario_id: a pre-existing (imported / invited)
+    # agent row already linked to another account must not be re-pointed here.
     row = await pool.fetchrow(
         """
         INSERT INTO agent (usuario_id, email, nombre, telefono)
         VALUES ($1, $2, $3, $4)
         ON CONFLICT (email) DO UPDATE
-          SET usuario_id = EXCLUDED.usuario_id,
-              nombre = CASE WHEN agent.estado = 'pendiente' THEN EXCLUDED.nombre ELSE agent.nombre END,
-              telefono = CASE WHEN agent.estado = 'pendiente' THEN EXCLUDED.telefono ELSE agent.telefono END
-        RETURNING id, estado
+          SET usuario_id = COALESCE(agent.usuario_id, EXCLUDED.usuario_id),
+              nombre = CASE WHEN agent.estado = 'pendiente' AND agent.usuario_id IS NOT DISTINCT FROM EXCLUDED.usuario_id
+                            THEN EXCLUDED.nombre ELSE agent.nombre END,
+              telefono = CASE WHEN agent.estado = 'pendiente' AND agent.usuario_id IS NOT DISTINCT FROM EXCLUDED.usuario_id
+                              THEN EXCLUDED.telefono ELSE agent.telefono END
+        RETURNING id, estado, usuario_id
         """,
         current_user["id"], current_user["email"], body.nombre.strip(), body.telefono.strip(),
     )
+    if row["usuario_id"] != current_user["id"]:
+        raise HTTPException(409, "Este correo ya está asociado a otro perfil de agente. Contacta a soporte.")
     # Realtor nuevo → GHL (Contact). Best-effort: hoy sync_agent levanta
     # (stub sin contrato) → se loguea y sigue, igual que afiliados/embajadores.
     try:
@@ -354,7 +365,7 @@ async def _email_bienvenida_plan(email: str, nombre: str, plan: str) -> None:
     )
     html = _wrap(f"""
       <h3 style="color:#1D9E75">¡Bienvenido a {plan_data['nombre']}!</h3>
-      <p style="font-size:14px;color:#1A1208">Hola <strong>{nombre}</strong>,</p>
+      <p style="font-size:14px;color:#1A1208">Hola <strong>{esc(nombre)}</strong>,</p>
       <p style="font-size:14px;color:#1A1208;margin-bottom:12px">
         Tu suscripción está activa. Ahora tienes acceso a:
       </p>

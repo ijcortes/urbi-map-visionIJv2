@@ -336,6 +336,8 @@ async def aceptar_invite(
             raise HTTPException(status_code=410, detail="Invitación vencida")
         if invite["email"].strip().lower() != user["email"].strip().lower():
             raise HTTPException(status_code=403, detail="Esta invitación es para otro correo")
+        if user.get("email_verificado") is not True:
+            raise HTTPException(status_code=403, detail="Debes verificar tu correo para aceptar la invitación")
 
         # Buscar o crear el agent del usuario autenticado
         agent_row = await conn.fetchrow(
@@ -347,10 +349,15 @@ async def aceptar_invite(
             agent_row = await conn.fetchrow(
                 """INSERT INTO agent (usuario_id, email, nombre, telefono)
                    VALUES ($1, $2, $3, '')
-                   ON CONFLICT (email) DO UPDATE SET usuario_id = EXCLUDED.usuario_id
-                   RETURNING id""",
+                   ON CONFLICT (email) DO UPDATE SET usuario_id = COALESCE(agent.usuario_id, EXCLUDED.usuario_id)
+                   RETURNING id, usuario_id""",
                 user["id"], user["email"], user.get("nombre") or user["email"],
             )
+            if agent_row["usuario_id"] != user["id"]:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Este correo ya está asociado a otro perfil de agente. Contacta a soporte.",
+                )
         agent_id = agent_row["id"]
 
         # Verificar que no sea ya miembro
