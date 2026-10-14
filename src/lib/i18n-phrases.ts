@@ -65,6 +65,8 @@ export const PHRASES: Array<[string, string]> = [
   ["Perfil guardado. Explorando el mapa…", "Profile saved. Opening the map…"],
   // ── MapView (leyenda de tipos + fallback de fuente) ──
   ["Ver leyenda de tipos", "View type legend"],
+  ["Tipos", "Types"],
+  ["Cerrar leyenda", "Close legend"],
   ["Ver listado →", "View listing →"],
   ["Apto", "Apt"],
   // ── ListingDrawer — resto del popup (form visita, confirmación, badges) ──

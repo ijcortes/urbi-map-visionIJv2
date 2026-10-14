@@ -94,6 +94,9 @@ export function Navbar({ mlsBarrio, mlsTotal, onBack }: NavbarProps = {}) {
               key={l}
               onClick={() => lang !== l && toggle()}
               title={l === 'es' ? 'Español (Colombia)' : 'English (USA)'}
+              aria-label={l === 'es' ? 'Español' : 'English'}
+              aria-pressed={lang === l}
+              data-testid={`lang-${l}`}
               style={{
                 border: `1.5px solid ${lang === l ? K.amarillo : 'rgba(255,255,255,0.35)'}`,
                 background: lang === l ? 'rgba(255,201,40,0.22)' : 'rgba(255,255,255,0.1)',

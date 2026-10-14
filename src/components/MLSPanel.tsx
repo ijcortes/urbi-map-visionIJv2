@@ -170,7 +170,7 @@ function ListingCard({
   const tipo = listing.tipo_operacion?.toUpperCase() ?? "—";
   const tipoInmueble = listing.tipo_inmueble ?? "";
   const specs = [
-    listing.habitaciones ? `${listing.habitaciones} hab` : null,
+    listing.habitaciones != null ? (listing.habitaciones === 0 ? "Studio" : `${listing.habitaciones} hab`) : null,
     listing.banos ? `${listing.banos} baños` : null,
     listing.area_m2 ? formatArea(listing.area_m2, unit) : null,
   ]

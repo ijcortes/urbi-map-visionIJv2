@@ -8,7 +8,7 @@ import type { MapTab } from "@/components/MapNavbar";
 import { ComunidadNavbar } from "@/components/comunidad/ComunidadNavbar";
 import { BarrioProvider } from "@/components/comunidad/BarrioContext";
 import { SegmentGate } from "@/components/SegmentGate";
-import { getStoredSegmento, setStoredSegmento, pruneTiposForSegmento, type Segmento } from "@/lib/segmento";
+import { getStoredSegmento, setStoredSegmento, pruneTiposForSegmento, mapTourReady, type Segmento } from "@/lib/segmento";
 import { MapFilterBar, EMPTY_SHARED_FILTERS, TAB_TIPO_OP, type SharedFilters } from "@/components/MapFilterBar";
 import { MapView } from "@/components/MapView";
 import { FloatingPanel } from "@/components/FloatingPanel";
@@ -806,7 +806,7 @@ function MapPageInner() {
 
       <MapTourModal
         isMobile={isMobile}
-        dataReady={allBarrioOptions.length > 0 && !isDeepLink}
+        dataReady={mapTourReady(segmentoGate, allBarrioOptions.length > 0, isDeepLink)}
         activeComunaName={activeComuna ? activeComuna.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) : null}
         onDemoZoom={() => {
           flyToListingRef.current?.(6.2442, -75.5812, 14.5);

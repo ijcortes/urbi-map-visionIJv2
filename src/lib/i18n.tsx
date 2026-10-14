@@ -495,6 +495,9 @@ export function LanguageToggle({ className = "" }: { className?: string }) {
           key={l}
           onClick={() => setLang(l)}
           title={l === "es" ? "Español (Colombia)" : "English (USA)"}
+          aria-label={l === "es" ? "Español" : "English"}
+          aria-pressed={lang === l}
+          data-testid={`lang-${l}`}
           className="rounded-full border transition"
           style={{
             border: `1.5px solid ${lang === l ? "rgba(29,158,117,0.8)" : "rgba(255,255,255,0.35)"}`,

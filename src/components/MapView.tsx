@@ -1354,14 +1354,18 @@ export function MapView({
     );
   }
 
-  const LEGEND_ITEMS = [
-    { color: "#0F8A4F", label: "Apto" },
-    { color: "#CE1126", label: "Casa" },
-    { color: "#8A6A00", label: "Lote" },
-    { color: "#1F5BC6", label: "Local" },
-    { color: "#6D4AA8", label: "Oficina" },
-    { color: "#6E726E", label: "Bodega" },
+  const ALL_LEGEND_ITEMS = [
+    { color: "#0F8A4F", label: "Apto", seg: "residencial" },
+    { color: "#CE1126", label: "Casa", seg: "residencial" },
+    { color: "#8A6A00", label: "Lote", seg: "comercial" },
+    { color: "#1F5BC6", label: "Local", seg: "comercial" },
+    { color: "#6D4AA8", label: "Oficina", seg: "comercial" },
+    { color: "#6E726E", label: "Bodega", seg: "comercial" },
   ];
+  // Segment-aware: only list the types the active segment can actually show.
+  const LEGEND_ITEMS = ALL_LEGEND_ITEMS.filter(
+    (i) => !mlsFilters?.segmento || i.seg === mlsFilters.segmento,
+  );
 
   const legendPanel = (
     <div data-tour="legend" style={{

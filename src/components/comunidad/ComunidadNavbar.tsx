@@ -398,6 +398,9 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
                 <button
                   key={l}
                   onClick={() => setLang(l)}
+                  aria-label={l === 'es' ? 'Español' : 'English'}
+                  aria-pressed={lang === l}
+                  data-testid={`lang-${l}`}
                   style={{
                     border: 'none',
                     background: lang === l ? K.amarillo : 'transparent',
@@ -420,6 +423,7 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
                   key={l}
                   onClick={() => setLang(l)}
                   aria-label={l === 'es' ? 'Español' : 'English'}
+                  aria-pressed={lang === l}
                   style={{
                     border: 'none',
                     background: lang === l ? K.amarillo : 'transparent',

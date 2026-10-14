@@ -1158,7 +1158,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
   const specsInline = listing && (listing.area_m2 != null || listing.habitaciones != null || listing.banos != null) ? (
     <div className="flex items-center gap-2 text-sm font-medium" style={{ color: "#111418" }}>
       {listing.area_m2 != null && <span className="flex items-center gap-1"><Maximize2 className="h-3.5 w-3.5 text-[#5B5F5C]" />{formatArea(listing.area_m2, unit)}</span>}
-      {listing.habitaciones != null && <span className="flex items-center gap-1"><Bed className="h-3.5 w-3.5 text-[#5B5F5C]" />{listing.habitaciones} hab</span>}
+      {listing.habitaciones != null && <span className="flex items-center gap-1"><Bed className="h-3.5 w-3.5 text-[#5B5F5C]" />{listing.habitaciones === 0 ? "Studio" : `${listing.habitaciones} hab`}</span>}
       {listing.banos != null && <span className="flex items-center gap-1"><Bath className="h-3.5 w-3.5 text-[#5B5F5C]" />{listing.banos} baños</span>}
     </div>
   ) : null;

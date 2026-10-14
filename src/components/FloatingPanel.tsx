@@ -1734,7 +1734,7 @@ function ListingCard({ l }: { l: ApiListing }) {
           {secondary && <div data-i18n-skip="true" style={{ fontSize: 11, color: '#5B5F5C' }}>{secondary}</div>}
           <div style={{ marginTop: 2, fontSize: 12, color: '#33473D' }}>
             {l.area_m2 != null ? `${l.area_m2} m²` : "—"}
-            {l.habitaciones != null ? ` · ${l.habitaciones} hab` : ""}
+            {l.habitaciones != null ? ` · ${l.habitaciones === 0 ? "Studio" : `${l.habitaciones} hab`}` : ""}
             {l.banos != null ? ` · ${l.banos} baños` : ""}
           </div>
           {l.direccion_raw && (

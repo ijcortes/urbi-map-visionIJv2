@@ -179,6 +179,9 @@ export function MapNavbar({ activeTab, onTabChange, mlsBarrio, mlsTotal, onBack 
                       key={l}
                       onClick={() => lang !== l && toggle()}
                       title={l === "es" ? "Español (Colombia)" : "English (USA)"}
+                      aria-label={l === "es" ? "Español" : "English"}
+                      aria-pressed={lang === l}
+                      data-testid={`lang-${l}`}
                       style={{
                         border: `1.5px solid ${lang === l ? C.teal : "rgba(255,255,255,0.25)"}`,
                         background: lang === l ? "rgba(29,158,117,0.2)" : "rgba(255,255,255,0.05)",
@@ -454,6 +457,9 @@ export function MapNavbar({ activeTab, onTabChange, mlsBarrio, mlsTotal, onBack 
                           key={l}
                           onClick={() => lang !== l && toggle()}
                           title={l === "es" ? "Español (Colombia)" : "English (USA)"}
+                          aria-label={l === "es" ? "Español" : "English"}
+                          aria-pressed={lang === l}
+                          data-testid={`lang-${l}`}
                           style={{
                             border: `1.5px solid ${lang === l ? C.teal : "#C9C4B8"}`,
                             background: lang === l ? "rgba(29,158,117,0.14)" : "rgba(0,0,0,0.05)",
@@ -487,6 +493,9 @@ export function MapNavbar({ activeTab, onTabChange, mlsBarrio, mlsTotal, onBack 
                   key={l}
                   onClick={() => lang !== l && toggle()}
                   title={l === "es" ? "Español (Colombia)" : "English (USA)"}
+                  aria-label={l === "es" ? "Español" : "English"}
+                  aria-pressed={lang === l}
+                  data-testid={`lang-${l}`}
                   style={{
                     border: `1.5px solid ${lang === l ? C.teal : "rgba(255,255,255,0.25)"}`,
                     background: lang === l ? "rgba(29,158,117,0.2)" : "rgba(255,255,255,0.05)",

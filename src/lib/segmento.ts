@@ -38,3 +38,11 @@ export function pruneTiposForSegmento(tipos: string[] | null | undefined, s: Seg
   const ok = tipos.filter((t) => TIPOS_POR_SEGMENTO[s].includes(t));
   return ok.length ? ok : null;
 }
+
+/**
+ * The first-visit map tour must never open on top of the segment gate (two stacked modals,
+ * the tour popover intercepts clicks meant for the gate). Tour waits for the gate to be done.
+ */
+export function mapTourReady(gate: "pending" | "open" | "done", hasBarrioData: boolean, isDeepLink: boolean): boolean {
+  return gate === "done" && hasBarrioData && !isDeepLink;
+}
