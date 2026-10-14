@@ -11,7 +11,8 @@ import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, LabelList,
 } from "recharts";
-import { apiFetch } from "@/lib/apiClient";
+import { apiFetch, getToken } from "@/lib/apiClient";
+import { adminGateErrorKind } from "@/lib/adminGate";
 import { API_ENDPOINTS } from "@/config/api";
 import { auth } from "@/lib/auth";
 import { toast } from "sonner";
@@ -25,7 +26,7 @@ import { K as TOKENS } from "@/design/tokens";
 export const Route = createFileRoute("/panel-x9k2/")({
   beforeLoad: () => {
     if (typeof window === "undefined") return;
-    if (!localStorage.getItem("medellin-social.user")) throw redirect({ to: "/login" });
+    if (!localStorage.getItem("medellin-social.user") || !getToken()) throw redirect({ to: "/login" });
   },
   component: AdminPanel,
   head: () => ({ meta: [{ title: "Panel · Medellín Social" }] }),
@@ -56,14 +57,34 @@ function AdminPanel() {
     queryFn: () => apiFetch<Dashboard>(API_ENDPOINTS.adminDashboard),
     retry: false,
   });
+  const errMsg = gate.error ? String((gate.error as Error).message) : "";
+  const kind = adminGateErrorKind(errMsg);
   useEffect(() => {
-    if (gate.error && /403|no autorizado/i.test(String((gate.error as Error).message))) {
-      navigate({ to: "/" });
-    }
-  }, [gate.error, navigate]);
+    if (kind === "login") navigate({ to: "/login" });
+    else if (kind === "forbidden") navigate({ to: "/" });
+  }, [kind, navigate]);
 
   if (gate.isLoading) return <div style={{ background: K.paper, minHeight: "100dvh" }} />;
-  if (gate.error) return null; // redirigiendo
+  if (gate.error) {
+    // Never a blank page: redirecting states say so, anything else shows the reason.
+    return (
+      <div role="alert" style={{ background: K.paper, minHeight: "100dvh", display: "grid", placeItems: "center", padding: 24 }}>
+        <div style={{ maxWidth: 420, textAlign: "center", color: K.ink }}>
+          <h1 className="text-lg font-bold" style={{ fontFamily: K.serif }}>
+            {kind === "login" ? "Inicia sesión para continuar" : kind === "forbidden" ? "No autorizado" : "No se pudo cargar el panel"}
+          </h1>
+          <p className="mt-2 text-sm" style={{ color: K.muted }}>
+            {kind === "other" ? errMsg : "Redirigiendo…"}
+          </p>
+          {kind === "other" && (
+            <button onClick={() => gate.refetch()} className="mt-4 rounded-md border px-3 py-1.5 text-sm" style={{ borderColor: K.line }}>
+              Reintentar
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ background: K.paper, minHeight: "100dvh" }}>

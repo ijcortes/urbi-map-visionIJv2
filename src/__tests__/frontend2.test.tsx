@@ -187,3 +187,19 @@ describe("barrio click replaces the whole geographic selection", () => {
     expect(nav.slice(0, 300)).toContain("applyGeoSelection(geoSelectionForBarrio(");
   });
 });
+
+import { adminGateErrorKind } from "@/lib/adminGate";
+describe("admin panel gate never renders blank", () => {
+  it("classifies auth failures", () => {
+    expect(adminGateErrorKind("Sesión expirada. Por favor inicia sesión nuevamente.")).toBe("login");
+    expect(adminGateErrorKind("Error 401")).toBe("login");
+    expect(adminGateErrorKind("No autorizado")).toBe("forbidden");
+    expect(adminGateErrorKind("Error 500")).toBe("other");
+  });
+  it("panel renders an alert instead of null on error and requires a token in beforeLoad", () => {
+    const m = src("routes/panel-x9k2/index.tsx");
+    expect(m).not.toContain("return null; // redirigiendo");
+    expect(m).toContain('role="alert"');
+    expect(m).toContain("!getToken()");
+  });
+});
