@@ -38,3 +38,22 @@ def test_prod_hides_docs_and_dev_origins(monkeypatch):
     finally:
         monkeypatch.delenv("RAILWAY_ENVIRONMENT")
         importlib.reload(m)
+
+
+def test_db_data_error_is_422_not_500():
+    """asyncpg overflow on a client number (e.g. precio_max=9999999999999999999) must be a 422."""
+    import asyncpg
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import api.main as m
+
+    app = FastAPI()
+    app.add_exception_handler(asyncpg.exceptions.DataError, m._db_data_error_handler)
+
+    @app.get("/boom")
+    async def boom():
+        raise asyncpg.exceptions.NumericValueOutOfRangeError("value out of range")
+
+    r = TestClient(app, raise_server_exceptions=False).get("/boom")
+    assert r.status_code == 422
+    assert asyncpg.exceptions.DataError in m.app.exception_handlers  # registered on the real app

@@ -12,7 +12,7 @@ const gzipAsync = promisify(gzip);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '8080', 10);
-const STATIC_DIR = join(__dirname, 'dist/client');
+const STATIC_DIR = process.env.STATIC_DIR || join(__dirname, 'dist/client');
 const PUBLIC_DIR = join(__dirname, 'public');
 
 // ── Build id (git sha). Written to dist/client/version.json by vite.config.ts at build;
@@ -299,6 +299,6 @@ createServer(async (req, res) => {
       res.end();
     }
   }
-}).listen(PORT, '0.0.0.0', () => {
+}).listen(PORT, process.env.HOST || '0.0.0.0', () => {
   console.log(`Listening on port ${PORT} (build ${BUILD.build})`);
 });

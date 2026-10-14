@@ -4,11 +4,12 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import asyncpg
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -102,6 +103,14 @@ app = FastAPI(
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(asyncpg.exceptions.DataError)
+async def _db_data_error_handler(request: Request, exc: Exception):
+    # Client-supplied numbers that overflow the column/param type (e.g.
+    # precio_max=99999999999999999999, /listings/99999999999) are a bad request,
+    # not a server fault: 422 instead of a 500 stack trace.
+    return JSONResponse(status_code=422, content={"detail": "valor numérico fuera de rango"})
 
 
 @app.get("/health", include_in_schema=False)

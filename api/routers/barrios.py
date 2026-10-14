@@ -1107,6 +1107,7 @@ lraw AS (
            END AS pm2
     FROM staging.stg_listings_unificado
     WHERE (precio_cop >= 500000 OR (tipo_operacion = 'arriendo' AND precio_cop >= 150000)) AND barrio_id = $1
+      AND url IS NOT NULL
       AND NOT (tipo_operacion = 'arriendo' AND precio_cop > 50000000)
       AND NOT (tipo_operacion = 'venta'    AND precio_cop > 50000000000)
 )
