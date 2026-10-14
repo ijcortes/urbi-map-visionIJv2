@@ -7,6 +7,7 @@ import { usePriceFormat } from "@/hooks/usePriceFormat";
 import { formatNumber, M2_PER_FT2 } from "@/lib/format";
 import type { ApiListing, ApiListingDetail } from "@/lib/adapters";
 import { PopupGallery } from "./PopupGallery";
+import { OriginalListingLink } from "@/components/OriginalListingLink";
 
 const POPUP_WIDTH = 300;
 
@@ -209,7 +210,11 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
         </div>
 
         {/* 9. CTA único — Popup1 es muestra; el detalle + link a la fuente van en Popup2 */}
-        <div className="shrink-0 border-t p-3" style={{ borderColor: "#E5E0D5" }}>
+        <div className="shrink-0 space-y-2 border-t p-3" style={{ borderColor: "#E5E0D5" }}>
+          <OriginalListingLink
+            listing={{ url: detail?.url ?? listing.url, fuente: detail?.fuente ?? listing.fuente }}
+            className="w-full"
+          />
           <button
             type="button"
             onClick={() => onViewMore(listing.id)}

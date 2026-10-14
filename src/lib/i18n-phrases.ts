@@ -1,6 +1,11 @@
 /* Spanish -> English dictionary. Loaded lazily (dynamic import) only when the UI language is EN.
  * Order matters: longer phrases first to avoid partial replacements. */
 export const PHRASES: Array<[string, string]> = [
+  ["Quitar filtro", "Remove filter"],
+  ["Limpiar búsqueda", "Clear search"],
+  ["Tipo de propiedad", "Property type"],
+  ["Buscar barrio o municipio", "Search neighborhood or municipality"],
+  ["Guardar propiedad", "Save property"],
   // ── Segmento / destacados / enlaces originales / estados vacíos ──
   ["Elige el tipo de inmueble. Puedes cambiarlo cuando quieras.", "Choose the property type. You can change it anytime."],
   ["Locales, oficinas, bodegas y lotes", "Shops, offices, warehouses and lots"],

@@ -544,7 +544,9 @@ export function parseBudgetCop(budget?: string | null): [number, number] | null 
 // precio_max in that currency. Until the deployed backend is known to support
 // `moneda` (VITE_API_SUPPORTS_MONEDA=true) we send COP-converted values, which
 // both old and new backends interpret correctly (new ones default moneda=COP).
-const SUPPORTS_MONEDA = import.meta.env.VITE_API_SUPPORTS_MONEDA === "true";
+// Backend now supports moneda/segmento/ocultar_destacados/zona_completa/compact: default ON,
+// set VITE_API_SUPPORTS_MONEDA=false to opt out.
+const SUPPORTS_MONEDA = import.meta.env.VITE_API_SUPPORTS_MONEDA !== "false";
 
 export function appendPriceParams(
   params: URLSearchParams,

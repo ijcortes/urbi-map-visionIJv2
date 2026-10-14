@@ -6,6 +6,8 @@ import { ProfileChipMobile } from "@/components/Navbar";
 import type { MapTab } from "@/components/MapNavbar";
 import { ComunidadNavbar } from "@/components/comunidad/ComunidadNavbar";
 import { BarrioProvider } from "@/components/comunidad/BarrioContext";
+import { SegmentGate } from "@/components/SegmentGate";
+import { getStoredSegmento, setStoredSegmento, pruneTiposForSegmento, type Segmento } from "@/lib/segmento";
 import { MapFilterBar, EMPTY_SHARED_FILTERS, TAB_TIPO_OP, type SharedFilters } from "@/components/MapFilterBar";
 import { MapView } from "@/components/MapView";
 import { FloatingPanel } from "@/components/FloatingPanel";
@@ -98,6 +100,18 @@ function MapPageInner() {
       : null;
     return { ...EMPTY_SHARED_FILTERS, tipoOp: op === "arriendo" ? "arriendo" : "venta" };
   });
+  // Segment gate: residential/commercial is chosen BEFORE any result. "pending" until the
+  // persisted choice is read on the client (no SSR flash), "open" = ask, "done" = chosen.
+  const [segmentoGate, setSegmentoGate] = useState<"pending" | "open" | "done">("pending");
+  useEffect(() => {
+    const stored = getStoredSegmento();
+    if (stored) {
+      setSharedFilters((f) => ({ ...f, segmento: stored, tipoInmueble: pruneTiposForSegmento(f.tipoInmueble, stored) }));
+      setSegmentoGate("done");
+    } else {
+      setSegmentoGate("open");
+    }
+  }, []);
   const [selected, setSelected] = useState<Neighborhood | null>(null);
   const [mostrarOportunidades, setMostrarOportunidades] = useState(
     () => auth.get()?.mostrarOportunidades ?? false
@@ -166,7 +180,9 @@ function MapPageInner() {
     precio_max:   sharedFilters.precioMax,
     habitaciones: sharedFilters.habitaciones,
     tipo_inmueble: sharedFilters.tipoInmueble,
-  }), [sharedFilters.areaMin, sharedFilters.areaMax, sharedFilters.banos, sharedFilters.antiguedad,
+    segmento:     sharedFilters.segmento,
+    ocultar_destacados: sharedFilters.ocultarDestacados,
+  }), [sharedFilters.segmento, sharedFilters.ocultarDestacados, sharedFilters.areaMin, sharedFilters.areaMax, sharedFilters.banos, sharedFilters.antiguedad,
        sharedFilters.amenidades, sharedFilters.amoblado, sharedFilters.precioMin, sharedFilters.precioMax,
        sharedFilters.habitaciones, sharedFilters.tipoInmueble]);
 
@@ -183,7 +199,9 @@ function MapPageInner() {
     amenidades:     sharedFilters.amenidades,
     estadoInmueble: sharedFilters.estadoInmueble,
     pisoMin:        sharedFilters.pisoMin,
-  }), [sharedFilters.habitaciones, sharedFilters.banos, sharedFilters.areaMin, sharedFilters.areaMax,
+    segmento:       sharedFilters.segmento,
+    ocultarDestacados: sharedFilters.ocultarDestacados,
+  }), [sharedFilters.segmento, sharedFilters.ocultarDestacados, sharedFilters.habitaciones, sharedFilters.banos, sharedFilters.areaMin, sharedFilters.areaMax,
        sharedFilters.estrato, sharedFilters.tipoInmueble, sharedFilters.diasMercado, sharedFilters.busqueda,
        sharedFilters.amenidades, sharedFilters.estadoInmueble, sharedFilters.pisoMin]);
 
@@ -425,18 +443,29 @@ function MapPageInner() {
   function handleTabChange(tab: MapTab) {
     setActiveTab(tab);
     const tipoOp = TAB_TIPO_OP[tab];
-    setSharedFilters({ ...EMPTY_SHARED_FILTERS, tipoOp });
+    setSharedFilters((f) => ({ ...EMPTY_SHARED_FILTERS, segmento: f.segmento, tipoOp }));
     const t = TAB_TO_TARGET[tab];
     if (t) setTarget(t);
     if (tab === "sell") { setMapView("zonas"); setMlsBarrio(null); setGlobalSearch(false); }
   }
 
   function handleFiltersChange(partial: Partial<SharedFilters>) {
+    if (partial.segmento) {
+      const seg = partial.segmento;
+      setStoredSegmento(seg);
+      setSharedFilters((f) => ({ ...f, ...partial, tipoInmueble: pruneTiposForSegmento(f.tipoInmueble, seg) }));
+      return;
+    }
     setSharedFilters((f) => ({ ...f, ...partial }));
   }
 
+  function handleChooseSegmento(seg: Segmento) {
+    handleFiltersChange({ segmento: seg });
+    setSegmentoGate("done");
+  }
+
   function handleResetFilters() {
-    setSharedFilters({ ...EMPTY_SHARED_FILTERS, tipoOp: TAB_TIPO_OP[activeTab] });
+    setSharedFilters((f) => ({ ...EMPTY_SHARED_FILTERS, segmento: f.segmento, tipoOp: TAB_TIPO_OP[activeTab] }));
   }
 
   // Called from barrio popup "Ver inversiones"
@@ -581,27 +610,19 @@ function MapPageInner() {
   }
 
 
-  // Camera auto-select (FIX 1c): barrio under map center at high zoom → scope panel+dots.
-  function handleAutoSelectBarrio(barrioId: number | null) {
-    // "Toda la ciudad" (globalSearch) manda: la cámara no re-scopea a un barrio.
-    if (globalSearch) return;
-    if (barrioId == null) { setMlsBarrio(null); return; }
+  // Explicit barrio click on the map polygon (the camera never selects a zone).
+  function handleMapBarrioClick(barrioId: number) {
     const b = (barriosRaw ?? []).find((x) => x.barrio_id === barrioId);
-    if (b) setMlsBarrio(barrioToNeighborhood(b));
-  }
-
-  // Camera-derived commune/municipio (zoom < TIER) → scope viewport + breadcrumb.
-  function handleAutoSelectComuna(cd: number | null, municipio: string | null, nombre: string | null) {
-    // Con "Toda la ciudad" activo, ignorar el scoping por cámara (persistir ciudad).
-    if (globalSearch) return;
-    setMlsBarrio(null);
-    setActiveComunaCd(cd);
-    setActiveMunicipio(municipio);
-    setActiveComuna(nombre);
+    if (!b) return;
+    setGlobalSearch(false);
+    setMlsBarrio(barrioToNeighborhood(b));
+    setMapView("listings");
+    setSelected(null);
+    setActiveBarrioInComune(null);
   }
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-background">
+    <div className="relative h-dvh w-screen max-w-full overflow-hidden bg-background">
       <div className="absolute inset-0 z-0" data-tour="map-canvas">
         <MapView
           selectedId={selected?.id ?? null}
@@ -623,8 +644,8 @@ function MapPageInner() {
           mlsFilters={mlsFilters}
           onViewportListingsChange={setViewportListings}
           onViewportLoadingChange={setViewportLoading}
-          onAutoSelectBarrio={handleAutoSelectBarrio}
-          onAutoSelectComuna={handleAutoSelectComuna}
+          onBarrioClick={handleMapBarrioClick}
+          paused={segmentoGate !== "done"}
           onReady={() => setMapReady(true)}
           highlightedListingId={highlightedListingId}
           flyToListingRef={flyToListingRef}
@@ -674,6 +695,7 @@ function MapPageInner() {
         onComunaSelect={handleComunaSelect}
       />
       <ProfileChipMobile />
+      {segmentoGate === "open" && <SegmentGate onChoose={handleChooseSegmento} />}
 
       {/* Buscar en el Valle — filtros activos pero sin barrio/zona seleccionada */}
       {activeFilterCount > 0 && !mlsBarrio && !globalSearch && activeTab !== "agent" && (
@@ -726,6 +748,7 @@ function MapPageInner() {
           premiumBarriosIncluidos={premiumBarriosIncluidos}
           onPremiumExpand={setPremiumExpand}
           externalFilters={sharedFilters}
+          onClearFilters={handleResetFilters}
           activeComuna={activeComuna}
           activeMunicipio={activeMunicipio}
           comunaBarrios={comunaBarriosList}

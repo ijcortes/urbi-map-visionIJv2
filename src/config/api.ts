@@ -26,6 +26,8 @@ export const API_ENDPOINTS = {
   barrio: (id: number) => `${API_BASE_URL}/barrios/${id}`,
   barrioInfo: (id: number) => `${API_BASE_URL}/barrios/${id}/info`,
   comparar: `${API_BASE_URL}/barrios/comparar`,
+  barrioAliases: `${API_BASE_URL}/barrios/aliases`,
+  barrioBuscar: (q: string) => `${API_BASE_URL}/barrios/buscar?q=${encodeURIComponent(q)}`,
   listings: (id: number) => `${API_BASE_URL}/barrios/${id}/listings`,
   allListings: `${API_BASE_URL}/listings`,
   trm: `${API_BASE_URL}/trm`,

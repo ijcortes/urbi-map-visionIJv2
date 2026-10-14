@@ -121,7 +121,7 @@ const TIPOS_OP = [
 ];
 const TIPOS_IN = [
   { v: "apartamento", l: "Apartamento" }, { v: "casa", l: "Casa" },
-  { v: "apartaestudio", l: "Apartaestudio" }, { v: "lote", l: "Lote" },
+  { v: "lote", l: "Lote" },
   { v: "local", l: "Local" }, { v: "oficina", l: "Oficina" },
   { v: "bodega", l: "Bodega" }, { v: "otro", l: "Otro" },
 ];

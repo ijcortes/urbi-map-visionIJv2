@@ -13,6 +13,7 @@ import type { ApiListingDetail } from "@/lib/adapters";
 import { SiteNavbar } from "@/components/SiteNavbar";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { toast } from "sonner";
+import { OriginalListingLink } from "@/components/OriginalListingLink";
 
 export const Route = createFileRoute("/listing/$id")({
   beforeLoad: ({ params }) => {
@@ -518,6 +519,8 @@ export function ListingDetailContent({
                 )}
               </div>
 
+              <OriginalListingLink listing={listing} className="w-full" />
+
               {/* Key specs */}
               <div className="flex flex-wrap gap-2 text-sm">
                 {listing.habitaciones != null && (
@@ -605,17 +608,6 @@ export function ListingDetailContent({
                   <Phone className="h-4 w-4" />
                   Contactar agente (WhatsApp)
                 </a>
-                {listing.url && (
-                  <a
-                    href={listing.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-primary/40 bg-primary/10 py-3 text-sm font-semibold text-primary transition hover:bg-primary/20"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                    {SOURCE_LABEL[fuente] ?? "Ver listado original"}
-                  </a>
-                )}
                 {isModal && (
                   <button
                     onClick={handleShare}

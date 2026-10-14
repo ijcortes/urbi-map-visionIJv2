@@ -31,6 +31,7 @@ import { toEmbedSrc } from "@/lib/embed";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { useComparadorStore } from "@/hooks/useComparadorStore";
 import { usePriceFormat } from "@/hooks/usePriceFormat";
+import { OriginalListingLink } from "@/components/OriginalListingLink";
 import { formatDate } from "@/lib/format";
 import { useLang, translateString } from "@/lib/i18n";
 import { useUnit, formatArea } from "@/hooks/useUnit";
@@ -42,7 +43,6 @@ const TIPO_INMUEBLE_COLOR: Record<string, string> = {
   casa:          "#CE1126",
   casa_lote:     "#CE1126",
   finca:         "#CE1126",
-  apartaestudio: "#C2410C",
   lote:          "#8A6A00",
   local:         "#1F5BC6",
   oficina:       "#6D4AA8",
@@ -1251,18 +1251,6 @@ export function ListingDrawer({ listingId, onClose }: Props) {
         )}
       </div>
       <div className="flex gap-2">
-        {listing.url && (
-          <a
-            href={listing.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-medium text-[#5B5F5C] transition hover:text-[#111418]"
-            style={{ border: "0.5px solid #E5E0D5", background: "#FFFFFF" }}
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-            {SOURCE_LABEL[fuente] ?? "Ver fuente original →"}
-          </a>
-        )}
         <button
           onClick={handleShare}
           title="Copiar link"
@@ -1631,6 +1619,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                               {favButton}
                             </div>
                           </div>
+                          <OriginalListingLink listing={listing} className="w-full" />
                           {(listing.barrio_nombre || listing.municipio) && (
                             <div className="flex items-center gap-1 text-xs text-[#5B5F5C]">
                               <MapPin className="h-3 w-3 shrink-0" />
@@ -1707,6 +1696,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                 {favButton}
               </div>
             </div>
+            <OriginalListingLink listing={listing} className="mt-3 w-full" />
             <div className="mt-2 space-y-2">
               {badgesRow}
               {(listing.barrio_nombre || listing.municipio) && (

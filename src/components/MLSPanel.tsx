@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
+import { OriginalListingLink } from "@/components/OriginalListingLink";
+import { originalListingUrl } from "@/lib/originalListing";
 import { motion, AnimatePresence } from "framer-motion";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ArrowLeft, ExternalLink, Plus, Check, ArrowUpDown } from "@/lib/icons";
@@ -36,6 +38,8 @@ type Props = {
   premiumBarriosIncluidos?: string[] | null;
   onPremiumExpand?: (v: boolean) => void;
   externalFilters?: SharedFilters;
+  /** Resets all filters (empty-state button). */
+  onClearFilters?: () => void;
   // Commune drill-down
   activeComuna?: string | null;
   activeMunicipio?: string | null;
@@ -56,7 +60,6 @@ type Filters = {
 
 const TIPO_LABELS: Record<string, string> = {
   apartamento:   "Apartamento",
-  apartaestudio: "Apartaestudio",
   casa:          "Casa",
   casa_lote:     "Casa-Lote",
   finca:         "Finca",
@@ -68,7 +71,7 @@ const TIPO_LABELS: Record<string, string> = {
 };
 
 const TIPO_GRUPOS = [
-  { label: "Residencial", tipos: ["apartamento", "apartaestudio", "casa", "casa_lote", "finca"] },
+  { label: "Residencial", tipos: ["apartamento", "casa", "casa_lote", "finca"] },
   { label: "Comercial",   tipos: ["local", "oficina", "bodega", "consultorio"] },
   { label: "Terreno",     tipos: ["lote"] },
 ];
@@ -78,7 +81,6 @@ const TIPO_INMUEBLE_COLOR: Record<string, string> = {
   casa:          '#CE1126',
   casa_lote:     '#CE1126',
   finca:         '#CE1126',
-  apartaestudio: '#C2410C',
   lote:          '#8A6A00',
   local:         '#1F5BC6',
   oficina:       '#6D4AA8',
@@ -215,10 +217,12 @@ function ListingCard({
           <div className="min-w-0">
             <div data-i18n-skip="true" className="text-sm font-bold leading-tight text-[#111418]">{precio}</div>
             {specs && <div className="mt-0.5 truncate text-[11px] text-[#5B5F5C]">{specs}</div>}
+            <OriginalListingLink listing={listing} variant="compact" className="mt-1.5" />
           </div>
           <button
             onClick={(e) => { e.stopPropagation(); onToggleFav(); }}
-            className="shrink-0 text-base leading-none transition hover:scale-110"
+            className="grid h-11 w-11 shrink-0 place-items-center text-base leading-none transition hover:scale-110"
+            aria-label={isFav ? "Quitar de favoritos" : "Guardar propiedad"}
             title={isFav ? "Quitar de favoritos" : "Guardar propiedad"}
           >
             {isFav ? "❤️" : "🤍"}
@@ -385,17 +389,8 @@ function ListingCard({
       )}
 
       <div className="mt-2 flex items-center justify-between">
-        {listing.url && listing.disponible_actualmente !== false ? (
-          <a
-            href={listing.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="flex items-center gap-1 text-[10px] text-[#6E726E] capitalize hover:text-[#0F8A4F] transition-colors"
-          >
-            {listing.fuente ?? "—"}
-            <ExternalLink className="h-2.5 w-2.5" />
-          </a>
+        {listing.url && listing.disponible_actualmente !== false && originalListingUrl(listing) ? (
+          <OriginalListingLink listing={listing} variant="compact" />
         ) : listing.disponible_actualmente === false ? (
           <span
             className="flex items-center gap-1 text-[10px] text-[#C9C4B8] capitalize cursor-default"
@@ -422,7 +417,8 @@ function ListingCard({
           )}
           <button
             onClick={(e) => { e.stopPropagation(); onToggleFav(); }}
-            className="text-base leading-none transition hover:scale-110"
+            className="grid h-11 w-11 place-items-center text-base leading-none transition hover:scale-110"
+            aria-label={isFav ? "Quitar de favoritos" : "Guardar propiedad"}
             title={isFav ? "Quitar de favoritos" : "Guardar propiedad"}
           >
             {isFav ? "❤️" : "🤍"}
@@ -458,6 +454,7 @@ export function MLSPanel({
   premiumBarriosIncluidos,
   onPremiumExpand,
   externalFilters,
+  onClearFilters,
   activeComuna,
   activeMunicipio,
   comunaBarrios,
@@ -579,8 +576,9 @@ export function MLSPanel({
   // Destacados (visibilidad pagada) arriba en su propia sección; el resto abajo.
   // filtered ya viene ordenado pro-first del API; el split solo agrega los encabezados.
   const ordenados = sortListings(filtered, sortBy);
-  const destacados = ordenados.filter(esDestacado);
-  const resto = ordenados.filter((l) => !esDestacado(l));
+  // "Ocultar destacados": no pinned section, and featured rows (if any slip through) rank like the rest.
+  const destacados = ef.ocultarDestacados ? [] : ordenados.filter(esDestacado);
+  const resto = ef.ocultarDestacados ? ordenados : ordenados.filter((l) => !esDestacado(l));
   // Solo renderiza los primeros `visibleCount` del resto; crece al scrollear.
   const restoVisible = resto.slice(0, Math.max(0, visibleCount - destacados.length));
   const hayMas = restoVisible.length < resto.length;
@@ -725,6 +723,17 @@ export function MLSPanel({
               <div className="text-3xl mb-2">🏠</div>
               <div className="text-sm font-medium">Sin resultados</div>
               <div className="text-xs mt-1">Intenta con otros filtros</div>
+              {onClearFilters && (
+                <button
+                  type="button"
+                  data-testid="clear-filters"
+                  onClick={onClearFilters}
+                  className="mt-3 inline-flex min-h-[44px] items-center justify-center rounded-lg border px-4 text-sm font-semibold"
+                  style={{ borderColor: "#0F8A4F", color: "#0A5C36", background: "#FFFFFF" }}
+                >
+                  Quitar filtros
+                </button>
+              )}
             </div>
           )}
           {destacados.length > 0 && (

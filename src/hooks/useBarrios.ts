@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
+import { appendSegmentParams } from "@/lib/listingParams";
 import { barrioToNeighborhood, appendPriceParams, type ApiBarrio, type ApiListingsResponse } from "@/lib/adapters";
 import { setScoreThresholds } from "@/config/mapColors";
 
@@ -547,6 +548,8 @@ export type ListingsApiFilters = {
   precio_max?: number | null;
   habitaciones?: number | null;
   tipo_inmueble?: string[] | null;
+  segmento?: "residencial" | "comercial" | "todos" | null;
+  ocultar_destacados?: boolean | null;
 };
 
 export function useListings(
@@ -583,6 +586,7 @@ export function useListings(
       if (extraFilters?.tipo_inmueble?.length) {
         for (const t of extraFilters.tipo_inmueble) params.append("tipo_inmueble", t);
       }
+      appendSegmentParams(params, { segmento: extraFilters?.segmento, ocultarDestacados: extraFilters?.ocultar_destacados });
       return apiFetch<ApiListingsResponse>(`${API_ENDPOINTS.allListings}?${params}`);
     },
     enabled: forceEnabled || barrioId != null || cdComuna != null || !!municipioNombre,

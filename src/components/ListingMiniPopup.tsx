@@ -1,4 +1,5 @@
 import { X, ChevronRight, Bed, Bath, Maximize2, Clock, MapPin, Plus, Check } from "@/lib/icons";
+import { OriginalListingLink } from "@/components/OriginalListingLink";
 import { usePriceFormat } from "@/hooks/usePriceFormat";
 import { formatArea } from "@/hooks/useUnit";
 import type { ApiListing } from "@/lib/adapters";
@@ -163,6 +164,7 @@ export function ListingMiniPopup({ listing, onClose, onViewMore }: Props) {
               }
             </button>
           )}
+          <OriginalListingLink listing={listing} variant="compact" className="w-full" />
           <button
             onClick={() => onViewMore(listing.id)}
             className="flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold text-white transition hover:opacity-90"
