@@ -394,9 +394,9 @@ WHERE ($1::text    IS NULL OR UPPER(b.municipio) = UPPER($1))
   ))
   AND ($15::boolean IS NULL OR l.amoblado = $15)
   AND ($16::text   IS NULL OR ($16 = 'comercial') = (lower(coalesce(l.tipo_inmueble, '')) ~ '__COMERCIAL_RE__'))
-  AND ($17::boolean IS NOT TRUE OR NOT (
+  AND ($17::boolean IS NOT TRUE OR NOT COALESCE(
         l.tier IN ('agente_premium', 'agencia_premium')
-        OR (l.fuente = 'propio' AND _lp_owner.owner_plan IN ('pro', 'agente'))))
+        OR (l.fuente = 'propio' AND _lp_owner.owner_plan IN ('pro', 'agente')), FALSE))
   {amenidades_filter}
 ORDER BY
     CASE WHEN $9::boolean IS TRUE THEN 0
@@ -495,9 +495,9 @@ WHERE ($1::text   IS NULL OR UPPER(b.municipio) = UPPER($1))
   ))
   AND ($15::boolean IS NULL OR l.amoblado = $15)
   AND ($16::text   IS NULL OR ($16 = 'comercial') = (lower(coalesce(l.tipo_inmueble, '')) ~ '__COMERCIAL_RE__'))
-  AND ($17::boolean IS NOT TRUE OR NOT (
+  AND ($17::boolean IS NOT TRUE OR NOT COALESCE(
         l.tier IN ('agente_premium', 'agencia_premium')
-        OR (l.fuente = 'propio' AND _lp_owner.owner_plan IN ('pro', 'agente'))))
+        OR (l.fuente = 'propio' AND _lp_owner.owner_plan IN ('pro', 'agente')), FALSE))
   {amenidades_filter}
 """.replace("__COMERCIAL_RE__", _COMERCIAL_RE)
 _COUNT_SQL = _COUNT_SQL_TMPL.format(amenidades_filter="")
@@ -1108,7 +1108,7 @@ _VIEWPORT_EXTRA_WHERE = """\
         WHERE _pi.url = l.url AND _pi.raw_data->>'nroPiso' ~ '^\d+$'
           AND (_pi.raw_data->>'nroPiso')::int >= $22))
   AND ($23::text   IS NULL OR ($23 = 'comercial') = (lower(coalesce(l.tipo_inmueble, '')) ~ '__COMERCIAL_RE__'))
-  AND ($24::boolean IS NOT TRUE OR NOT (__FEATURED__))
+  AND ($24::boolean IS NOT TRUE OR NOT COALESCE((__FEATURED__), FALSE))
 """.replace("__COMERCIAL_RE__", _COMERCIAL_RE)
 
 # UI amenity key → substring patterns matched (ILIKE, OR) against the source

@@ -255,3 +255,11 @@ async def test_trm_endpoint_and_listings_share_rate(monkeypatch):
     assert r.json()["valor"] == 3800.0
     assert await trm_service.get_usd_rate() == 3800.0
     trm_service.clear_cache()
+
+
+def test_ocultar_destacados_sql_is_null_safe():
+    """tier IS NULL for most rows: `NOT (tier IN (...) OR ...)` would be NULL and drop them
+    (found against real Postgres: ocultar_destacados=true returned 0 rows)."""
+    import api.routers.listings as L
+    for sql in (L._LISTINGS_SQL_TMPL, L._COUNT_SQL_TMPL, L._VIEWPORT_POINTS_SQL):
+        assert "NOT COALESCE(" in sql
