@@ -1088,6 +1088,20 @@ _VIEWPORT_DM_JOIN = (
     "       ON _dm.url = l.url AND l.fuente = 'metrocuadrado'"
 )
 
+# ONE definition of "featured" (hidden by ocultar_destacados) for clusters, points and
+# panel list: a premium tier, or an own listing whose owner is on a pro/agente plan.
+# Needs alias `l` for the listing and `_lp` for _VIEWPORT_OWNER_JOIN.
+_VIEWPORT_OWNER_JOIN = """LEFT JOIN (
+    SELECT lo.id::text AS lp_url, u.plan AS owner_plan
+    FROM public.listing lo
+    JOIN public.owner o ON o.id = lo.owner_id
+    JOIN public.usuarios u ON u.id = o.usuario_id
+) _lp ON _lp.lp_url = l.url AND l.fuente = 'propio'"""
+_VIEWPORT_FEATURED_PRED = (
+    "(l.tier IN ('agente_premium', 'agencia_premium') "
+    "OR (l.fuente = 'propio' AND _lp.owner_plan IN ('pro','agente')))"
+)
+
 # Shared $12-$19 filter block. NULLIF(habitaciones,-1) normalises the sentinel.
 # dias buckets replicate the old client-side semantics (NULL → 999 = "old").
 _VIEWPORT_EXTRA_WHERE = """\
@@ -1175,6 +1189,7 @@ WITH per_barrio AS (
     JOIN raw.barrios b                ON b.id = l.barrio_id
     LEFT JOIN analytics.barrios_cd bc ON bc.barrio_id = l.barrio_id
     {dm_join}
+    {owner_join}
     WHERE (l.precio_cop >= 500000 OR (l.tipo_operacion = 'arriendo' AND l.precio_cop >= 150000))
       AND NOT (l.tipo_operacion = 'arriendo' AND l.precio_cop > 50000000)
       AND NOT (l.tipo_operacion = 'venta'    AND l.precio_cop > 50000000000)
@@ -1199,8 +1214,8 @@ SELECT
     ROUND(SUM(sum_precio)::numeric / SUM(n))::bigint  AS precio_promedio
 FROM per_barrio
 GROUP BY grp
-""".format(dm_join=_VIEWPORT_DM_JOIN, extra_where=_VIEWPORT_EXTRA_WHERE.replace(
-    "__FEATURED__", "l.tier IN ('agente_premium', 'agencia_premium') OR l.fuente = 'propio'"))
+""".format(dm_join=_VIEWPORT_DM_JOIN, owner_join=_VIEWPORT_OWNER_JOIN,
+           extra_where=_VIEWPORT_EXTRA_WHERE.replace("__FEATURED__", _VIEWPORT_FEATURED_PRED))
 
 # Points: shared body (no ORDER BY) so the normal and the grid-thinned variants
 # select exactly the same columns/filters.
@@ -1227,9 +1242,7 @@ SELECT
         ELSE l.fuente
     END                          AS fuente_display,
     l.tier, l.tipo_operacion, l.tipo_inmueble,
-    CASE WHEN l.tier IN ('agente_premium', 'agencia_premium')
-              OR (l.fuente = 'propio' AND _lp.owner_plan IN ('pro','agente'))
-         THEN 0 ELSE 1 END       AS _prio,
+    CASE WHEN {featured} THEN 0 ELSE 1 END       AS _prio,
     l.precio::bigint             AS precio_cop,
     NULL::bigint                 AS precio_usd,  -- filled in Python from the shared TRM
     l.area_m2::float8, round(l.precio_m2)::bigint AS precio_m2, l.habitaciones, l.banos::float8,
@@ -1243,12 +1256,7 @@ LEFT JOIN analytics.listings_georef g  ON g.url = l.url
 LEFT JOIN raw.barrios b                ON b.id = l.barrio_id
 LEFT JOIN analytics.barrios_cd bc ON bc.barrio_id = l.barrio_id
 {dm_join}
-LEFT JOIN (
-    SELECT lo.id::text AS lp_url, u.plan AS owner_plan
-    FROM public.listing lo
-    JOIN public.owner o ON o.id = lo.owner_id
-    JOIN public.usuarios u ON u.id = o.usuario_id
-) _lp ON _lp.lp_url = l.url AND l.fuente = 'propio'
+{owner_join}
 WHERE ($1::float8 IS NULL OR l.lon >= $1)
   AND ($2::float8 IS NULL OR l.lat >= $2)
   AND ($3::float8 IS NULL OR l.lon <= $3)
@@ -1261,16 +1269,12 @@ WHERE ($1::float8 IS NULL OR l.lon >= $1)
   AND ($10::text  IS NULL OR UPPER(b.municipio) = UPPER($10))
   AND ($11::boolean IS NULL OR l.amoblado = $11)
 {extra_where}
-""".format(dm_join=_VIEWPORT_DM_JOIN, extra_where=_VIEWPORT_EXTRA_WHERE.replace(
-    "__FEATURED__",
-    "l.tier IN ('agente_premium', 'agencia_premium') "
-    "OR (l.fuente = 'propio' AND _lp.owner_plan IN ('pro','agente'))"))
+""".format(dm_join=_VIEWPORT_DM_JOIN, owner_join=_VIEWPORT_OWNER_JOIN, featured=_VIEWPORT_FEATURED_PRED,
+           extra_where=_VIEWPORT_EXTRA_WHERE.replace("__FEATURED__", _VIEWPORT_FEATURED_PRED))
 
 _VIEWPORT_POINTS_SQL = _VIEWPORT_POINTS_BODY + """
 ORDER BY
-    CASE WHEN l.tier IN ('agente_premium', 'agencia_premium')
-              OR (l.fuente = 'propio' AND _lp.owner_plan IN ('pro','agente'))
-         THEN 0 ELSE 1 END,
+    CASE WHEN """ + _VIEWPORT_FEATURED_PRED + """ THEN 0 ELSE 1 END,
     CASE WHEN l.fuente = 'casadolcecasa' THEN 0 ELSE 1 END,
     -- Round-robin por tipo: el cap de 3000 llenaba con los más recientes y en comunas
     -- densas (Poblado) los apartamentos tienen el fecha_scraping más nuevo → el mapa

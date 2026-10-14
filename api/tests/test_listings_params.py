@@ -213,6 +213,18 @@ async def test_viewport_filters_usd_segmento_compact(api):
     assert it["tipo_inmueble"] == "apartamento" and it["habitaciones"] == 0 and it["url"]
 
 
+def test_featured_predicate_is_shared_by_clusters_points_and_thin():
+    pred = L._VIEWPORT_FEATURED_PRED
+    clause = f"NOT COALESCE(({pred}), FALSE)"
+    for name in ("_VIEWPORT_CLUSTERS_SQL", "_VIEWPORT_POINTS_SQL", "_VIEWPORT_POINTS_THIN_SQL"):
+        sql = getattr(L, name)
+        assert clause in sql, name                       # same hide-featured predicate
+        assert L._VIEWPORT_OWNER_JOIN in sql, name       # owner plan joined everywhere
+        assert "__FEATURED__" not in sql
+    # clusters must NOT hide every own listing any more
+    assert "OR l.fuente = 'propio'" not in L._VIEWPORT_CLUSTERS_SQL
+
+
 async def test_viewport_default_keeps_every_card_field(api):
     """Exactly what the map sends (no compact): the response must carry all fields a
     card / popup / barrio-name filter reads."""
