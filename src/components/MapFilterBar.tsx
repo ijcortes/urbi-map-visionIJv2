@@ -521,9 +521,14 @@ function NumInput({
   );
 }
 
+type PriceField = { text: string; handleChange: (raw: string) => void };
+
 function PrecioPanel({
-  filters, isRent, onChange, onClose, lang, fmtPrice,
+  filters, isRent, onChange, onClose, lang, fmtPrice, minField, maxField, currency,
 }: {
+  minField?: PriceField;
+  maxField?: PriceField;
+  currency?: string;
   filters: SharedFilters;
   isRent: boolean;
   onChange: (f: Partial<SharedFilters>) => void;
@@ -614,6 +619,23 @@ function PrecioPanel({
         <span data-i18n-skip="true" style={{ fontSize: 13, fontWeight: 700, color: C.teal }}>{fmt(curMin)}</span>
         <span data-i18n-skip="true" style={{ fontSize: 13, fontWeight: 700, color: C.teal }}>{fmt(curMax)}</span>
       </div>
+
+      {/* Typed min/max (same parser + debounce as the mobile sheet); slider and inputs share filters */}
+      {minField && maxField && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          {([["Mínimo", "Precio mínimo", minField], ["Máximo", "Precio máximo", maxField]] as const).map(([ph, aria, f]) => (
+            <input
+              key={aria}
+              type="text" inputMode="numeric" autoComplete="off" data-i18n-skip="true"
+              placeholder={currency ? `${ph} (${currency})` : ph} aria-label={aria}
+              value={f.text}
+              onChange={(e) => f.handleChange(e.target.value)}
+              onPointerDown={(e) => e.stopPropagation()}
+              style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, padding: "7px 10px", fontSize: 13, outline: "none", color: C.ink, background: "#fff", userSelect: "text" }}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Histogram + dual slider */}
       <div ref={trackRef} style={{ position: "relative", height: 76, marginBottom: 4 }}>
@@ -1770,7 +1792,7 @@ export function MapFilterBar({
       case "precio":
         return (
           <div ref={dropdownRef} style={wrapStyle}>
-            <PrecioPanel filters={filters} isRent={isRent} onChange={onFiltersChange} onClose={close} lang={lang} fmtPrice={pf.formatPriceCompact} />
+            <PrecioPanel filters={filters} isRent={isRent} onChange={onFiltersChange} onClose={close} lang={lang} fmtPrice={pf.formatPriceCompact} minField={precioMinField} maxField={precioMaxField} currency={pf.currency} />
           </div>
         );
       case "habBanos":

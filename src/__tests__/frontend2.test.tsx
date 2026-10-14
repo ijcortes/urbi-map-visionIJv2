@@ -203,3 +203,13 @@ describe("admin panel gate never renders blank", () => {
     expect(m).toContain("!getToken()");
   });
 });
+
+describe("desktop price filter has typed min/max beside the slider", () => {
+  it("PrecioPanel receives the same debounced parsePriceInput fields as the mobile sheet", () => {
+    const m = src("components/MapFilterBar.tsx");
+    expect(m).toContain("minField={precioMinField} maxField={precioMaxField}");
+    expect(m).toContain('aria-label={aria}');
+    // one shared hook (parsePriceInput + debounce) feeds both surfaces
+    expect(m.match(/usePriceFieldText\(/g)?.length).toBe(3); // def + min + max
+  });
+});
