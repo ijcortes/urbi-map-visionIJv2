@@ -136,7 +136,7 @@ export function PhotoGallery({ fotos, titulo, height = 224 }: Props) {
           <img
             src={photos[idx]}
             alt={titulo ?? "Foto del inmueble"}
-            className="max-h-[88vh] max-w-[88vw] object-contain rounded-lg shadow-2xl"
+            className="max-h-[88dvh] max-w-[88vw] object-contain rounded-lg shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           />
 

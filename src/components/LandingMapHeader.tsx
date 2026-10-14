@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { isMobileWidth } from "@/lib/breakpoints";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { Link } from "@tanstack/react-router";
@@ -53,7 +54,7 @@ export function LandingMapHeader({
 
   // Deactivate map when user taps outside the map container (mobile only)
   useEffect(() => {
-    if (window.innerWidth >= 768) return;
+    if (!isMobileWidth(window.innerWidth)) return;
     const onOutsideTap = (e: TouchEvent) => {
       if (!containerRef.current?.contains(e.target as Node)) {
         setMapActive(false);
@@ -274,7 +275,7 @@ export function LandingMapHeader({
       {/* Map wrapper — 40vh on mobile, 55vh on sm+ */}
       <div
         className="landing-map-wrapper relative w-full overflow-hidden"
-        style={{ height: "60vh", minHeight: "320px" }}
+        style={{ height: "60svh", minHeight: "320px" }}
       >
         {/* Mapbox container */}
         <div ref={containerRef} className="absolute inset-0" />

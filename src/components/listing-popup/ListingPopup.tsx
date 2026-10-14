@@ -6,6 +6,7 @@ import { API_ENDPOINTS } from "@/config/api";
 import { usePriceFormat } from "@/hooks/usePriceFormat";
 import { formatNumber, M2_PER_FT2 } from "@/lib/format";
 import type { ApiListing, ApiListingDetail } from "@/lib/adapters";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { PopupGallery } from "./PopupGallery";
 import { OriginalListingLink } from "@/components/OriginalListingLink";
 
@@ -65,13 +66,13 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
 
   // Desktop: tarjeta flotante centrada sobre el mapa visible. Móvil: bottom
   // sheet anclado abajo (más intuitivo, refiere claro al pin tocado).
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-  const panelWidth = window.innerWidth >= 768 ? 380 : 0;
+  const isMobile = useIsMobile();
+  const panelWidth = isMobile ? 0 : 380;
   const width = Math.min(POPUP_WIDTH, window.innerWidth - 24);
   const left = Math.max(12, (window.innerWidth - panelWidth - width) / 2);
   const posStyle: React.CSSProperties = isMobile
-    ? { left: 8, right: 8, bottom: 12, width: "auto", maxHeight: "72vh" }
-    : { left, top: 72, width, maxHeight: "calc(100vh - 120px)" };
+    ? { left: 8, right: 8, bottom: 12, width: "auto", maxHeight: "72dvh" }
+    : { left, top: 72, width, maxHeight: "calc(100dvh - 120px)" };
 
   // Header fields: prefer detail (proper *_display casing), fall back to pin.
   const d = detail;

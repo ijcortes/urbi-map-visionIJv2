@@ -783,7 +783,7 @@ export function MLSPanel({
         exit={{ x: "100%" }}
         transition={{ type: "spring", damping: 30, stiffness: 280 }}
         className="fixed inset-x-0 bottom-0 z-20 flex flex-col"
-        style={{ top: 100, background: '#FAF8F3', ...panelVars }}
+        style={{ top: 'calc(var(--map-header-h, 53px) + 48px)', background: '#FAF8F3', ...panelVars }}
       >
         {body}
       </motion.div>

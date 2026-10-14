@@ -232,7 +232,7 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
         @media (prefers-reduced-motion: reduce) {
           .k-ticker-inner, .k-tricolor > i, .masthead-logo, .masthead-tag { animation: none !important; }
         }
-        @media (max-width: 768px) {
+        @media (max-width: 767px) {
           .mobile-menu-btn { display: flex !important; align-items: center; justify-content: center; }
           .desktop-nav-links { display: none !important; }
           .desktop-only { display: none !important; }

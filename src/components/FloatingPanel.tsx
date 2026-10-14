@@ -149,6 +149,20 @@ export function FloatingPanel({ selected, onClear, onSelect, onGoToMLS, perfil: 
   useEffect(() => { sizeRef.current = size; }, [size]);
   useEffect(() => { posRef.current = pos; }, [pos]);
 
+  // Keep the floating panel inside the viewport after resize / rotation.
+  useEffect(() => {
+    const onResize = () => {
+      const w = Math.max(PANEL_MIN_W, Math.min(panelMaxW(), sizeRef.current.width));
+      const h = Math.max(PANEL_MIN_H, Math.min(panelMaxH(), sizeRef.current.height));
+      if (w !== sizeRef.current.width || h !== sizeRef.current.height) setSize({ width: w, height: h });
+      const left = Math.max(0, Math.min(window.innerWidth - w - 8, posRef.current.left));
+      const top = Math.max(70, Math.min(window.innerHeight - 200, posRef.current.top));
+      if (left !== posRef.current.left || top !== posRef.current.top) setPos({ left, top });
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   useEffect(() => {
     if (selected) {
       setView("barrio");
@@ -231,7 +245,7 @@ export function FloatingPanel({ selected, onClear, onSelect, onGoToMLS, perfil: 
           initial={{ y: 400 }}
           animate={{ y: minimized ? 360 : 0 }}
           transition={{ type: "spring", stiffness: 260, damping: 30 }}
-          className="absolute inset-x-0 bottom-0 z-20 max-h-[78vh] overflow-hidden rounded-t-2xl"
+          className="absolute inset-x-0 bottom-0 z-20 max-h-[78dvh] overflow-hidden rounded-t-2xl"
           style={{ background: '#FAF8F3', borderTop: '0.5px solid #E5E0D5', '--background': '#FFFFFF', '--foreground': '#111418', '--surface': '#FAF8F3', '--surface-elevated': '#F3F0E8', '--muted-foreground': '#5B5F5C', '--border': 'rgb(184 164 138 / 50%)' } as React.CSSProperties}
           drag="y"
           dragConstraints={{ top: 0, bottom: 360 }}
@@ -240,7 +254,7 @@ export function FloatingPanel({ selected, onClear, onSelect, onGoToMLS, perfil: 
           <div className="flex justify-center pt-2">
             <div className="h-1.5 w-10 rounded-full bg-border" />
           </div>
-          <div className="max-h-[70vh] overflow-y-auto px-4 pb-6">
+          <div className="max-h-[70dvh] overflow-y-auto px-4" style={{ paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom))", overscrollBehavior: "contain" }}>
             <PanelContent view={view} setView={setView} selected={selected} onClear={onClear} user={user} onSelect={onSelect} onGoToMLS={onGoToMLS} />
           </div>
         </motion.div>

@@ -1,4 +1,5 @@
 import { X, ChevronRight, Bed, Bath, Maximize2, Clock, MapPin, Plus, Check } from "@/lib/icons";
+import { isMobileWidth } from "@/lib/breakpoints";
 import { OriginalListingLink } from "@/components/OriginalListingLink";
 import { usePriceFormat } from "@/hooks/usePriceFormat";
 import { formatArea } from "@/hooks/useUnit";
@@ -55,7 +56,7 @@ export function ListingMiniPopup({ listing, onClose, onViewMore }: Props) {
   const selected = isSelected(listing.id);
 
   // Always center over the visible map area (viewport minus right panel on desktop)
-  const panelWidth = window.innerWidth >= 768 ? 380 : 0;
+  const panelWidth = isMobileWidth(window.innerWidth) ? 0 : 380;
   const mapWidth = window.innerWidth - panelWidth;
   const left = Math.max(12, (mapWidth - POPUP_WIDTH) / 2);
   const top = Math.max(80, (window.innerHeight - POPUP_HEIGHT) / 2 - 40);

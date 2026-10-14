@@ -622,7 +622,7 @@ function MapPageInner() {
   }
 
   return (
-    <div className="relative h-dvh w-screen max-w-full overflow-hidden bg-background">
+    <div className="relative h-dvh w-full max-w-full overflow-hidden bg-background">
       <div className="absolute inset-0 z-0" data-tour="map-canvas">
         <MapView
           selectedId={selected?.id ?? null}
@@ -663,7 +663,7 @@ function MapPageInner() {
       {viewLevel === "barrios" && mapView === "zonas" && (
         <button
           onClick={handleBack}
-          className="absolute left-4 top-[108px] z-20 flex items-center gap-2 rounded-lg border border-white/10 bg-background/80 px-3 py-2 text-sm font-medium text-foreground backdrop-blur-md transition hover:bg-background/95"
+          className="absolute left-4 top-[calc(var(--map-header-h,53px)+56px)] z-20 flex items-center gap-2 rounded-lg border border-white/10 bg-background/80 px-3 py-2 text-sm font-medium text-foreground backdrop-blur-md transition hover:bg-background/95"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0">
             <path d="M10 12L6 8l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>

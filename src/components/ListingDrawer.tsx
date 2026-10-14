@@ -1040,11 +1040,14 @@ export function ListingDrawer({ listingId, onClose }: Props) {
   }, [onClose]);
 
   useEffect(() => {
-    if (isMobile && listingId) {
+    // Lock page scroll while the drawer is open at ANY breakpoint (a viewport flip while
+    // open can no longer leave overflow:hidden stuck or fail to lock).
+    if (listingId) {
+      const prev = document.body.style.overflow;
       document.body.style.overflow = "hidden";
-      return () => { document.body.style.overflow = ""; };
+      return () => { document.body.style.overflow = prev; };
     }
-  }, [isMobile, listingId]);
+  }, [listingId]);
 
   // Update meta tags while popup is open
   useEffect(() => {
@@ -1582,7 +1585,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                 dragElastic={{ top: 0, bottom: 0.4 }}
                 onDragEnd={(_, info) => { if (info.offset.y > 120 || info.velocity.y > 600) onClose(); }}
                 className="fixed inset-x-0 bottom-0 z-50 flex flex-col overflow-hidden rounded-t-2xl shadow-2xl"
-                style={{ height: "90vh", background: "#FAF8F3", ...modalStyle }}
+                style={{ height: "90dvh", background: "#FAF8F3", ...modalStyle }}
                 onClick={(e) => e.stopPropagation()}
               >
                 <div
@@ -1749,7 +1752,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                 top: "50%",
                 left: "50%",
                 width: "min(1400px, 98vw)",
-                height: "90vh",
+                height: "90dvh",
                 background: "#FAF8F3",
                 border: "0.5px solid #E5E0D5",
                 boxShadow: "0 25px 60px rgba(0,0,0,0.3)",

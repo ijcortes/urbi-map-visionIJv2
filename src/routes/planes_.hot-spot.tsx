@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { auth } from "@/lib/auth";
-import { GHL, ghlRedirect } from "@/config/ghl";
+import { PlanCta } from "@/components/PlanCta";
 import { ComunidadLayout } from "@/components/comunidad/ComunidadLayout";
 import { K as TOKENS } from "@/design/tokens";
 
@@ -108,17 +108,7 @@ function HotSpotPage() {
       <div style={{ background: K.paper }}>
         <div style={{ maxWidth: 680, margin: "0 auto", padding: "48px 20px 72px" }}>
 
-          <button
-            onClick={() => ghlRedirect(GHL.hot_spot, email)}
-            style={{
-              display: "block", width: "100%", background: K.tealDeep, color: "#fff",
-              border: "none", borderRadius: 10, padding: "14px 0",
-              fontWeight: 700, fontSize: 15, cursor: "pointer",
-              fontFamily: "inherit", marginBottom: 40,
-            }}
-          >
-            Contactar para Hot Spot →
-          </button>
+          <PlanCta plan="hot_spot" planLabel="Hot Spot" label="Contactar para Hot Spot →" params={email} />
 
           {/* Platform features — highlighted */}
           <h2 style={{ fontFamily: K.serif, fontSize: "1.2rem", fontWeight: 800, color: K.ink, marginBottom: 14 }}>

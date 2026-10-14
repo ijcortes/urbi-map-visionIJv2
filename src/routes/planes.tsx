@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { ComunidadLayout } from "@/components/comunidad/ComunidadLayout";
+import { PLAN_PRICES as PP } from "@/config/ghl";
 import { K as TOKENS } from "@/design/tokens";
 
 const K = TOKENS;
@@ -97,9 +98,9 @@ function PlanesPage() {
                   name="Listing Member"
                   description="Publica tus propiedades en el MLS con CRM integrado, calendario de citas y comunicación 2-vía por texto, email y WhatsApp."
                   highlights={["CRM + Calendar Automation", "2-Way Text & Email", "Google Business Messaging", "Reputation Management"]}
-                  regularPrice="$399"
-                  specialPrice="$149"
-                  setup="$150 setup fee"
+                  regularPrice={PP.listing_member!.regular!}
+                  specialPrice={PP.listing_member!.special}
+                  setup={`${PP.listing_member!.setup} setup fee`}
                   cta="Ver Listing Member →"
                   href="/planes/listing-member"
                   variant="neutral"
@@ -108,9 +109,9 @@ function PlanesPage() {
                   name="Featured Realtor"
                   description="Sé el agente referente de tu zona. Web site administrado, AI agents que responden leads 24/7 y suite completa de marketing digital."
                   highlights={["Web site administrado", "AI Voice, Chat & Text Agents", "Email + SMS Marketing", "Funnels y automatizaciones"]}
-                  regularPrice="$599"
-                  specialPrice="$299"
-                  setup="$199 setup fee"
+                  regularPrice={PP.featured_realtor!.regular!}
+                  specialPrice={PP.featured_realtor!.special}
+                  setup={`${PP.featured_realtor!.setup} setup fee`}
                   cta="Ver Featured Realtor →"
                   href="/planes/featured-realtor"
                   variant="featured"
@@ -132,8 +133,8 @@ function PlanesPage() {
               name="Hot Spot"
               description="Posiciona tu negocio como el referente de tu zona en el mapa. Stack completo: comunidades, membresías, affiliate manager y posicionamiento exclusivo barrio/comuna/ciudad."
               highlights={["Posicionamiento exclusivo en mapa", "Communities + Memberships", "Affiliate Manager", "Payment Processing"]}
-              regularPrice="$299"
-              specialPrice="$199"
+              regularPrice={PP.hot_spot!.regular!}
+              specialPrice={PP.hot_spot!.special}
               setup={<><s style={{ opacity: 0.6 }}>$99</s> $49 setup fee</>}
               cta="Ver Hot Spot →"
               href="/planes/hot-spot"
@@ -144,7 +145,7 @@ function PlanesPage() {
               description="Publica una oferta especial en el mapa — descuento, convenio o promoción. Visible para compradores e inversores activos en tu zona. Sin compromisos adicionales."
               highlights={["Oferta visible en el mapa", "Alcance barrio, comuna o ciudad", "Gestión desde tu dashboard", "Sin setup fee"]}
               regularPrice={null}
-              specialPrice="$29"
+              specialPrice={PP.deal!.special}
               setup="por deal activo"
               cta="Ver Deal →"
               href="/planes/deal"
