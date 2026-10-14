@@ -5,7 +5,8 @@ from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError
 
 from api.db import get_pool
 
@@ -19,11 +20,13 @@ JWT_ALGORITHM = "HS256"
 
 async def _get_user_from_token(token: str) -> dict:
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        user_id: int = payload.get("sub")
-        if user_id is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
-    except JWTError:
+        payload = jwt.decode(
+            token, JWT_SECRET, algorithms=[JWT_ALGORITHM], options={"require": ["exp", "sub"]},
+        )
+        user_id = payload.get("sub")
+        token_version = int(payload.get("tv", 0))
+        user_id = int(user_id)
+    except (PyJWTError, TypeError, ValueError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
 
     pool = get_pool()
@@ -35,16 +38,22 @@ async def _get_user_from_token(token: str) -> dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revocado")
 
     row = await pool.fetchrow(
-        """SELECT id, email, nombre, apellido, activo, plan,
+        """SELECT id, email, nombre, apellido, activo, plan, email_verificado, token_version,
                   perfil_busqueda, onboarding_completado, origen_registro,
                   EXISTS(SELECT 1 FROM agent a
                          WHERE a.usuario_id = usuarios.id
                            AND a.estado = 'activo') AS es_agente
            FROM usuarios WHERE id = $1""",
-        int(user_id),
+        user_id,
     )
     if row is None or not row["activo"]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado")
+    # Session revocation: a password reset (or account merge) bumps token_version.
+    if (row["token_version"] or 0) != token_version:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revocado")
+    # An account whose email was never proven is not a usable account (see auth.register).
+    if not row["email_verificado"]:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Correo no verificado")
 
     return dict(row)
 

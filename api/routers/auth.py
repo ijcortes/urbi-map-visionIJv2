@@ -5,14 +5,14 @@ from typing import Optional
 
 import bcrypt
 import httpx
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import jwt
+import jwt
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from api.db import get_pool
 from api.dependencies import JWT_ALGORITHM, JWT_SECRET, get_current_user
-from api.limiter import limiter
+from api.limiter import email_throttle, limiter
 
 _APP_URL = os.getenv("APP_URL", "https://medellinsocial.com")
 
@@ -20,7 +20,29 @@ _bearer = HTTPBearer()
 
 router = APIRouter()
 
-JWT_EXPIRY_DAYS = 30
+# Access-token lifetime. Env JWT_EXPIRY_HOURS (default 168 = 7 days; was 30 days; max 720).
+# Sessions are also revoked server-side via usuarios.token_version (password
+# reset / account merge) and the token_blacklist (logout / refresh).
+def _jwt_expiry_hours() -> int:
+    try:
+        return min(720, max(1, int(os.getenv("JWT_EXPIRY_HOURS", "168"))))  # capped at 30 d (blacklist purge window)
+    except ValueError:
+        return 168
+
+
+# Emails that can never be claimed through password registration (they can only
+# be created by proving inbox ownership: Google sign-in or magic link).
+def _reserved_emails() -> set[str]:
+    out = {e.strip().lower() for e in os.getenv("RESERVED_EMAILS", "").split(",") if e.strip()}
+    admin = os.getenv("ADMIN_EMAIL", "").strip().lower()
+    if admin:
+        out.add(admin)
+    return out
+
+
+# Used to burn the same bcrypt time when the email is unknown (login timing oracle).
+_DUMMY_HASH = bcrypt.hashpw(b"dummy-password-for-timing", bcrypt.gensalt()).decode()
+_REGISTER_MSG = "Si el correo es válido, te enviamos un enlace para confirmar tu cuenta."
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -38,6 +60,12 @@ class RegisterRequest(BaseModel):
     origen: Optional[str] = None  # 'mls' | 'comunidad'
 
     _normalizar_email = field_validator("email")(_normalizar_email)
+
+
+class RegisterResponse(BaseModel):
+    ok: bool = True
+    verification_required: bool = True
+    message: str = _REGISTER_MSG
 
 
 class LoginRequest(BaseModel):
@@ -72,10 +100,11 @@ class AuthResponse(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _make_token(user_id: int) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(days=JWT_EXPIRY_DAYS)
+def _make_token(user_id: int, token_version: int = 0) -> str:
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(hours=_jwt_expiry_hours())
     return jwt.encode(
-        {"sub": str(user_id), "exp": expire},
+        {"sub": str(user_id), "exp": expire, "iat": now, "tv": int(token_version or 0)},
         JWT_SECRET,
         algorithm=JWT_ALGORITHM,
     )
@@ -86,7 +115,55 @@ def _hash_password(password: str) -> str:
 
 
 def _verify_password(password: str, hashed: str) -> bool:
-    return bcrypt.checkpw(password.encode(), hashed.encode())
+    try:
+        return bcrypt.checkpw(password.encode(), hashed.encode())
+    except ValueError:
+        return False
+
+
+async def _send_quietly(coro_fn, **kwargs) -> None:
+    """Background mail send: never raises, response time does not depend on SMTP."""
+    try:
+        await coro_fn(**kwargs)
+    except Exception:
+        pass  # ponytail: silent — user can request resend later
+
+
+async def _issue_verification(pool, user_id: int, to: str, nombre: str) -> None:
+    from api.utils.email import send_verify_email
+
+    verify_token = secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc) + timedelta(hours=24)
+    await pool.execute(
+        """INSERT INTO email_verification_tokens (usuario_id, token, expires_at)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (usuario_id) DO UPDATE
+               SET token = EXCLUDED.token, expires_at = EXCLUDED.expires_at, used = FALSE""",
+        user_id, verify_token, expires,
+    )
+    verify_url = f"{_APP_URL}/verify-email?token={verify_token}"
+    await _send_quietly(send_verify_email, to=to, nombre=nombre, verify_url=verify_url)
+
+
+async def _mark_verified_login(pool, user_id: int) -> int:
+    """Called when the caller just PROVED inbox ownership (Google / magic link /
+    password-reset). Marks the email verified and returns the token_version to
+    put in the new JWT.
+
+    If the row was still UNVERIFIED, somebody may have pre-registered this email
+    with a password they know (pre-hijack): that password is replaced by a random
+    one and every previously issued token is revoked (token_version + 1).
+    """
+    return await pool.fetchval(
+        """UPDATE usuarios SET
+               last_login = NOW(),
+               password_hash = CASE WHEN email_verificado THEN password_hash ELSE $2 END,
+               token_version = CASE WHEN email_verificado THEN token_version ELSE token_version + 1 END,
+               email_verificado = TRUE
+           WHERE id = $1
+           RETURNING token_version""",
+        user_id, _hash_password(secrets.token_urlsafe(32)),
+    )
 
 
 async def _get_perfil(pool, user_id: int) -> Optional[dict]:
@@ -126,49 +203,56 @@ async def _verify_google_id_token(id_token: str) -> dict:
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
-@router.post("/register", response_model=AuthResponse, status_code=201)
+@router.post("/register", response_model=RegisterResponse, status_code=201)
 @limiter.limit("3/minute")
-async def register(request: Request, req: RegisterRequest = Body(...)):
+async def register(request: Request, background: BackgroundTasks, req: RegisterRequest = Body(...)):
+    """Create an UNVERIFIED account and e-mail a confirmation link. No token is
+    issued: the account is unusable (login/API reject it) until the link is
+    clicked. The response is identical whether the email is new, already
+    registered, or reserved, so it is not an account oracle and an attacker
+    cannot pre-register a victim's address into something usable."""
     pool = get_pool()
+    # Always hash: equalises timing between the new-email and existing-email paths.
+    password_hash = _hash_password(req.password)
+
+    if req.email in _reserved_emails():
+        return RegisterResponse()
     existing = await pool.fetchval("SELECT id FROM usuarios WHERE email = $1", req.email)
     if existing:
-        raise HTTPException(status_code=409, detail="Email ya registrado")
+        return RegisterResponse()  # never touch an existing row from an anonymous call
 
-    password_hash = _hash_password(req.password)
     user_id = await pool.fetchval(
         """
-        INSERT INTO usuarios (email, password_hash, nombre, apellido, telefono, origen_registro)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO usuarios (email, password_hash, nombre, apellido, telefono, origen_registro, email_verificado)
+        VALUES ($1, $2, $3, $4, $5, $6, FALSE)
+        ON CONFLICT (email) DO NOTHING
         RETURNING id
         """,
         req.email, password_hash, req.nombre, req.apellido, req.telefono, req.origen,
     )
+    if user_id is not None and email_throttle.allow(f"verify:{req.email}"):
+        background.add_task(_issue_verification, pool, user_id, req.email, req.nombre or "")
+    return RegisterResponse()
 
-    # Send verification email (best-effort — don't block registration on SMTP failure)
-    try:
-        from api.utils.email import send_verify_email
-        verify_token = secrets.token_urlsafe(32)
-        expires = datetime.now(timezone.utc) + timedelta(hours=24)
-        await pool.execute(
-            """INSERT INTO email_verification_tokens (usuario_id, token, expires_at)
-               VALUES ($1, $2, $3)
-               ON CONFLICT (usuario_id) DO UPDATE
-                   SET token = EXCLUDED.token, expires_at = EXCLUDED.expires_at, used = FALSE""",
-            user_id, verify_token, expires,
-        )
-        verify_url = f"{_APP_URL}/verify-email?token={verify_token}"
-        await send_verify_email(to=req.email, nombre=req.nombre or "", verify_url=verify_url)
-    except Exception:
-        pass  # ponytail: silent — user can request resend later
 
-    token = _make_token(user_id)
-    return AuthResponse(
-        token=token,
-        user=UserBasic(
-            id=user_id, email=req.email, nombre=req.nombre, apellido=req.apellido,
-            telefono=req.telefono, origen_registro=req.origen,
-        ),
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+    _normalizar_email = field_validator("email")(_normalizar_email)
+
+
+@router.post("/resend-verification", status_code=200)
+@limiter.limit("3/minute")
+async def resend_verification(
+    request: Request, background: BackgroundTasks, req: ResendVerificationRequest = Body(...),
+):
+    pool = get_pool()
+    row = await pool.fetchrow(
+        "SELECT id, nombre, email_verificado FROM usuarios WHERE email = $1", req.email
     )
+    if row is not None and not row["email_verificado"] and email_throttle.allow(f"verify:{req.email}"):
+        background.add_task(_issue_verification, pool, row["id"], req.email, row["nombre"] or "")
+    return {"message": _REGISTER_MSG}
 
 
 @router.post("/login", response_model=AuthResponse)
@@ -177,22 +261,33 @@ async def login(request: Request, req: LoginRequest = Body(...)):
     pool = get_pool()
     row = await pool.fetchrow(
         """SELECT id, email, password_hash, nombre, apellido, activo, plan,
-                  perfil_busqueda, onboarding_completado, origen_registro,
+                  email_verificado, token_version, perfil_busqueda, onboarding_completado, origen_registro,
                   EXISTS(SELECT 1 FROM agent a
                          WHERE a.usuario_id = usuarios.id
                            AND a.estado = 'activo') AS es_agente
            FROM usuarios WHERE email = $1""",
         req.email,
     )
-    if row is None or not _verify_password(req.password, row["password_hash"]):
+    # Always run one bcrypt comparison so an unknown email costs the same as a
+    # wrong password (no timing oracle).
+    pw_ok = _verify_password(
+        req.password, row["password_hash"] if row is not None else _DUMMY_HASH
+    )
+    if row is None or not pw_ok:
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
     if not row["activo"]:
         raise HTTPException(status_code=403, detail="Cuenta desactivada")
+    if not row["email_verificado"]:
+        # Only reachable by someone who knows the password, so it leaks nothing.
+        raise HTTPException(
+            status_code=403,
+            detail="Debes confirmar tu correo antes de iniciar sesión. Revisa tu bandeja o solicita un nuevo enlace.",
+        )
 
     await pool.execute(
         "UPDATE usuarios SET last_login = NOW() WHERE id = $1", row["id"]
     )
-    token = _make_token(row["id"])
+    token = _make_token(row["id"], row["token_version"])
     perfil = await _get_perfil(pool, row["id"])
     return AuthResponse(
         token=token,
@@ -246,10 +341,10 @@ async def google_login(request: Request, req: GoogleAuthRequest = Body(...)):
     elif not row["activo"]:
         raise HTTPException(status_code=403, detail="Cuenta desactivada")
 
-    await pool.execute(
-        "UPDATE usuarios SET last_login = NOW(), email_verificado = TRUE WHERE id = $1", row["id"]
-    )
-    token = _make_token(row["id"])
+    # Google proved inbox ownership: merge onto an existing (maybe pre-registered,
+    # unverified) row, invalidating any password/tokens an impostor set on it.
+    tv = await _mark_verified_login(pool, row["id"])
+    token = _make_token(row["id"], tv)
     perfil = await _get_perfil(pool, row["id"])
     return AuthResponse(
         token=token,
@@ -333,7 +428,7 @@ async def refresh_token(
         "INSERT INTO token_blacklist (token, usuario_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
         credentials.credentials, current_user["id"],
     )
-    new_token = _make_token(current_user["id"])
+    new_token = _make_token(current_user["id"], current_user.get("token_version", 0))
     perfil = await _get_perfil(pool, current_user["id"])
     return AuthResponse(
         token=new_token,
@@ -385,14 +480,16 @@ class ResetPasswordRequest(BaseModel):
 
 @router.post("/forgot-password", status_code=200)
 @limiter.limit("3/minute")
-async def forgot_password(request: Request, req: ForgotPasswordRequest = Body(...)):
+async def forgot_password(
+    request: Request, background: BackgroundTasks, req: ForgotPasswordRequest = Body(...),
+):
     from api.utils.email import send_reset_password
     pool = get_pool()
     user = await pool.fetchrow(
         "SELECT id, nombre FROM usuarios WHERE email = $1", req.email
     )
     # Always 200 — avoid email enumeration
-    if user is None:
+    if user is None or not email_throttle.allow(f"reset:{req.email}"):
         return {"message": "Si el correo existe recibirás instrucciones."}
 
     token = secrets.token_urlsafe(32)
@@ -405,12 +502,10 @@ async def forgot_password(request: Request, req: ForgotPasswordRequest = Body(..
         user["id"], token, expires,
     )
     reset_url = f"{_APP_URL}/reset-password?token={token}"
-    try:
-        await send_reset_password(
-            to=req.email, nombre=user["nombre"] or "", reset_url=reset_url
-        )
-    except Exception:
-        pass  # ponytail: silent — token in DB, user can retry
+    background.add_task(
+        _send_quietly, send_reset_password,
+        to=req.email, nombre=user["nombre"] or "", reset_url=reset_url,
+    )
     return {"message": "Si el correo existe recibirás instrucciones."}
 
 
@@ -434,8 +529,11 @@ async def reset_password(request: Request, req: ResetPasswordRequest = Body(...)
     new_hash = _hash_password(req.new_password)
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # The reset link went to the inbox, so it also proves ownership of
+            # the email; token_version + 1 revokes every session issued before.
             await conn.execute(
-                "UPDATE usuarios SET password_hash = $1 WHERE id = $2",
+                "UPDATE usuarios SET password_hash = $1, email_verificado = TRUE, "
+                "token_version = token_version + 1 WHERE id = $2",
                 new_hash, row["usuario_id"],
             )
             await conn.execute(
@@ -460,13 +558,18 @@ class MagicLinkVerifyRequest(BaseModel):
 
 @router.post("/magic-link", status_code=200)
 @limiter.limit("3/minute")
-async def request_magic_link(request: Request, req: MagicLinkRequest = Body(...)):
+async def request_magic_link(
+    request: Request, background: BackgroundTasks, req: MagicLinkRequest = Body(...),
+):
     """Send a one-click login link. Works whether or not the email is already
     registered — verifying it auto-creates the account, same trust model as
     Google Sign-In (a clicked link from their inbox proves email ownership)."""
     from api.utils.email import send_magic_link
 
     pool = get_pool()
+    generic = {"message": "Si el correo existe o es válido, recibirás un link para ingresar."}
+    if not email_throttle.allow(f"magic:{req.email}"):
+        return generic  # per-email cap (mail-bombing / token-clobber); same answer
     token = secrets.token_urlsafe(32)
     expires = datetime.now(timezone.utc) + timedelta(minutes=15)
     await pool.execute(
@@ -477,12 +580,8 @@ async def request_magic_link(request: Request, req: MagicLinkRequest = Body(...)
         req.email, token, expires,
     )
     login_url = f"{_APP_URL}/login/verificar?token={token}"
-    try:
-        await send_magic_link(to=req.email, login_url=login_url)
-    except Exception:
-        pass  # ponytail: silent — token in DB, user can retry
-
-    return {"message": "Si el correo existe o es válido, recibirás un link para ingresar."}
+    background.add_task(_send_quietly, send_magic_link, to=req.email, login_url=login_url)
+    return generic
 
 
 @router.post("/magic-link/verificar", response_model=AuthResponse)
@@ -531,10 +630,8 @@ async def verify_magic_link(request: Request, req: MagicLinkVerifyRequest = Body
         raise HTTPException(status_code=403, detail="Cuenta desactivada")
 
     await pool.execute("UPDATE magic_link_tokens SET used = TRUE WHERE token = $1", req.token)
-    await pool.execute(
-        "UPDATE usuarios SET last_login = NOW(), email_verificado = TRUE WHERE id = $1", user["id"]
-    )
-    token = _make_token(user["id"])
+    tv = await _mark_verified_login(pool, user["id"])
+    token = _make_token(user["id"], tv)
     perfil = await _get_perfil(pool, user["id"])
     return AuthResponse(
         token=token,
