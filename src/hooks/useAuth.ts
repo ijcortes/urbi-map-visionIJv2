@@ -43,17 +43,30 @@ function storeAuth(res: AuthResponse) {
   });
 }
 
+// /auth/register no longer returns a session: the account is unusable until the
+// emailed link is clicked, so there is no token/user to store here.
+export type RegisterResponse = { ok: boolean; verification_required: boolean; message: string };
+
 export function useRegister() {
   return useMutation({
     mutationFn: async (data: { email: string; password: string; nombre?: string; telefono?: string; origen?: string }) => {
-      const res = await apiFetch<AuthResponse>(API_ENDPOINTS.register, {
+      return apiFetch<RegisterResponse>(API_ENDPOINTS.register, {
         method: "POST",
         body: JSON.stringify(data),
         skipAuth: true,
       });
-      storeAuth(res);
-      return res;
     },
+  });
+}
+
+export function useResendVerification() {
+  return useMutation({
+    mutationFn: async (data: { email: string }) =>
+      apiFetch<{ message: string }>(API_ENDPOINTS.resendVerification, {
+        method: "POST",
+        body: JSON.stringify(data),
+        skipAuth: true,
+      }),
   });
 }
 

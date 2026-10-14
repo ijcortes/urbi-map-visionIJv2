@@ -12,6 +12,7 @@ export const API_ENDPOINTS = {
   // Auth
   register: `${API_BASE_URL}/auth/register`,
   login: `${API_BASE_URL}/auth/login`,
+  resendVerification: `${API_BASE_URL}/auth/resend-verification`,
   googleLogin: `${API_BASE_URL}/auth/google`,
   me: `${API_BASE_URL}/auth/me`,
   logout: `${API_BASE_URL}/auth/logout`,
