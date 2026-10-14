@@ -205,8 +205,20 @@ async def test_viewport_filters_usd_segmento_compact(api):
     args = pool.calls[-1][1]
     assert args[6] == 4_000_000 and args[22] == "residencial" and args[23] is False
     it = r.json()["listings"][0]
-    assert it["foto_principal"] is None and it["direccion_raw"] is None
+    assert it["direccion_raw"] is None
+    # fields a card/popup renders must survive compact
+    assert it["foto_principal"] == "f.jpg" and it["barrio_nombre"] == "B"
     assert it["tipo_inmueble"] == "apartamento" and it["habitaciones"] == 0 and it["url"]
+
+
+async def test_viewport_default_keeps_every_card_field(api):
+    """Exactly what the map sends (no compact): the response must carry all fields a
+    card / popup / barrio-name filter reads."""
+    ac, pool = api
+    pool.rows = [_row(foto_principal="f.jpg", direccion_raw="Calle 1", barrio_nombre="Laureles", municipio="MEDELLIN")]
+    it = (await ac.get("/api/v1/listings/viewport", params={**VP, "zoom": 14})).json()["listings"][0]
+    for k in ("foto_principal", "barrio_nombre", "municipio", "direccion_raw", "precio_cop", "area_m2", "habitaciones"):
+        assert it[k] is not None, k
 
 
 async def test_viewport_ocultar_destacados_flag(api):

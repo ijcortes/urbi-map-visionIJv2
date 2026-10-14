@@ -1331,7 +1331,7 @@ async def get_listings_viewport(
     The viewport bbox and the zone filter (barrio_id / cd_comuna / municipio) are
     INDEPENDENT: both apply. Pass zona_completa=true to explicitly drop the bbox and
     get the whole zone. precio_min/max are interpreted in `moneda` (COP|USD, converted
-    with the shared TRM rate). compact=true drops photo/address/barrio fields.
+    with the shared TRM rate). compact=true drops only direccion_raw (cards/popups need photo/barrio/municipio).
 
     Response is identical for all users (no auth-gated fields) → cacheable public.
     """
@@ -1361,8 +1361,9 @@ async def get_listings_viewport(
         d.pop("_prio", None)
         d.pop("_cell_rn", None)
         if compact:
-            for k in ("foto_principal", "direccion_raw", "barrio_nombre", "municipio"):
-                d[k] = None
+            # Only direccion_raw is safe to drop: cards/popups/MLSPanel/barrio filter all
+            # consume foto_principal, barrio_nombre and municipio.
+            d["direccion_raw"] = None
         return ViewportListing(**d)
 
     if zoom >= _VIEWPORT_FULL_POINTS_ZOOM:

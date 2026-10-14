@@ -14,7 +14,7 @@ const bounds = { west: -75.60012, south: 6.20049, east: -75.5, north: 6.3 };
 const src = (p: string) => readFileSync(`${process.cwd()}/src/${p}`, "utf8");
 
 describe("filter state -> API params", () => {
-  it("sends segmento, ocultar_destacados, moneda and compact", () => {
+  it("sends segmento, ocultar_destacados, moneda and never compact", () => {
     const p = buildViewportParams({
       bounds, zoom: 11.7,
       filters: { segmento: "comercial", ocultarDestacados: true, precioMax: 500 },
@@ -22,7 +22,7 @@ describe("filter state -> API params", () => {
     });
     expect(p.get("segmento")).toBe("comercial");
     expect(p.get("ocultar_destacados")).toBe("true");
-    expect(p.get("compact")).toBe("true");
+    expect(p.has("compact")).toBe(false); // would strip photos/barrio/municipio the cards+popups render
     expect(p.get("zoom")).toBe("11");
     expect(p.get("moneda")).toBe("USD");
     expect(p.has("zona_completa")).toBe(false);

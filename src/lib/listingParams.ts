@@ -78,6 +78,8 @@ export function roundCoord(n: number): number {
   return Math.round(n * 1000) / 1000;
 }
 
+// NOTE: never send compact=true here. The viewport response feeds MLSPanel cards, map popups
+// and the barrio-name filter, which all need foto_principal/barrio_nombre/municipio.
 export function buildViewportParams(args: {
   bounds: Bounds;
   zoom: number;
@@ -92,7 +94,6 @@ export function buildViewportParams(args: {
     max_lng: String(roundCoord(b.east)),
     max_lat: String(roundCoord(b.north)),
     zoom: String(Math.floor(zoom)),
-    compact: "true",
   });
   appendFilterParams(params, filters, price);
   appendZoneParams(params, zone);
