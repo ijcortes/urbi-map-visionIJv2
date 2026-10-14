@@ -7,7 +7,7 @@ import { ArrowLeft, ExternalLink, Plus, Check, ArrowUpDown } from "@/lib/icons";
 import { useNavigate } from "@tanstack/react-router";
 import type { ApiListing, BarrioOption, Neighborhood } from "@/lib/adapters";
 import { formatCOP } from "@/lib/format";
-import { useFavoritosListings } from "@/hooks/useFavoritosListings";
+import { favKey, useFavoritosListings } from "@/hooks/useFavoritosListings";
 import { auth } from "@/lib/auth";
 import { useTarget, targetTipoOperacion } from "@/contexts/TargetContext";
 import { type SharedFilters, EMPTY_SHARED_FILTERS } from "@/components/MapFilterBar";
@@ -601,10 +601,10 @@ export function MLSPanel({
       highlighted={highlightedListingId === l.id}
       onSelect={(e) => onListingSelect(l, e.clientX, e.clientY)}
       cardRef={(el) => { cardRefs.current[l.id] = el; }}
-      isFav={isFav(l.url)}
+      isFav={isFav(favKey(l))}
       onToggleFav={() => {
         if (!auth.get()) return;
-        toggleFav(l.url, l.barrio_id);
+        toggleFav(favKey(l), l.barrio_id);
       }}
       onSimular={() => {
         navigate({ to: "/simulador", search: { barrio: l.barrio_id ?? undefined, precio: l.precio_cop ?? undefined } });

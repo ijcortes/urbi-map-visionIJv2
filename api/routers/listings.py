@@ -79,12 +79,16 @@ def _finalize_row(d: dict, rate: float) -> dict:
     * precio_usd from the ONE shared TRM rate (rounded, not truncated);
     * apartaestudio -> apartamento with habitaciones 0;
     * url is the external source link; null for our own (fuente='propio')
-      listings, whose staging `url` is just the internal listing id."""
+      listings, whose staging `url` is just the internal listing id;
+    * fav_key keeps that raw key so favorites work for every listing."""
     if d.get("precio_cop") is not None:
         d["precio_usd"] = usd_from_cop(d["precio_cop"], rate)
     if (d.get("tipo_inmueble") or "").strip().lower() == "apartaestudio":
         d["tipo_inmueble"] = "apartamento"
         d["habitaciones"] = 0
+    # Stable favorites key (raw.favoritos_listings.url): the ORIGINAL staging url, which for
+    # our own listings is the internal listing id. Kept apart from `url` (external link).
+    d["fav_key"] = d.get("url") or None
     if d.get("fuente") == "propio":
         d["url"] = None
     elif not d.get("url"):
@@ -154,6 +158,7 @@ class ListingFull(BaseModel):
     banos: Optional[float] = None
     direccion_raw: Optional[str] = None
     url: Optional[str] = None
+    fav_key: Optional[str] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
     barrio_id: Optional[int] = None
@@ -1031,6 +1036,7 @@ class ViewportListing(BaseModel):
     barrio_nombre: Optional[str] = None
     municipio: Optional[str] = None
     url: Optional[str] = None
+    fav_key: Optional[str] = None
     direccion_raw: Optional[str] = None
 
 

@@ -154,3 +154,17 @@ describe("mobile", () => {
     }
   });
 });
+
+import { favKey } from "@/hooks/useFavoritosListings";
+describe("favorites key", () => {
+  it("own listings (url null) are still favoritable via fav_key", () => {
+    expect(favKey({ url: null, fav_key: "9f1c" })).toBe("9f1c");
+    expect(favKey({ url: "https://x/y", fav_key: "https://x/y" })).toBe("https://x/y");
+    expect(favKey({ url: "https://x/y" })).toBe("https://x/y");
+    expect(favKey({})).toBeNull();
+  });
+  it("cards and drawer key favorites through favKey, never raw url", () => {
+    expect(src("components/MLSPanel.tsx")).toContain("toggleFav(favKey(l)");
+    expect(src("components/ListingDrawer.tsx")).toContain("toggleFav(favKey(listing)");
+  });
+});

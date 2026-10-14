@@ -153,6 +153,8 @@ async def test_listings_url_null_for_propio(api):
     pool.rows = [_row(fuente="propio", fuente_display="propio", url="42"), _row(id=2)]
     items = (await ac.get("/api/v1/listings", params={"tipo_operacion": "venta"})).json()["listings"]
     assert items[0]["url"] is None and items[1]["url"].startswith("https://")
+    # favorites stay keyed by the stable raw key, so own listings remain favoritable
+    assert items[0]["fav_key"] == "42" and items[1]["fav_key"] == items[1]["url"]
 
 
 async def test_amenidades_params_start_after_new_params(api):

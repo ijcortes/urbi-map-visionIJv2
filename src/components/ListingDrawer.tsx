@@ -22,7 +22,7 @@ import { API_ENDPOINTS } from "@/config/api";
 import { MAPBOX_TOKEN } from "@/lib/mapboxToken";
 import { formatCOP } from "@/lib/format";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useFavoritosListings } from "@/hooks/useFavoritosListings";
+import { favKey, useFavoritosListings } from "@/hooks/useFavoritosListings";
 import { auth } from "@/lib/auth";
 import { ReclamarListingModal } from "@/components/ReclamarListingModal";
 import { toast } from "sonner";
@@ -1213,12 +1213,12 @@ export function ListingDrawer({ listingId, onClose }: Props) {
   // enterrado al fondo del drawer, en ctaButtons).
   const favButton = listing ? (
     <button
-      onClick={() => { if (!auth.get()) return; toggleFav(listing.url ?? "", listing.barrio_id); }}
-      title={isFav(listing.url ?? "") ? "Quitar de favoritos" : "Guardar"}
+      onClick={() => { if (!auth.get()) return; toggleFav(favKey(listing), listing.barrio_id); }}
+      title={isFav(favKey(listing)) ? "Quitar de favoritos" : "Guardar"}
       className="grid h-11 w-11 shrink-0 place-items-center rounded-full transition"
-      style={{ border: "0.5px solid #E5E0D5", background: isFav(listing.url ?? "") ? "#FCE8EA" : "#FFFFFF" }}
+      style={{ border: "0.5px solid #E5E0D5", background: isFav(favKey(listing)) ? "#FCE8EA" : "#FFFFFF" }}
     >
-      <Heart className="h-5 w-5" style={{ color: isFav(listing.url ?? "") ? "#CE1126" : "#5B5F5C" }} fill={isFav(listing.url ?? "") ? "#CE1126" : "none"} />
+      <Heart className="h-5 w-5" style={{ color: isFav(favKey(listing)) ? "#CE1126" : "#5B5F5C" }} fill={isFav(favKey(listing)) ? "#CE1126" : "none"} />
     </button>
   ) : null;
 

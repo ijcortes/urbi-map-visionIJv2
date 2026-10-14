@@ -276,6 +276,8 @@ export type ApiListing = {
   banos?: number | null;
   direccion_raw?: string | null;
   url?: string | null;
+  /** Stable favorites key (== raw url; for own listings the internal id, where `url` is null). */
+  fav_key?: string | null;
   fecha_scraping?: string | null;
   buena_oferta?: boolean | null;
   pct_bajo_mediana?: number | null;
