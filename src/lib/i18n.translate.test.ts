@@ -48,7 +48,8 @@ describe("translateString — nuevas entradas de traducción", () => {
 });
 
 // ── Regression suite (audit I1-I21) ─────────────────────────────────────────
-import { PHRASES, __i18nInternals } from "./i18n";
+import { __i18nInternals } from "./i18n";
+import { PHRASES } from "./i18n-phrases";
 import { buildListingPopupHTML } from "./listingPopupHtml";
 
 describe("case-insensitive matching with case restore (I1/I2/I7)", () => {

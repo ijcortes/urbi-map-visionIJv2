@@ -1,9 +1,28 @@
+import { useEffect } from "react";
 import { createRouter, useRouter } from "@tanstack/react-router";
 import { AlertTriangle } from "@/lib/icons";
 import { routeTree } from "./routeTree.gen";
+import { captureError } from "@/lib/sentry";
+
+const STALE_CHUNK_RE = /dynamically imported module|Importing a module script failed|error loading dynamically imported module/i;
 
 function DefaultErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
+
+  useEffect(() => {
+    // A lazy chunk that 404s after a deploy: reload once to get the new build instead of a dead end.
+    if (STALE_CHUNK_RE.test(error?.message ?? "")) {
+      try {
+        const k = "ms.chunkReloadAt";
+        if (Date.now() - Number(sessionStorage.getItem(k) || 0) > 60_000) {
+          sessionStorage.setItem(k, String(Date.now()));
+          window.location.reload();
+          return;
+        }
+      } catch { /* storage blocked */ }
+    }
+    captureError(error);
+  }, [error]);
 
   return (
     <div className="paper-theme grid min-h-screen place-items-center bg-background px-4">

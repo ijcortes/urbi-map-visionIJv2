@@ -1,22 +1,40 @@
 import { createServer } from 'node:http';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { join, extname, dirname } from 'node:path';
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { join, extname, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Readable } from 'node:stream';
-import { createGzip, createBrotliCompress, constants } from 'node:zlib';
+import { createGzip, createBrotliCompress, brotliCompress, gzip, constants } from 'node:zlib';
+import { promisify } from 'node:util';
+
+const brotliAsync = promisify(brotliCompress);
+const gzipAsync = promisify(gzip);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const STATIC_DIR = join(__dirname, 'dist/client');
 const PUBLIC_DIR = join(__dirname, 'public');
 
+// ── Build id (git sha). Written to dist/client/version.json by vite.config.ts at build;
+// falls back to Railway's runtime sha, then "dev". Sent on every response (X-Build-Id) and
+// at /version so clients/ops can tell which deploy they are talking to.
+function readBuild() {
+  try {
+    const v = JSON.parse(readFileSync(join(STATIC_DIR, 'version.json'), 'utf8'));
+    if (v && v.build) return v;
+  } catch { /* no file */ }
+  return { build: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 12) || process.env.VITE_BUILD_ID || 'dev', builtAt: null };
+}
+const BUILD = readBuild();
+const STARTED_AT = new Date().toISOString();
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
-  '.js': 'application/javascript',
-  '.mjs': 'application/javascript',
-  '.css': 'text/css',
-  '.json': 'application/json',
-  '.geojson': 'application/json',
+  '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.geojson': 'application/geo+json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -26,56 +44,181 @@ const MIME = {
   '.woff2': 'font/woff2',
   '.ttf': 'font/ttf',
   '.webp': 'image/webp',
+  '.avif': 'image/avif',
+  '.txt': 'text/plain; charset=utf-8',
+  '.xml': 'application/xml; charset=utf-8',
 };
 
 const { default: app } = await import('./dist/server/server.js');
 
-// Text formats compress ~80-90% (geojson especially — repetitive coordinate
-// text). Binary formats (images, fonts, .pbf tiles) are already compressed —
-// gzipping them again wastes CPU for no size gain, so only compress these.
-const COMPRESSIBLE = new Set(['.html', '.js', '.mjs', '.css', '.json', '.geojson', '.svg']);
+// Text formats compress ~80-90%. Binary formats are already compressed.
+const COMPRESSIBLE = new Set(['.html', '.js', '.mjs', '.css', '.json', '.geojson', '.svg', '.txt', '.xml']);
 
-function tryServeStatic(pathname, req, res) {
-  // Try dist/client first, then public/ as fallback for data files
-  let filePath = join(STATIC_DIR, pathname);
-  if (!existsSync(filePath) || !statSync(filePath).isFile()) {
-    filePath = join(PUBLIC_DIR, pathname);
-    if (!existsSync(filePath) || !statSync(filePath).isFile()) return false;
+// ── Security headers ─────────────────────────────────────────────────────────
+// API origin for connect-src: build-time VITE_API_URL is also a runtime var on Railway.
+function originOf(u) {
+  try { return new URL(u).origin; } catch { return null; }
+}
+const API_ORIGIN =
+  originOf(process.env.API_ORIGIN || process.env.VITE_API_URL || '') ||
+  'https://medellinsocial-api.up.railway.app';
+const SENTRY_ORIGIN = 'https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io';
+// Hosts allowed in <iframe> = src/lib/embed.ts EMBED_HOSTS (+ the embed URLs they rewrite to).
+const FRAME_SRC = [
+  "'self'", 'https://accounts.google.com',
+  'https://my.matterport.com', 'https://matterport.com', 'https://kuula.co', 'https://cloudpano.com',
+  'https://istaging.com', 'https://ricoh360.com', 'https://insta360.com', 'https://www.youtube.com',
+  'https://www.youtube-nocookie.com', 'https://player.vimeo.com',
+].join(' ');
+
+// Enforced: only directives that cannot break rendering (clickjacking / plugin / base-tag).
+// Our own pages are not meant to be framed (embed.ts only governs outbound iframes).
+const CSP_ENFORCED = "frame-ancestors 'self'; object-src 'none'; base-uri 'self'";
+// Report-only: the full policy. Inline scripts are required by TanStack Start hydration and the
+// <html lang> bootstrap, hence 'unsafe-inline'. Promote to enforced once the console is clean.
+const CSP_REPORT_ONLY = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' https://accounts.google.com https://apis.google.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.mapbox.com https://accounts.google.com",
+  "font-src 'self' data: https://fonts.gstatic.com",
+  "img-src 'self' data: blob: https:",
+  `connect-src 'self' ${API_ORIGIN} https://api.mapbox.com https://*.tiles.mapbox.com https://events.mapbox.com https://accounts.google.com ${SENTRY_ORIGIN}`,
+  "worker-src 'self' blob:",
+  "child-src 'self' blob:",
+  `frame-src ${FRAME_SRC}`,
+  "media-src 'self' blob: https:",
+  "manifest-src 'self'",
+  "frame-ancestors 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+].join('; ');
+
+function baseHeaders(res) {
+  res.setHeader('X-Build-Id', BUILD.build);
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self), payment=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups'); // Google sign-in popup
+  res.setHeader('Content-Security-Policy', CSP_ENFORCED);
+  res.setHeader('Content-Security-Policy-Report-Only', CSP_REPORT_ONLY);
+}
+
+// ── Compression ──────────────────────────────────────────────────────────────
+function pickEncoding(req) {
+  const ae = String(req.headers['accept-encoding'] || '');
+  if (/\bbr\b/.test(ae)) return 'br';
+  if (/\bgzip\b/.test(ae)) return 'gzip';
+  return null;
+}
+
+// Immutable/static payloads are compressed once per (file, mtime, encoding) and kept in
+// memory, so big chunks (mapbox-gl) and geojson cost CPU only on the first hit. Brotli q5.
+const compCache = new Map();
+const COMP_CACHE_MAX_BYTES = 64 * 1024 * 1024;
+let compCacheBytes = 0;
+async function compressedFile(filePath, st, enc) {
+  const key = `${filePath}|${st.mtimeMs}|${st.size}|${enc}`;
+  const hit = compCache.get(key);
+  if (hit) return hit;
+  const raw = await readFile(filePath);
+  const buf = enc === 'br'
+    ? await brotliAsync(raw, { params: { [constants.BROTLI_PARAM_QUALITY]: 5, [constants.BROTLI_PARAM_SIZE_HINT]: raw.length } })
+    : await gzipAsync(raw, { level: 6 });
+  if (compCacheBytes + buf.length < COMP_CACHE_MAX_BYTES) {
+    compCache.set(key, buf);
+    compCacheBytes += buf.length;
   }
+  return buf;
+}
 
+function resolveStatic(pathname) {
+  let decoded;
+  try { decoded = decodeURIComponent(pathname); } catch { return null; }
+  if (decoded.includes('\0')) return null;
+  for (const root of [STATIC_DIR, PUBLIC_DIR]) {
+    const filePath = join(root, decoded);
+    if (filePath !== root && !filePath.startsWith(root + sep)) continue; // path traversal guard
+    if (existsSync(filePath) && statSync(filePath).isFile()) return filePath;
+  }
+  return null;
+}
+
+function cacheControlFor(pathname, ext) {
+  if (pathname.startsWith('/assets/')) return 'public, max-age=31536000, immutable'; // content-hashed filenames
+  if (pathname.startsWith('/data/')) return 'public, max-age=300, stale-while-revalidate=600'; // revalidated via ETag
+  if (ext === '.html') return 'no-cache';
+  if (pathname === '/version.json') return 'no-store';
+  // Unhashed public files (favicon, og-image, brand images, robots, sitemap): 1 day, then revalidate.
+  return 'public, max-age=86400, stale-while-revalidate=604800';
+}
+
+async function tryServeStatic(pathname, req, res) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+  const filePath = resolveStatic(pathname);
+  if (!filePath) return false;
+
+  const st = statSync(filePath);
   const ext = extname(filePath);
-  const mime = MIME[ext] || 'application/octet-stream';
-  res.setHeader('Content-Type', mime);
-  if (pathname.startsWith('/assets/')) {
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-  } else if (pathname.startsWith('/data/')) {
-    // Not immutable (files change on redeploy) — 1h fresh window matches the API's
-    // hourly refresh; stale-while-revalidate serves instantly for up to a day while
-    // refetching in the background, so repeat map loads don't re-pay these bytes.
-    res.setHeader('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
+  const compress = COMPRESSIBLE.has(ext) ? pickEncoding(req) : null;
+  const etag = `W/"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}${compress ? '-' + compress : ''}"`;
+
+  baseHeaders(res);
+  res.setHeader('Content-Type', MIME[ext] || 'application/octet-stream');
+  res.setHeader('Cache-Control', cacheControlFor(pathname, ext));
+  res.setHeader('ETag', etag);
+  res.setHeader('Last-Modified', st.mtime.toUTCString());
+  if (COMPRESSIBLE.has(ext)) res.setHeader('Vary', 'Accept-Encoding');
+
+  if (req.headers['if-none-match'] === etag) {
+    res.statusCode = 304;
+    res.end();
+    return true;
   }
 
-  const acceptEncoding = req.headers['accept-encoding'] || '';
-  const source = createReadStream(filePath);
-  if (COMPRESSIBLE.has(ext) && acceptEncoding.includes('br')) {
-    res.setHeader('Content-Encoding', 'br');
-    // Brotli quality 4 (not the default 11): ~95% of the compression at a fraction
-    // of the CPU. q11 on a 2MB geojson stalled TTFB 2–3.5s PER request (compressed
-    // on every hit, never cached); q4 drops that to ~150ms. Same for JS bundles.
-    source.pipe(createBrotliCompress({ params: { [constants.BROTLI_PARAM_QUALITY]: 4 } })).pipe(res);
-  } else if (COMPRESSIBLE.has(ext) && acceptEncoding.includes('gzip')) {
-    res.setHeader('Content-Encoding', 'gzip');
-    source.pipe(createGzip()).pipe(res);
+  if (compress) {
+    const buf = await compressedFile(filePath, st, compress);
+    res.setHeader('Content-Encoding', compress);
+    res.setHeader('Content-Length', buf.length);
+    res.end(req.method === 'HEAD' ? undefined : buf);
   } else {
-    source.pipe(res);
+    res.setHeader('Content-Length', st.size);
+    if (req.method === 'HEAD') res.end();
+    else createReadStream(filePath).pipe(res);
   }
   return true;
 }
 
+function sendJson(res, status, body, cache = 'no-store') {
+  baseHeaders(res);
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', cache);
+  res.end(JSON.stringify(body));
+}
+
+const COMPRESSIBLE_TYPE = /^(text\/|application\/(json|javascript|xml|geo\+json)|image\/svg)/;
+
 createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost`);
 
-  if (tryServeStatic(url.pathname, req, res)) return;
+  // Liveness/readiness. Cheap: no SSR work, no DB. Deliberately not in railway.toml (that file is
+  // shared by 3 services); point the web service's healthcheck path at /healthz in the dashboard.
+  if (url.pathname === '/healthz') {
+    return sendJson(res, 200, { ok: true, build: BUILD.build, uptime_s: Math.round(process.uptime()) });
+  }
+  if (url.pathname === '/version') {
+    return sendJson(res, 200, { build: BUILD.build, builtAt: BUILD.builtAt, startedAt: STARTED_AT });
+  }
+
+  try {
+    if (await tryServeStatic(url.pathname, req, res)) return;
+  } catch (err) {
+    console.error('static error:', err);
+    if (!res.headersSent) { res.statusCode = 500; res.end('Internal Server Error'); }
+    return;
+  }
 
   try {
     const headers = {};
@@ -91,9 +234,47 @@ createServer(async (req, res) => {
 
     const response = await app.fetch(new Request(`http://localhost${req.url}`, init));
 
+    baseHeaders(res);
     res.statusCode = response.status;
     for (const [k, v] of response.headers.entries()) {
+      // Node merges these itself; a duplicate set-cookie must stay multi-valued
+      if (k === 'set-cookie') continue;
       res.setHeader(k, v);
+    }
+    const cookies = response.headers.getSetCookie?.() ?? [];
+    if (cookies.length) res.setHeader('Set-Cookie', cookies);
+
+    // SSR HTML must always revalidate so a deploy is picked up on the next navigation
+    // (hashed /assets/* stay immutable; a stale HTML would point at deleted chunks).
+    const ct = response.headers.get('content-type') || '';
+    if (ct.includes('text/html') && !response.headers.has('cache-control')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+    res.setHeader('X-Build-Id', BUILD.build);
+
+    const enc = COMPRESSIBLE_TYPE.test(ct) && !response.headers.has('content-encoding') ? pickEncoding(req) : null;
+    if (enc && response.body) {
+      res.setHeader('Content-Encoding', enc);
+      res.setHeader('Vary', 'Accept-Encoding');
+      res.removeHeader('Content-Length');
+      // Streaming SSR: flush after each chunk so first bytes still go out early.
+      const z = enc === 'br'
+        ? createBrotliCompress({ params: { [constants.BROTLI_PARAM_QUALITY]: 4 } })
+        : createGzip({ level: 6 });
+      z.pipe(res);
+      const reader = response.body.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          z.write(value);
+          z.flush();
+        }
+      } finally {
+        reader.releaseLock();
+        z.end();
+      }
+      return;
     }
 
     if (response.body) {
@@ -114,8 +295,10 @@ createServer(async (req, res) => {
     if (!res.headersSent) {
       res.statusCode = 500;
       res.end('Internal Server Error');
+    } else {
+      res.end();
     }
   }
 }).listen(PORT, '0.0.0.0', () => {
-  console.log(`Listening on port ${PORT}`);
+  console.log(`Listening on port ${PORT} (build ${BUILD.build})`);
 });

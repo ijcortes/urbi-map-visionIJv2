@@ -1,5 +1,5 @@
 -- Paso 2: tabla PostgreSQL para remates judiciales
--- DB: postgresql://urbidata:urbidata007@localhost:5433/urbidata
+-- DB: postgresql://USER:PASSWORD@localhost:5433/urbidata
 
 CREATE SCHEMA IF NOT EXISTS raw;
 

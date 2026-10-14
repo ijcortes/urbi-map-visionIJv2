@@ -7,17 +7,30 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { OnboardingModal } from "@/components/OnboardingModal";
 import { TargetProvider } from "@/contexts/TargetContext";
-import * as Sentry from "@sentry/react";
+import { initSentry } from "@/lib/sentry";
+import { API_BASE_URL } from "@/config/api";
 
-const SENTRY_DSN = import.meta.env.VITE_SENTRY_DSN as string | undefined;
-if (SENTRY_DSN) {
-  Sentry.init({
-    dsn: SENTRY_DSN,
-    tracesSampleRate: 0.1,
-    environment: import.meta.env.MODE,
-    sendDefaultPii: false,
+initSentry();
+
+// After a deploy the old chunk filenames disappear: a lazy route import then fails. Reload once
+// (guarded so a genuinely broken chunk cannot cause a reload loop) to pick up the new build.
+if (typeof window !== "undefined") {
+  window.addEventListener("vite:preloadError", (event) => {
+    event.preventDefault();
+    try {
+      const k = "ms.preloadReloadAt";
+      const last = Number(sessionStorage.getItem(k) || 0);
+      if (Date.now() - last < 60_000) return;
+      sessionStorage.setItem(k, String(Date.now()));
+    } catch { /* storage blocked: fall through, a single reload is still safe */ }
+    window.location.reload();
   });
 }
+
+const API_ORIGIN = (() => {
+  try { return new URL(API_BASE_URL).origin; } catch { return null; }
+})();
+const BUILD_ID = (import.meta.env.VITE_BUILD_ID as string | undefined) ?? "dev";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -114,6 +127,7 @@ export const Route = createRootRoute({
       { title: "Medellín Social · Where Smart Investors Meet Local Culture" },
       { name: "description", content: "The only platform that combines real estate intelligence with authentic local experiences in Medellín and the Aburrá Valley." },
       { name: "author", content: "Medellín Social" },
+      { name: "build-id", content: BUILD_ID },
       // App traduce sola (i18n propio + Chrome Translator API). Desactiva el
       // auto-translate de página del navegador: muta text nodes y crashea el
       // reconciler de React. No afecta nuestra traducción JS.
@@ -130,6 +144,7 @@ export const Route = createRootRoute({
       { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
       { rel: "stylesheet", href: appCss },
       // Mapbox — bundled CSS used instead of CDN to avoid version mismatch (v3.7 vs v3.23)
+      ...(API_ORIGIN ? [{ rel: "preconnect", href: API_ORIGIN, crossOrigin: "anonymous" as const }] : []),
       { rel: "preconnect", href: "https://api.mapbox.com" },
       { rel: "preconnect", href: "https://events.mapbox.com" },
       { rel: "dns-prefetch", href: "https://a.tiles.mapbox.com" },

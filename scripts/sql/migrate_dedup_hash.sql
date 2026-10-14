@@ -1,5 +1,5 @@
 -- Migración: dedup_hash en raw.listings_fincaraiz y raw.listings_metrocuadrado
--- DB: postgresql://urbidata:urbidata007@localhost:5433/urbidata
+-- DB: postgresql://USER:PASSWORD@localhost:5433/urbidata
 --
 -- Ejecutar ANTES de dedup_cleanup.sql
 -- Seguro de re-ejecutar (IF NOT EXISTS / IF EXISTS).
