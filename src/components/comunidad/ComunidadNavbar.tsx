@@ -1,3 +1,4 @@
+import { Name, useT } from "@/lib/i18n";
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useBarrio } from './BarrioContext'
 import { useTicker } from '../../hooks/useTicker'
@@ -86,7 +87,7 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
     setGlobalLang(l)
   }
 
-  const t = (es: string, en: string) => lang === 'es' ? es : en
+  const t = useT()
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -298,14 +299,14 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
                   <optgroup label="── Medellín ──" style={{ color: K.ink, background: '#fff' }}>
                     {medellin.map(b => (
                       <option key={b.slug} value={b.slug} style={{ color: K.ink, background: '#fff' }}>
-                        {b.nombre}
+                        <Name>{b.nombre}</Name>
                       </option>
                     ))}
                   </optgroup>
                   <optgroup label="── Valle de Aburrá ──" style={{ color: K.ink, background: '#fff' }}>
                     {valleAbura.map(b => (
                       <option key={b.slug} value={b.slug} style={{ color: K.ink, background: '#fff' }}>
-                        {b.nombre}
+                        <Name>{b.nombre}</Name>
                       </option>
                     ))}
                   </optgroup>
@@ -485,14 +486,14 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
                 <optgroup label="── Medellín ──" style={{ color: K.ink, background: '#fff' }}>
                   {medellin.map(b => (
                     <option key={b.slug} value={b.slug} style={{ color: K.ink, background: '#fff' }}>
-                      {b.nombre}
+                      <Name>{b.nombre}</Name>
                     </option>
                   ))}
                 </optgroup>
                 <optgroup label="── Valle de Aburrá ──" style={{ color: K.ink, background: '#fff' }}>
                   {valleAbura.map(b => (
                     <option key={b.slug} value={b.slug} style={{ color: K.ink, background: '#fff' }}>
-                      {b.nombre}
+                      <Name>{b.nombre}</Name>
                     </option>
                   ))}
                 </optgroup>

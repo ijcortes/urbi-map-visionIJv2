@@ -10,7 +10,7 @@ import {
   Shield, Camera, Trees, Baby, TrainFront, Sofa,
 } from "@/lib/icons";
 import { useIsPro } from "@/components/LockedField";
-import { useLang } from "@/lib/i18n";
+import { useLang, Name } from "@/lib/i18n";
 import { usePriceFormat } from "@/hooks/usePriceFormat";
 import { CurrencyToggle } from "@/components/CurrencyToggle";
 import { parsePriceInput } from "@/lib/format";
@@ -327,6 +327,11 @@ function FilterPill({
 
 // Etiquetas compactas (solo chips de slider): formatCompact de lib/format vía usePriceFormat.
 type PriceFmt = (cop: number) => string;
+
+const PRICE_LABELS = {
+  es: { rent: { COP: "Precio / mes (COP)", USD: "Precio / mes (USD)" }, sale: { COP: "Precio (COP)", USD: "Precio (USD)" } },
+  en: { rent: { COP: "Price / month (COP)", USD: "Price / month (USD)" }, sale: { COP: "Price (COP)", USD: "Price (USD)" } },
+} as const;
 
 function precioLabel(f: SharedFilters, isRent: boolean, lang: string, fmtPrice: PriceFmt): string {
   // Este label vive en un span data-i18n-skip (gotcha #1 cache-poisoning), así que
@@ -1228,7 +1233,7 @@ export function MapFilterBar({
         <option value="">Selecciona un barrio...</option>
         {allBarrios?.map((b) => (
           <option key={b.id} value={b.id}>
-            {b.nombre} – {b.municipio}
+            <Name>{b.nombre}</Name> – {b.municipio}
           </option>
         ))}
       </select>
@@ -1485,7 +1490,8 @@ export function MapFilterBar({
 
         {/* Precio */}
         <div style={{ marginBottom: 20 }}>
-          <span style={labelSm}>{isRent ? "Precio / mes" : "Precio"} ({pf.currency})</span>
+          {/* one complete label per variant (no "Precio / mes" + "(COP)" concatenation for the dictionary to half-translate) */}
+          <span style={labelSm} data-i18n-skip>{PRICE_LABELS[lang === "en" ? "en" : "es"][isRent ? "rent" : "sale"][pf.currency === "USD" ? "USD" : "COP"]}</span>
           <span style={{ marginLeft: 8 }}><CurrencyToggle compact /></span>
           <div style={{ display: "flex", gap: 8 }}>
             <input

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { setFormatLang } from "./format";
 
 export type Lang = "es" | "en";
@@ -395,6 +395,19 @@ export function useLang() {
   return useContext(LangCtx);
 }
 
+/** Strings built in code (templates, aria-labels, toasts): pass both languages.
+ *
+ *  The app has one translation policy, applied per kind of text:
+ *   - static JSX copy: Spanish in source, English from PHRASES (DOM pass; enforced by
+ *     i18n.scan.test.ts, which fails on any untranslated literal);
+ *   - text assembled in code: useT()(es, en) — never concatenate dictionary fragments;
+ *   - names from the API: <Name> (never translated);
+ *   - API enum codes: lib/enumLabels.ts tables. */
+export function useT() {
+  const { lang } = useLang();
+  return useCallback((es: string, en: string) => (lang === "en" ? en : es), [lang]);
+}
+
 // ── Free on-device translation for free-text (listing descriptions) ──────────
 // The dict translator (translateString) only swaps known phrases → free text
 // comes out half-translated ("Spanglish"). For unbounded text we use the browser
@@ -440,6 +453,12 @@ export function useAutoTranslate(text: string): string {
     return () => { alive = false; };
   }, [text, lang]);
   return out;
+}
+
+/** Proper names from the API (barrios, comunas, businesses, agents, buildings) must
+ *  never go through the phrase dictionary ("Casa Blanca" -> "House Blanca"). */
+export function Name({ children }: { children: ReactNode }) {
+  return <span data-i18n-skip>{children}</span>;
 }
 
 /** Inline free-text auto-translated (Chrome/Edge Translator API) when EN, else the

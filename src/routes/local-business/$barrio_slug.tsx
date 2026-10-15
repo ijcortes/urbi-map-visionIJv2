@@ -1,3 +1,4 @@
+import { Name, useT } from "@/lib/i18n";
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useRef, useEffect, type ReactNode } from 'react'
 import mapboxgl from 'mapbox-gl'
@@ -501,7 +502,7 @@ const PANEL_H = 'calc(100vh - 210px)'
 
 function LocalBusinessPage() {
   const { barrio, barrios, lang } = useBarrio()
-  const t = (es: string, en: string) => lang === 'es' ? es : en
+  const t = useT()
   const isMobile = useIsMobile()
   const [mobileView, setMobileView] = useState<'list' | 'map'>('map')
 
@@ -558,7 +559,7 @@ function LocalBusinessPage() {
       <div style={{ padding: isMobile ? '1.25rem 1rem 1rem' : '2rem 2rem 1.5rem', background: '#FAF8F3', borderBottom: '0.5px solid #E5E0D5' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
           <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6E726E', margin: '0 0 4px' }}>
-            {barrio.nombre} · Medellín
+            <Name>{barrio.nombre}</Name> · Medellín
           </p>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
             <div>

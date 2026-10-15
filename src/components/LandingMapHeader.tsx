@@ -1,3 +1,4 @@
+import { Name } from "@/lib/i18n";
 import { useEffect, useRef, useState } from "react";
 import { isMobileWidth } from "@/lib/breakpoints";
 import mapboxgl from "mapbox-gl";
@@ -379,7 +380,7 @@ export function LandingMapHeader({
             className="pointer-events-none absolute z-30 rounded-lg border border-white/20 bg-black/85 px-3 py-1.5 text-xs text-white shadow-xl backdrop-blur-sm"
             style={{ left: tooltip.x, top: tooltip.y, minWidth: "120px" }}
           >
-            <div className="font-semibold leading-tight">{tooltip.nombre}</div>
+            <div className="font-semibold leading-tight"><Name>{tooltip.nombre}</Name></div>
             <div className="mt-0.5 text-white/55">{tooltip.municipio}</div>
           </div>
         )}

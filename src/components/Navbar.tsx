@@ -2,7 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, LogOut } from "@/lib/icons";
 import { auth } from "@/lib/auth";
 import { logout } from "@/hooks/useAuth";
-import { useLang, FlagCO, FlagUS } from "@/lib/i18n";
+import { useLang, FlagCO, FlagUS, Name } from "@/lib/i18n";
 import type { Neighborhood } from "@/lib/adapters";
 import { K as TOKENS } from "@/design/tokens";
 import { Wordmark } from "@/components/Wordmark";
@@ -69,7 +69,7 @@ export function Navbar({ mlsBarrio, mlsTotal, onBack }: NavbarProps = {}) {
             }}
           >
             <ArrowLeft size={14} />
-            <span>{mlsBarrio.nombre}</span>
+            <span><Name>{mlsBarrio.nombre}</Name></span>
             {mlsTotal != null && mlsTotal > 0 && (
               <span style={{
                 background: K.teal, color: '#fff',

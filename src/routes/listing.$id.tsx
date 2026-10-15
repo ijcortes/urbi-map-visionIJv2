@@ -1,3 +1,4 @@
+import { Name } from "@/lib/i18n";
 import { seo } from "@/lib/seo";
 import { createFileRoute, redirect, Link } from "@tanstack/react-router";
 import { RouteError, RoutePending } from "@/components/RouteStates";
@@ -222,7 +223,7 @@ export function ListingDetailContent({
             )}
             {listing.barrio_nombre && (
               <span className="text-sm text-muted-foreground truncate hidden sm:inline">
-                · {listing.barrio_nombre}
+                · <Name>{listing.barrio_nombre}</Name>
               </span>
             )}
           </div>
@@ -265,7 +266,7 @@ export function ListingDetailContent({
               )}
               <div className="flex items-center gap-2 border-t border-[#E5E0D5] bg-white px-4 py-2 text-xs text-muted-foreground">
                 <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
-                {listing.barrio_nombre && <span>{listing.barrio_nombre}</span>}
+                {listing.barrio_nombre && <span><Name>{listing.barrio_nombre}</Name></span>}
                 {listing.municipio && <span>· {listing.municipio}</span>}
                 {listing.estrato_real != null && <span>· Estrato {listing.estrato_real}</span>}
               </div>
@@ -491,7 +492,7 @@ export function ListingDetailContent({
                       className="block rounded-xl border border-[#E5E0D5] bg-[#F3F0E8] p-4 transition hover:border-primary/40 hover:bg-primary/5"
                     >
                       <div className="mb-1 text-xs capitalize text-muted-foreground">
-                        {s.tipo_inmueble} · {s.barrio_nombre}
+                        {s.tipo_inmueble} · <Name>{s.barrio_nombre}</Name>
                       </div>
                       <div className="font-bold">
                         {formatPrice(s.precio_cop)}
@@ -637,7 +638,7 @@ export function ListingDetailContent({
             {listing.barrio_id != null && (
               <div className="space-y-3 rounded-2xl border border-[#E5E0D5] bg-white p-4">
                 <div className="text-sm font-semibold" style={{ color: '#111418' }}>
-                  Zona: {listing.barrio_nombre}
+                  Zona: <Name>{listing.barrio_nombre}</Name>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   {listing.yield_bruto_pct != null && (
@@ -784,7 +785,7 @@ function ListingPage() {
             </span>
           )}
           {listing.barrio_nombre && (
-            <span className="text-sm text-muted-foreground">· {listing.barrio_nombre}</span>
+            <span className="text-sm text-muted-foreground">· <Name>{listing.barrio_nombre}</Name></span>
           )}
           {listing.municipio && (
             <span className="text-sm text-muted-foreground">· {listing.municipio}</span>

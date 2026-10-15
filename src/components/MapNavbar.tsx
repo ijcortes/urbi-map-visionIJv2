@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { auth } from "@/lib/auth";
 import { logout } from "@/hooks/useAuth";
 import { useIsAgente } from "@/components/LockedField";
-import { useLang, FlagCO, FlagUS } from "@/lib/i18n";
+import { useLang, FlagCO, FlagUS, Name } from "@/lib/i18n";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Wordmark } from "@/components/Wordmark";
 import type { Neighborhood } from "@/lib/adapters";
@@ -378,7 +378,7 @@ export function MapNavbar({ activeTab, onTabChange, mlsBarrio, mlsTotal, onBack 
           }}
         >
           <ArrowLeft size={13} />
-          <span data-i18n-skip>{mlsBarrio.nombre}</span>
+          <span data-i18n-skip><Name>{mlsBarrio.nombre}</Name></span>
           {mlsTotal != null && mlsTotal > 0 && (
             <span style={{
               background: C.teal, color: "#fff",

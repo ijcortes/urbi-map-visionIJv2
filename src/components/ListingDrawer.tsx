@@ -1,3 +1,4 @@
+import { formatAntiguedad } from "@/lib/antiguedad";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -34,7 +35,7 @@ import { useComparadorStore } from "@/hooks/useComparadorStore";
 import { usePriceFormat } from "@/hooks/usePriceFormat";
 import { OriginalListingLink } from "@/components/OriginalListingLink";
 import { formatDate } from "@/lib/format";
-import { useLang, translateString } from "@/lib/i18n";
+import { useLang, translateString, Name } from "@/lib/i18n";
 import { useUnit, formatArea } from "@/hooks/useUnit";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -108,17 +109,6 @@ function cleanDescripcion(text: string): string {
     // Espacios al final de cada línea
     .replace(/[ \t]+\n/g, "\n")
     .trim();
-}
-
-function cleanAntiguedad(val: string | null | undefined): string | null | undefined {
-  if (!val) return val;
-  return val
-    .replace(/(\d+)\s*Byears?/gi, "$1 años")
-    .replace(/\bByears?\b/gi, "Antigüedad no especificada")
-    .replace(/\bStratum\s*(\d+)/gi, "Estrato $1")
-    .replace(/\bStratum\b/gi, "Estrato")
-    .replace(/\bSale\b/g, "Venta")
-    .replace(/[Ll]ong.?term\s+rental/gi, "Renta larga");
 }
 
 // ─── sub-components ────────────────────────────────────────────────────────────
@@ -698,7 +688,7 @@ function ScheduleVisitModal({
               ¡Visita solicitada!
             </h3>
             <p className="text-sm font-medium capitalize" style={{ color: "#111418" }}>{enviado}</p>
-            {agente && <p className="text-[13px]" style={{ color: "#5B5F5C" }}>Con {agente.nombre}</p>}
+            {agente && <p className="text-[13px]" style={{ color: "#5B5F5C" }}>Con <Name>{agente.nombre}</Name></p>}
             <p className="mt-1 text-[13px]" style={{ color: "#5B5F5C" }}>Te contactaremos pronto para confirmar.</p>
             <button
               onClick={onClose}
@@ -723,7 +713,7 @@ function ScheduleVisitModal({
             </button>
           </div>
           {agente && (
-            <p className="mt-1.5 text-[13px] text-white/85">Con {agente.nombre}</p>
+            <p className="mt-1.5 text-[13px] text-white/85">Con <Name>{agente.nombre}</Name></p>
           )}
         </div>
 
@@ -882,7 +872,7 @@ function RealtorPrimaryCard({
             : <User className="h-7 w-7" style={{ color: "#0F8A4F" }} />}
         </div>
         <div className="min-w-0">
-          <div className="truncate text-base font-bold" style={{ color: "#111418" }}>{agente.nombre}</div>
+          <div className="truncate text-base font-bold" style={{ color: "#111418" }}><Name>{agente.nombre}</Name></div>
           <div className="flex items-center gap-1 text-[11px] font-semibold" style={{ color: "#0A5C36" }}>
             <Shield className="h-3 w-3" /> Agente de la {esComuna ? "comuna" : "zona"}
           </div>
@@ -915,7 +905,7 @@ function RealtorPrimaryCard({
             style={{ color: "#6E726E" }}
           >
             <User className="h-3 w-3" />
-            <span className="truncate">También: {secondary.nombre}, agente del barrio</span>
+            <span className="truncate">También: <Name>{secondary.nombre}</Name>, agente del barrio</span>
           </a>
         )}
       </div>
@@ -1169,7 +1159,8 @@ export function ListingDrawer({ listingId, onClose }: Props) {
   const facts: { icon: React.ReactNode; text: string }[] = [];
   if (listing?.tipo_inmueble) facts.push({ icon: <Home className="h-4 w-4" />, text: listing.tipo_inmueble.replace(/_/g, " ") });
   if (listing?.nombre_edificio) facts.push({ icon: <Building2 className="h-4 w-4" />, text: listing.nombre_edificio });
-  if (listing?.antiguedad) facts.push({ icon: <Clock className="h-4 w-4" />, text: cleanAntiguedad(listing.antiguedad) ?? "" });
+  const antiguedadTxt = formatAntiguedad(listing?.antiguedad, lang);
+  if (antiguedadTxt) facts.push({ icon: <Clock className="h-4 w-4" />, text: antiguedadTxt });
   if (listing?.tipo_operacion === "venta" && listing?.precio_m2) facts.push({ icon: <BarChart2 className="h-4 w-4" />, text: `${precioM2Label(listing.precio_m2)}` });
   if (listing?.parqueaderos != null && listing.parqueaderos > 0) facts.push({ icon: <Car className="h-4 w-4" />, text: `${listing.parqueaderos} parqueadero${listing.parqueaderos === 1 ? "" : "s"}` });
   if (listing?.estrato_real != null) facts.push({ icon: <Shield className="h-4 w-4" />, text: `Estrato ${listing.estrato_real}` });
@@ -1481,10 +1472,10 @@ export function ListingDrawer({ listingId, onClose }: Props) {
         <div className="space-y-2">
           <h3 className="text-sm font-semibold text-[#111418]">Ubicación</h3>
           <div className="overflow-hidden rounded-xl" style={{ border: "0.5px solid #E5E0D5" }}>
-            <img src={heroMapUrl} alt={`Ubicación en ${listing.barrio_nombre}`} className="h-40 w-full object-cover" loading="lazy" />
+            <img src={heroMapUrl} alt={lang === "en" ? `Location in ${listing.barrio_nombre}` : `Ubicación en ${listing.barrio_nombre}`} className="h-40 w-full object-cover" loading="lazy" />
             <div className="flex items-center gap-1.5 px-3 py-2 text-xs text-[#5B5F5C]" style={{ borderTop: "0.5px solid #E5E0D5", background: "#FAFAFA" }}>
               <MapPin className="h-3 w-3 shrink-0" />
-              {listing.barrio_nombre && <span>{listing.barrio_nombre}</span>}
+              {listing.barrio_nombre && <span><Name>{listing.barrio_nombre}</Name></span>}
               {listing.estrato_real != null && <span>· Estrato {listing.estrato_real}</span>}
             </div>
           </div>
@@ -1536,7 +1527,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
               {s.barrio_nombre && (
                 <div className="flex items-center gap-1 text-[11px]" style={{ color: "#5B5F5C" }}>
                   <MapPin className="h-2.5 w-2.5 shrink-0" />
-                  {s.barrio_nombre}
+                  <Name>{s.barrio_nombre}</Name>
                 </div>
               )}
               {s.dias_en_mercado != null && <div className="text-[10px]" style={{ color: "#5B5F5C" }}>{diasLabel(s.dias_en_mercado, lang) ?? `${s.dias_en_mercado}d`}</div>}

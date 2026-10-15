@@ -435,7 +435,7 @@ function EmbajadorPage() {
                       <select required value={barrioId ?? ''} onChange={e => setBarrioId(e.target.value ? Number(e.target.value) : null)} style={{ ...inputStyle, cursor: 'pointer' }}>
                         <option value="">Selecciona tu barrio…</option>
                         {BARRIOS.filter(b => b.barrio_id !== null).map(b => (
-                          <option key={b.slug} value={b.barrio_id!}>{b.nombre}</option>
+                          <option data-i18n-skip key={b.slug} value={b.barrio_id!}>{b.nombre}</option>
                         ))}
                       </select>
                     </div>

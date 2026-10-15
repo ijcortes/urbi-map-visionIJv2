@@ -852,7 +852,7 @@ function Step3({
                 }}
               >
                 <option value="">Seleccionar barrio</option>
-                {barriosFiltrados.map((b) => <option key={b.id} value={b.id}>{b.nombre}</option>)}
+                {barriosFiltrados.map((b) => <option data-i18n-skip key={b.id} value={b.id}>{b.nombre}</option>)}
               </Select>
             </Field>
           )}

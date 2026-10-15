@@ -1,3 +1,4 @@
+import { Name } from "@/lib/i18n";
 import { seo } from "@/lib/seo";
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { formatMoney } from "@/lib/format";
@@ -360,7 +361,7 @@ function OverviewTab({ data }: { data?: Dashboard }) {
             <div className="rounded-xl border" style={{ borderColor: K.line, background: "#FFFFFF" }}>
               {c.barrios_top10.slice(0, 8).map((b, i) => (
                 <div key={i} className="flex items-center justify-between border-b px-4 py-2 text-sm last:border-0" style={{ borderColor: K.line }}>
-                  <span style={{ color: K.ink }}>{i + 1}. {b.nombre}</span>
+                  <span style={{ color: K.ink }}>{i + 1}. <Name>{b.nombre}</Name></span>
                   <span style={{ color: K.muted }}>{b.visitas} vistas</span>
                 </div>
               ))}
@@ -567,7 +568,7 @@ function RealtorsTab() {
           <div key={a.id} className="rounded-xl border" style={{ borderColor: K.line, background: "#FFFFFF" }}>
             <div className="flex flex-wrap items-center justify-between gap-3 p-3">
             <div className="min-w-0">
-              <div className="font-medium" style={{ color: K.ink }}>{a.nombre}</div>
+              <div className="font-medium" style={{ color: K.ink }}><Name>{a.nombre}</Name></div>
               <div className="text-xs" style={{ color: K.muted }}>{a.email}{a.telefono ? ` · ${a.telefono}` : ""}</div>
             </div>
             <div className="flex gap-2">
@@ -683,13 +684,13 @@ function ZonasManager({ agentId }: { agentId: string }) {
         <select value={comunaSel} onChange={(e) => { setComunaSel(e.target.value); setBarrioSel(""); }}
           className="rounded-md border px-2 py-1 text-xs" style={{ borderColor: K.line, color: K.ink, background: "#FFF" }}>
           <option value="">{nivel === "comuna" ? "Elegir comuna…" : "Filtrar por comuna…"}</option>
-          {catalogo.data?.comunas.map((c) => <option key={c.cd_comuna} value={String(c.cd_comuna)}>{c.nombre}</option>)}
+          {catalogo.data?.comunas.map((c) => <option data-i18n-skip key={c.cd_comuna} value={String(c.cd_comuna)}>{c.nombre}</option>)}
         </select>
         {nivel === "barrio" && (
           <select value={barrioSel} onChange={(e) => setBarrioSel(e.target.value)} disabled={!comunaSel}
             className="rounded-md border px-2 py-1 text-xs" style={{ borderColor: K.line, color: K.ink, background: "#FFF" }}>
             <option value="">Elegir barrio…</option>
-            {barriosDeComuna.map((b) => <option key={b.id} value={String(b.id)}>{b.nombre}</option>)}
+            {barriosDeComuna.map((b) => <option data-i18n-skip key={b.id} value={String(b.id)}>{b.nombre}</option>)}
           </select>
         )}
         <button onClick={onAgregar} disabled={!puedeAgregar || agregar.isPending}
@@ -768,7 +769,7 @@ function DestacadoScope({ destacado, nivel, zonaCodigo, onSave, disabled }: {
         <select value={localZona} onChange={(e) => handleZona(e.target.value)} disabled={disabled || catalogo.isLoading}
           className="rounded-md border px-2 py-1 text-[11px]" style={{ borderColor: K.line, color: K.ink, background: "#FFF" }}>
           <option value="">{catalogo.isLoading ? "Cargando…" : "Elegir comuna…"}</option>
-          {catalogo.data?.comunas.map((c) => <option key={c.codigo} value={c.codigo}>{c.nombre}</option>)}
+          {catalogo.data?.comunas.map((c) => <option data-i18n-skip key={c.codigo} value={c.codigo}>{c.nombre}</option>)}
         </select>
       )}
       {localNivel === "barrio" && (
@@ -777,7 +778,7 @@ function DestacadoScope({ destacado, nivel, zonaCodigo, onSave, disabled }: {
           <option value="">{catalogo.isLoading ? "Cargando…" : "Elegir barrio…"}</option>
           {Object.entries(barriosPorMunicipio ?? {}).map(([municipio, barrios]) => (
             <optgroup key={municipio} label={municipio}>
-              {barrios.map((b) => <option key={b.id} value={String(b.id)}>{b.nombre}</option>)}
+              {barrios.map((b) => <option data-i18n-skip key={b.id} value={String(b.id)}>{b.nombre}</option>)}
             </optgroup>
           ))}
         </select>
@@ -916,7 +917,7 @@ function NegociosTab() {
               {data.tiendas.map((t) => (
                 <tr key={t.id} className="border-b last:border-0" style={{ borderColor: K.line }}>
                   <td className="px-4 py-3">
-                    <div className="font-medium" style={{ color: K.ink }}>{t.nombre}</div>
+                    <div className="font-medium" style={{ color: K.ink }}><Name>{t.nombre}</Name></div>
                     <div className="text-xs" style={{ color: K.muted }}>{[t.barrio, t.municipio].filter(Boolean).join(", ") || "—"}</div>
                   </td>
                   <td className="px-4 py-3 capitalize" style={{ color: K.muted }}>{t.categoria ?? "—"}</td>

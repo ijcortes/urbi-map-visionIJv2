@@ -1,3 +1,4 @@
+import { useT } from '@/lib/i18n'
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -68,7 +69,7 @@ function GroupLabel({ children }: { children: string }) {
 
 function EventosPage() {
   const { barrio, lang } = useBarrio()
-  const t = (es: string, en: string) => lang === 'es' ? es : en
+  const t = useT()
 
   const [categoria, setCategoria] = useState('all')
   const [fecha, setFecha]         = useState('all')

@@ -1,3 +1,6 @@
+import { useLang } from "@/lib/i18n";
+import { estadoLabel } from "@/lib/enumLabels";
+import { Name } from "@/lib/i18n";
 import { seo } from "@/lib/seo";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { RouteError, RoutePending } from "@/components/RouteStates";
@@ -350,7 +353,7 @@ function InboxTab({ agentes }: { agentes: AgenteMiembro[] }) {
                       disabled={delegar.isPending}
                       className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-foreground transition hover:bg-muted/40 disabled:opacity-50"
                     >
-                      {a.nombre}
+                      <Name>{a.nombre}</Name>
                     </button>
                   ))}
                   <button
@@ -462,7 +465,7 @@ function AgentesTab() {
                           : a.nombre.split(/\s+/).map((s) => s[0]).slice(0, 2).join("").toUpperCase()}
                       </div>
                       <div>
-                        <div className="font-medium text-foreground">{a.nombre}</div>
+                        <div className="font-medium text-foreground"><Name>{a.nombre}</Name></div>
                         <div className="text-xs text-muted-foreground">{a.email}</div>
                       </div>
                     </div>
@@ -555,7 +558,7 @@ function ListingsTab({ agentes }: { agentes: AgenteMiembro[] }) {
                             disabled={asignar.isPending}
                             className="rounded border border-border px-2 py-0.5 text-xs font-medium text-foreground hover:bg-muted/40 disabled:opacity-50"
                           >
-                            {a.nombre}
+                            <Name>{a.nombre}</Name>
                           </button>
                         ))}
                         <button
@@ -603,11 +606,13 @@ const ESTADO_META: Record<string, { label: string; dot: string }> = {
 };
 
 function EstadoBadge({ estado }: { estado: string }) {
-  const { label, dot } = ESTADO_META[estado] ?? { label: estado, dot: "bg-muted-foreground" };
+  const { lang } = useLang();
+  const { dot } = ESTADO_META[estado] ?? { dot: "bg-muted-foreground" };
+  const label = estadoLabel(estado, lang);
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-foreground">
       <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden />
-      {label}
+      <span data-i18n-skip>{label}</span>
     </span>
   );
 }
@@ -620,11 +625,13 @@ function StatusDot({ estado }: { estado: string }) {
     cancelada:  { dot: "bg-muted-foreground",  label: "Cancelada" },
     no_asistio: { dot: "bg-danger",            label: "No asistió" },
   };
-  const { dot, label } = map[estado] ?? { dot: "bg-muted-foreground", label: estado };
+  const { lang } = useLang();
+  const { dot } = map[estado] ?? { dot: "bg-muted-foreground" };
+  const label = estadoLabel(estado, lang);
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
       <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden />
-      {label}
+      <span data-i18n-skip>{label}</span>
     </span>
   );
 }

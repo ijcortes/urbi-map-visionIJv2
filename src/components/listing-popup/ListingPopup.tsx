@@ -1,3 +1,5 @@
+import { tipoInmuebleLabel } from "@/lib/tipoInmueble";
+import { Name } from "@/lib/i18n";
 import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bath, Bed, Building2, ChevronRight, MapPin, Maximize2, X } from "@/lib/icons";
@@ -103,7 +105,7 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
         ref={containerRef}
         role="dialog"
         aria-modal="true"
-        aria-label={`Detalle de listing en ${ubicacion || "el mapa"}`}
+        aria-label={lang === "en" ? `Listing details in ${ubicacion || "the map"}` : `Detalle de listing en ${ubicacion || "el mapa"}`}
         tabIndex={-1}
         data-tour="listing-popup"
         className="fixed z-50 flex flex-col overflow-hidden outline-none rounded-2xl"
@@ -126,7 +128,9 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
             fotos={d?.fotos}
             fallbackFoto={listing.foto_principal}
             loading={isLoading}
-            alt={`${tipoInmueble ?? "Inmueble"} en ${ubicacion || "Medellín"}`}
+            alt={lang === "en"
+              ? `${tipoInmuebleLabel(d?.tipo_inmueble ?? listing.tipo_inmueble, "en")} in ${ubicacion || "Medellín"}`
+              : `${tipoInmueble ?? "Inmueble"} en ${ubicacion || "Medellín"}`}
           />
           <button
             type="button"
@@ -201,7 +205,7 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
             )}
             {d?.nombre_edificio && (
               <div className="mt-0.5 flex items-center gap-1 text-[11px] font-medium" style={{ color: "#5B5F5C" }}>
-                <Building2 className="h-3 w-3 shrink-0" />{d.nombre_edificio}
+                <Building2 className="h-3 w-3 shrink-0" /><Name>{d.nombre_edificio}</Name>
               </div>
             )}
           </div>

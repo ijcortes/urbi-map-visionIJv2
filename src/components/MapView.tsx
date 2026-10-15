@@ -1187,7 +1187,11 @@ export function MapView({
         if (mySeq === seq) {
           lastViewportQueryRef.current = "";
           inFlight = false;
-          if (!cancelled) toast.error("Could not load listings. Move the map or change a filter to retry.");
+          if (!cancelled) toast.error(
+            document.documentElement.lang === "en"
+              ? "Could not load listings. Move the map or change a filter to retry."
+              : "No se pudieron cargar los inmuebles. Mueve el mapa o cambia un filtro para reintentar.",
+          );
         }
       } finally {
         if (!cancelled && mySeq === seq) onViewportLoadingChangeRef.current?.(false);

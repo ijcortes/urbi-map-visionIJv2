@@ -1,3 +1,4 @@
+import { categoriaLabel, tendenciaLabel } from "@/lib/enumLabels";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Link } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
@@ -1305,6 +1306,7 @@ function AmenadidsSection({ n }: { n: Neighborhood }) {
 /* ------------- Seguridad ------------- */
 
 function SeguridadSection({ n }: { n: Neighborhood }) {
+  const { lang } = useLang();
   const cat = n.seguridad_categoria ?? "SIN DATOS";
   const score = n.seguridad_score;
   const nota = n.seguridad_nota;
@@ -1313,11 +1315,10 @@ function SeguridadSection({ n }: { n: Neighborhood }) {
 
   const tend = n.seguridad_tendencia;
   const tendInfo = tend
-    ? tend.toLowerCase().includes("mejor")
-      ? { label: "↑ Mejorando", color: "#0F8A4F" }
-      : tend.toLowerCase().includes("empeor")
-      ? { label: "↓ Empeorando", color: "#CE1126" }
-      : { label: "→ Estable", color: "#8A8E8A" }
+    ? {
+        label: tendenciaLabel(tend, lang),
+        color: tend.toLowerCase().includes("mejor") ? "#0F8A4F" : tend.toLowerCase().includes("empeor") ? "#CE1126" : "#8A8E8A",
+      }
     : null;
 
   return (
@@ -1334,7 +1335,7 @@ function SeguridadSection({ n }: { n: Neighborhood }) {
       >
         <div className="flex items-center justify-between">
           <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider" style={{ background: `${color}22`, color }}>
-            {cat}
+            <span data-i18n-skip>{categoriaLabel(cat, lang)}</span>
           </span>
           <div className="flex items-center gap-2">
             {tendInfo && (
@@ -1358,6 +1359,7 @@ function SeguridadSection({ n }: { n: Neighborhood }) {
 
 function VerdeSection({ n, maxVerdePct }: { n: Neighborhood; maxVerdePct: number }) {
   const pct = n.verde_pct;
+  const { lang } = useLang();
   const cat = n.verde_categoria ?? "SIN DATOS";
   if (pct === null || pct === undefined) return null;
   const ratio = Math.min(1, pct / maxVerdePct);
@@ -1377,7 +1379,7 @@ function VerdeSection({ n, maxVerdePct }: { n: Neighborhood; maxVerdePct: number
       >
         <div className="flex items-center justify-between">
           <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider" style={{ background: `${color}22`, color }}>
-            {cat}
+            <span data-i18n-skip>{categoriaLabel(cat, lang)}</span>
           </span>
           <span className="text-[11px] font-semibold" style={{ color }}>{pct.toFixed(1)}%</span>
         </div>
@@ -1490,6 +1492,7 @@ function UsoSueloSection({ n }: { n: Neighborhood }) {
 /* ------------- Salud financiera ------------- */
 
 function SaludFinancieraSection({ n }: { n: Neighborhood }) {
+  const { lang } = useLang();
   const remates = n.n_remates_municipio ?? 0;
   const cat = remates === 0 ? "MUY SALUDABLE" : remates <= 3 ? "SALUDABLE" : remates <= 8 ? "PRECAUCIÓN" : "ALERTA";
   const color = SALUD_COLORS[cat] ?? "#5B5F5C";
@@ -1501,7 +1504,7 @@ function SaludFinancieraSection({ n }: { n: Neighborhood }) {
       <div className="rounded-xl border p-3" style={{ borderColor: `${color}66`, background: `${color}10` }}>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider" style={{ background: `${color}22`, color }}>
-            {cat}
+            <span data-i18n-skip>{categoriaLabel(cat, lang)}</span>
           </span>
           <span className="text-xs text-muted-foreground">
             {remates === 0
@@ -2018,6 +2021,7 @@ const tooltipStyle: React.CSSProperties = {
 /* ------------- Liquidity / Opportunity ------------- */
 
 function LiquiditySection({ n }: { n: Neighborhood }) {
+  const { lang } = useLang();
   const apiLiq = n.liquidez_api;
   const cat = (apiLiq?.categoria ?? "MEDIA") as import("@/data/marketActivity").LiquidityCat;
   const colors = LIQUIDITY_COLORS[cat] ?? LIQUIDITY_COLORS["MEDIA"];
@@ -2049,7 +2053,7 @@ function LiquiditySection({ n }: { n: Neighborhood }) {
       >
         <div className="flex items-center justify-between">
           <div className="text-sm font-bold uppercase tracking-wider" style={{ color: colors.border }}>
-            {cat}
+            <span data-i18n-skip>{categoriaLabel(cat, lang)}</span>
           </div>
           <div className="text-[11px] font-semibold" style={{ color: colors.border }}>
             {score}/100

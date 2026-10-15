@@ -1,3 +1,4 @@
+import { Name } from "@/lib/i18n";
 import { X, ChevronRight, Bed, Bath, Maximize2, Clock, MapPin, Plus, Check } from "@/lib/icons";
 import { isMobileWidth } from "@/lib/breakpoints";
 import { OriginalListingLink } from "@/components/OriginalListingLink";
@@ -133,7 +134,7 @@ export function ListingMiniPopup({ listing, onClose, onViewMore }: Props) {
 
           {listing.barrio_nombre && (
             <div className="flex items-center gap-1 text-[11px]" style={{ color: "#6E726E" }}>
-              <MapPin className="h-3 w-3 shrink-0" />{listing.barrio_nombre}
+              <MapPin className="h-3 w-3 shrink-0" /><Name>{listing.barrio_nombre}</Name>
             </div>
           )}
 

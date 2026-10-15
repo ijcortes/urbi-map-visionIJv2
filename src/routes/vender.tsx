@@ -1,3 +1,4 @@
+import { Name } from "@/lib/i18n";
 import { seo } from "@/lib/seo";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { formatMoney } from "@/lib/format";
@@ -589,7 +590,7 @@ function BarrioAnalysisSection({ intencion }: { intencion: "venta" | "arriendo" 
             <option value="">Barrio ▾</option>
             {barrios.map((b: BarrioComunaItem) => (
               <option key={b.id} value={b.id}>
-                {b.nombre}
+                <Name>{b.nombre}</Name>
               </option>
             ))}
           </select>
