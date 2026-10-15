@@ -24,7 +24,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 
 from api.db import get_pool
-from api.limiter import limiter
+from api.limiter import client_ip, limiter
 
 router = APIRouter()
 
@@ -44,12 +44,28 @@ _LEAD_SELECT = """
 """
 
 
-def require_ghl_token(x_api_key: str | None = Header(default=None)) -> None:
-    """Cerrado por defecto: sin GHL_LEADS_TOKEN en el entorno → 503."""
-    token = os.getenv("GHL_LEADS_TOKEN")
-    if not token:
+def _valid_tokens() -> list[str]:
+    """GHL_LEADS_TOKEN admite varios valores separados por coma para rotar sin
+    corte: se agrega el nuevo, Talal lo cambia en GHL, se quita el viejo."""
+    raw = os.getenv("GHL_LEADS_TOKEN", "")
+    return [t.strip() for t in raw.split(",") if t.strip()]
+
+
+def require_ghl_token(request: Request, x_api_key: str | None = Header(default=None)) -> None:
+    """Cerrado por defecto: sin GHL_LEADS_TOKEN en el entorno → 503.
+
+    Opcional: GHL_LEADS_ALLOWED_IPS (coma) limita además por IP de origen."""
+    tokens = _valid_tokens()
+    if not tokens:
         raise HTTPException(status_code=503, detail="Lead API no configurada (falta GHL_LEADS_TOKEN)")
-    if not x_api_key or not hmac.compare_digest(x_api_key, token):
+    allowed_ips = {ip.strip() for ip in os.getenv("GHL_LEADS_ALLOWED_IPS", "").split(",") if ip.strip()}
+    if allowed_ips and client_ip(request) not in allowed_ips:
+        raise HTTPException(status_code=403, detail="origen no permitido")
+    # compare against every configured token (no early exit → constant work)
+    ok = False
+    for t in tokens:
+        ok |= bool(x_api_key) and hmac.compare_digest(x_api_key or "", t)
+    if not ok:
         raise HTTPException(status_code=401, detail="token inválido")
 
 

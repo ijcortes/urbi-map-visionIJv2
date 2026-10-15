@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from typing import Optional
 
@@ -34,7 +35,12 @@ def blacklist_key(token: str, payload: dict) -> str:
     """Revocation key of a token whose signature was ALREADY verified: its random jti, or, for
     tokens issued before jti existed, the canonicalised token string."""
     jti = payload.get("jti")
-    return f"jti:{jti}" if jti else _canonical_token(token)
+    if jti:
+        return f"jti:{jti}"
+    # Legacy (pre-jti) tokens: store a digest, never the bearer token itself, so a
+    # read of token_blacklist does not hand out still-unexpired JWTs. Migration
+    # 0111 rewrites existing clear-text rows into this same form.
+    return "sha256:" + hashlib.sha256(_canonical_token(token).encode()).hexdigest()
 
 
 def token_key(token: str) -> str:

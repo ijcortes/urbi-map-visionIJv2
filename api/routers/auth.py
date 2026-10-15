@@ -13,7 +13,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from api.db import get_pool
 from api.dependencies import JWT_ALGORITHM, JWT_SECRET, get_current_user, token_key
-from api.limiter import email_throttle, limiter
+from api.limiter import email_throttle, limiter, login_fail_throttle
 
 _APP_URL = os.getenv("APP_URL", "https://medellinsocial.com")
 
@@ -239,7 +239,7 @@ async def register(request: Request, background: BackgroundTasks, req: RegisterR
         """,
         req.email, password_hash, req.nombre, req.apellido, req.telefono, req.origen,
     )
-    if user_id is not None and email_throttle.allow(f"verify:{req.email}"):
+    if user_id is not None and await email_throttle.allow_shared(pool, f"verify:{req.email}"):
         background.add_task(_issue_verification, pool, user_id, req.email, req.nombre or "")
     return RegisterResponse()
 
@@ -259,7 +259,7 @@ async def resend_verification(
     row = await pool.fetchrow(
         "SELECT id, nombre, email_verificado FROM usuarios WHERE email = $1", req.email
     )
-    if row is not None and not row["email_verificado"] and email_throttle.allow(f"verify:{req.email}"):
+    if row is not None and not row["email_verificado"] and await email_throttle.allow_shared(pool, f"verify:{req.email}"):
         background.add_task(_issue_verification, pool, row["id"], req.email, row["nombre"] or "")
     return {"message": _REGISTER_MSG}
 
@@ -268,6 +268,13 @@ async def resend_verification(
 @limiter.limit("5/minute")
 async def login(request: Request, req: LoginRequest = Body(...)):
     pool = get_pool()
+    fail_key = f"login_fail:{req.email.strip().lower()}"
+    if await login_fail_throttle.count_shared(pool, fail_key) >= login_fail_throttle.max_events:
+        raise HTTPException(
+            status_code=429,
+            detail="Demasiados intentos fallidos. Espera 15 minutos o restablece tu contraseña.",
+            headers={"Retry-After": str(int(login_fail_throttle.window_s))},
+        )
     row = await pool.fetchrow(
         """SELECT id, email, password_hash, nombre, apellido, activo, plan,
                   email_verificado, token_version, perfil_busqueda, onboarding_completado, origen_registro,
@@ -283,6 +290,7 @@ async def login(request: Request, req: LoginRequest = Body(...)):
         req.password, row["password_hash"] if row is not None else _DUMMY_HASH
     )
     if row is None or not pw_ok:
+        await login_fail_throttle.hit_shared(pool, fail_key)
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
     if not row["activo"]:
         raise HTTPException(status_code=403, detail="Cuenta desactivada")
@@ -339,7 +347,7 @@ def _auth_response(row, token: str, perfil) -> "AuthResponse":
 async def _issue_magic_link(pool, background: BackgroundTasks, email: str) -> None:
     from api.utils.email import send_magic_link
 
-    if not email_throttle.allow(f"magic:{email}"):
+    if not await email_throttle.allow_shared(pool, f"magic:{email}"):
         return  # per-email cap (mail-bombing / token-clobber)
     token = secrets.token_urlsafe(32)
     expires = datetime.now(timezone.utc) + timedelta(minutes=15)
@@ -555,7 +563,7 @@ async def forgot_password(
         "SELECT id, nombre FROM usuarios WHERE email = $1", req.email
     )
     # Always 200 — avoid email enumeration
-    if user is None or not email_throttle.allow(f"reset:{req.email}"):
+    if user is None or not await email_throttle.allow_shared(pool, f"reset:{req.email}"):
         return {"message": "Si el correo existe recibirás instrucciones."}
 
     token = secrets.token_urlsafe(32)

@@ -513,6 +513,11 @@ async def _cleanup_token_blacklist(pool: Any) -> None:
         logger.info("[cache] token_blacklist cleanup: %s", res)
     except Exception:
         logger.error("[cache] token_blacklist cleanup failed", exc_info=True)
+    try:
+        # throttle windows are <= 1h; keep a day for forensics
+        await pool.execute("DELETE FROM public.throttle_hits WHERE hit_at < NOW() - INTERVAL '1 day'")
+    except Exception:
+        logger.error("[cache] throttle_hits cleanup failed", exc_info=True)
 
 
 async def run_periodic_cache_refresh(pool: Any) -> None:

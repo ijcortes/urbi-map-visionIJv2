@@ -7,6 +7,7 @@ from pathlib import Path
 import asyncpg
 import structlog
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -59,6 +60,18 @@ _LOCAL_ORIGINS = [
     "https://medellinsocial.com",
     "https://www.medellinsocial.com",
 ]
+
+# Wildcard origins (preview deploys on shared platforms) are opt-in via env.
+# Default: dev keeps the old Lovable/Railway preview regex, prod allows none.
+_DEV_ORIGIN_REGEX = r"https://.*\.(lovable\.app|lovableproject\.com|up\.railway\.app)$"
+
+
+def _build_origin_regex() -> str | None:
+    explicit = os.getenv("CORS_ORIGIN_REGEX", "").strip()
+    if explicit:
+        return explicit
+    return None if _IS_PROD else _DEV_ORIGIN_REGEX
+
 
 def _build_origins() -> list[str]:
     extra = os.getenv("CORS_ORIGINS", "")
@@ -134,6 +147,17 @@ async def _db_data_error_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=422, content={"detail": "valor numérico fuera de rango"})
 
 
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError):
+    # Same 422 shape as FastAPI's default, minus the "input"/"ctx" fields: the
+    # default handler echoes the submitted value back (passwords, emails, PII).
+    detail = [
+        {"type": e.get("type"), "loc": list(e.get("loc", ())), "msg": e.get("msg")}
+        for e in exc.errors()
+    ]
+    return JSONResponse(status_code=422, content={"detail": detail})
+
+
 @app.get("/health", include_in_schema=False)
 async def health():
     # Railway healthcheckPath. Sin DB a propósito: responde apenas uvicorn
@@ -174,7 +198,7 @@ app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_build_origins(),
-    allow_origin_regex=r"https://.*\.(lovable\.app|lovableproject\.com|up\.railway\.app)$",
+    allow_origin_regex=_build_origin_regex(),
     # No cookie/session auth anywhere (Bearer JWT only, checked api/dependencies.py) —
     # allow_credentials=True bought nothing but let any subdomain of these shared,
     # publicly-registrable platforms make credentialed cross-origin calls.

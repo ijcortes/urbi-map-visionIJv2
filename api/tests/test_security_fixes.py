@@ -61,11 +61,19 @@ async def test_forged_and_tokens_without_exp_are_rejected():
 
 # ── H2: admin fails closed ──────────────────────────────────────────────────
 
-def test_require_admin_needs_matching_verified_account():
+def _admin_req(ip="1.2.3.4"):
+    from starlette.requests import Request
+    return Request({"type": "http", "headers": [], "client": (ip, 1234), "method": "GET", "path": "/"})
+
+
+@pytest.mark.asyncio
+async def test_require_admin_needs_matching_verified_account(monkeypatch):
     from fastapi import HTTPException
     from api.routers.admin import ADMIN_EMAIL, require_admin
 
-    assert require_admin({"email": ADMIN_EMAIL, "email_verificado": True})
+    monkeypatch.delenv("ADMIN_ALLOWED_IPS", raising=False)
+    monkeypatch.delenv("ADMIN_REQUIRE_DB_ROLE", raising=False)
+    assert await require_admin(_admin_req(), {"id": 1, "email": ADMIN_EMAIL, "email_verificado": True})
     for u in (
         {"email": ADMIN_EMAIL, "email_verificado": False},
         {"email": ADMIN_EMAIL},                       # field missing -> closed
@@ -73,8 +81,22 @@ def test_require_admin_needs_matching_verified_account():
         {"email": None, "email_verificado": True},
     ):
         with pytest.raises(HTTPException) as e:
-            require_admin(u)
+            await require_admin(_admin_req(), u)
         assert e.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_require_admin_ip_allowlist(monkeypatch):
+    from fastapi import HTTPException
+    from api.routers.admin import ADMIN_EMAIL, require_admin
+
+    monkeypatch.setenv("TRUSTED_PROXY_COUNT", "0")
+    monkeypatch.setenv("ADMIN_ALLOWED_IPS", "9.9.9.9")
+    u = {"id": 1, "email": ADMIN_EMAIL, "email_verificado": True}
+    with pytest.raises(HTTPException) as e:
+        await require_admin(_admin_req("1.2.3.4"), u)
+    assert e.value.status_code == 403
+    assert await require_admin(_admin_req("9.9.9.9"), u)
 
 
 def test_admin_and_reserved_emails_are_reserved(monkeypatch):

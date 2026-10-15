@@ -15,6 +15,7 @@ from pydantic import BaseModel, EmailStr
 from api.db import get_pool
 from api.dependencies import get_current_user, get_optional_user
 from api.utils import ghl_client
+from api.utils.pii import mask_email
 
 log = logging.getLogger(__name__)
 
@@ -281,7 +282,7 @@ async def invitar_agente(
             invite_url=invite_url,
         )
     except Exception:
-        log.exception("Falló email de invitación a %s para agencia %s", req.email, agency.id)
+        log.exception("Falló email de invitación a %s para agencia %s", mask_email(req.email), agency.id)
         # La fila ya está en DB — no lanzar; el owner puede reenviar
     return {"ok": True, "invite_url": invite_url}
 

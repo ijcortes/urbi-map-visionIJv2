@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import smtplib
 import asyncio
+from api.utils.pii import mask_email
 from html import escape as _html_escape
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -53,7 +54,7 @@ def _one_line(value: str) -> str:
 def _send_sync(to: str, subject: str, html: str) -> None:
     if not _SMTP_USER or not _SMTP_PASS:
         # Dev fallback: print to stdout so the feature doesn't break
-        print(f"[EMAIL STUB] To={to} Subject={subject}")
+        print(f"[EMAIL STUB] To={mask_email(to)} Subject={subject}")
         return
 
     msg = MIMEMultipart("alternative")

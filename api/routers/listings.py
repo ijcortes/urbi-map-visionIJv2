@@ -1581,7 +1581,7 @@ class AgentePerfilListing(BaseModel):
 
 class AgentePerfilResena(BaseModel):
     calificacion: int
-    comentario: Optional[str] = None
+    comentario: Optional[str] = Field(default=None, max_length=2000)
     autor: str = "Usuario"
     created_at: Optional[datetime] = None
 
@@ -1701,7 +1701,7 @@ async def get_agente_perfil(request: Request, agent_id: str):
 
 class ResenaIn(BaseModel):
     calificacion: int = Field(ge=1, le=5)
-    comentario: Optional[str] = None
+    comentario: Optional[str] = Field(default=None, max_length=2000)
 
 
 @router.post("/agentes/{agent_id}/resenas", status_code=201)

@@ -252,11 +252,29 @@ async def webhook_stripe(request: Request):
 
     try:
         event = stripe_client.verificar_webhook(payload, sig)
-    except ValueError:
+    except Exception:
+        # ValueError (bad payload / not configured) and stripe's
+        # SignatureVerificationError both mean "reject", never a 500.
         raise HTTPException(400, "Webhook inválido")
 
     etype = event["type"]
     data  = event["data"]["object"]
+
+    # Idempotency: Stripe retries and a captured request can be replayed inside
+    # the signature tolerance window; process each event id once.
+    event_id = event.get("id")
+    if event_id:
+        first_time = await get_pool().fetchval(
+            """
+            INSERT INTO public.stripe_events (event_id, tipo)
+            VALUES ($1, $2)
+            ON CONFLICT (event_id) DO NOTHING
+            RETURNING event_id
+            """,
+            event_id, etype,
+        )
+        if first_time is None:
+            return {"received": True, "duplicate": True}
 
     if etype == "checkout.session.completed":
         meta       = data.get("metadata", {})

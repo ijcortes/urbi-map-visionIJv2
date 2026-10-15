@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional
 from api.services.agent_service import ESTADOS_ASIGNABLES
 from api.services.sponsorship_service import patrocinadores_vigentes
 from api.services.zona_service import resolver_zona
+from api.utils.pii import mask_email
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,7 @@ async def _notificar_lead_asignado(agent_id: str, intake_id: str, pool: Any) -> 
             <p><a href="{app_url}/realtor/dashboard" style="color:#085041;font-weight:600">Abrir mi inbox →</a></p>
             """,
         )
-        logger.info("Lead %s: notificación enviada a %s", intake_id, row["email"])
+        logger.info("Lead %s: notificación enviada a %s", intake_id, mask_email(row["email"]))
     except Exception:
         logger.exception("Lead %s: notificación al agente %s falló", intake_id, agent_id)
 

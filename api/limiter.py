@@ -95,10 +95,53 @@ class KeyedThrottle:
         with self._lock:
             self._hits.clear()
 
+    async def allow_shared(self, pool, key: str) -> bool:
+        """Same rule, counted in Postgres (public.throttle_hits, migration 0111) so
+        the cap holds across workers and restarts. Falls back to the in-process
+        counter if the table/DB is unavailable (never blocks the request on it)."""
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    # serialize per key so two workers cannot both pass the last slot
+                    await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", key)
+                    n = await conn.fetchval(
+                        "SELECT COUNT(*) FROM public.throttle_hits "
+                        "WHERE key = $1 AND hit_at > NOW() - make_interval(secs => $2)",
+                        key, float(self.window_s),
+                    )
+                    if n >= self.max_events:
+                        return False
+                    await conn.execute("INSERT INTO public.throttle_hits (key) VALUES ($1)", key)
+                    return True
+        except Exception:
+            return self.allow(key)
+
+    async def count_shared(self, pool, key: str) -> int:
+        """Hits for key inside the window (0 if the table is unavailable)."""
+        try:
+            return int(await pool.fetchval(
+                "SELECT COUNT(*) FROM public.throttle_hits "
+                "WHERE key = $1 AND hit_at > NOW() - make_interval(secs => $2)",
+                key, float(self.window_s),
+            ) or 0)
+        except Exception:
+            return 0
+
+    async def hit_shared(self, pool, key: str) -> None:
+        try:
+            await pool.execute("INSERT INTO public.throttle_hits (key) VALUES ($1)", key)
+        except Exception:
+            pass
+
 
 # Outgoing-mail throttles (per target email). Callers must answer uniformly
 # (same response whether or not the mail was sent).
 email_throttle = KeyedThrottle(max_events=3, window_s=3600)
+
+# Per-account login lockout: after N failed passwords for one email in the window,
+# further attempts are refused regardless of source IP (counted for unknown
+# emails too, so the lockout itself is not an account-existence oracle).
+login_fail_throttle = KeyedThrottle(max_events=10, window_s=15 * 60)
 
 
 # View-count de-duplication: one counted view per (client IP, entity) per window.

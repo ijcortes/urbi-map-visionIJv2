@@ -27,6 +27,7 @@ from api.services.listing_service import datos_minimos_completos
 from api.utils import ghl_client
 from api.utils.email import ADMIN_EMAIL, _wrap, esc, send_email
 from api.utils.storage import read_upload_bounded, upload_file
+from api.utils.pii import mask_email
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +148,9 @@ class OtpEnviarRequest(BaseModel):
     telefono: str = Field(min_length=7, max_length=30)
 
 
+_OTP_MAX_INTENTOS = 5
+
+
 class OtpConfirmarRequest(BaseModel):
     codigo: str = Field(min_length=4, max_length=10)
 
@@ -163,7 +167,7 @@ async def otp_enviar(request: Request, req: OtpEnviarRequest, current_user: dict
     owner_id = await get_or_create_owner(current_user, pool)
     codigo = f"{secrets.randbelow(1_000_000):06d}"
     await pool.execute(
-        "UPDATE owner SET telefono = $1, otp_codigo = $2, "
+        "UPDATE owner SET telefono = $1, otp_codigo = $2, otp_intentos = 0, "
         "otp_expira = NOW() + INTERVAL '10 minutes', telefono_verificado = FALSE "
         "WHERE id = $3::uuid",
         req.telefono, codigo, owner_id,
@@ -180,7 +184,7 @@ async def otp_enviar(request: Request, req: OtpEnviarRequest, current_user: dict
             """),
         )
     except Exception:
-        logger.exception("OTP: fallo enviando email a %s", current_user["email"])
+        logger.exception("OTP: fallo enviando email a %s", mask_email(current_user["email"]))
     return {"enviado": True, "canal": "email"}
 
 
@@ -190,12 +194,20 @@ async def otp_confirmar(request: Request, req: OtpConfirmarRequest, current_user
     pool = get_pool()
     owner_id = await get_or_create_owner(current_user, pool)
     ok = await pool.fetchval(
-        "UPDATE owner SET telefono_verificado = TRUE, otp_codigo = NULL, otp_expira = NULL "
+        "UPDATE owner SET telefono_verificado = TRUE, otp_codigo = NULL, otp_expira = NULL, otp_intentos = 0 "
         "WHERE id = $1::uuid AND otp_codigo = $2 AND otp_expira > NOW() "
-        "RETURNING TRUE",
-        owner_id, req.codigo,
+        "AND otp_intentos < $3 RETURNING TRUE",
+        owner_id, req.codigo, _OTP_MAX_INTENTOS,
     )
     if not ok:
+        # Per-account cap (the per-IP limit alone allows a distributed guess of
+        # the 6 digits): after N wrong codes the code is burned, ask for a new one.
+        await pool.execute(
+            "UPDATE owner SET otp_intentos = otp_intentos + 1, "
+            "otp_codigo = CASE WHEN otp_intentos + 1 >= $2 THEN NULL ELSE otp_codigo END "
+            "WHERE id = $1::uuid AND otp_codigo IS NOT NULL",
+            owner_id, _OTP_MAX_INTENTOS,
+        )
         raise HTTPException(400, "Código inválido o vencido")
     return {"telefono_verificado": True}
 

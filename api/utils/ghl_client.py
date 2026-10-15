@@ -316,6 +316,15 @@ async def _record_sync_result(
     object_type: str, internal_id: str, ghl_id: str, status: str, error: Optional[str]
 ) -> None:
     pool = get_pool()
+    if status == "synced":
+        try:
+            await pool.execute(
+                "UPDATE public.ghl_push_failures SET resolved_at = now() "
+                "WHERE object_type = $1 AND internal_object_id = $2 AND resolved_at IS NULL",
+                object_type, str(internal_id),
+            )
+        except Exception:
+            logger.exception("ghl_push_failures resolve(%s, %s)", object_type, internal_id)
     await pool.execute(
         """
         INSERT INTO public.ghl_object_mapping
@@ -329,6 +338,25 @@ async def _record_sync_result(
         """,
         object_type, str(internal_id), ghl_id, _GHL_LOCATION_ID, status, error,
     )
+
+
+async def _record_push_failure(object_type: str, internal_id, error: str) -> None:
+    """First-time push that failed: there is no mapping row (ghl_object_id is
+    NOT NULL there), so keep it in ghl_push_failures for a later retry instead
+    of only logging it. Never raises (best-effort, same as the push itself)."""
+    try:
+        await get_pool().execute(
+            """
+            INSERT INTO public.ghl_push_failures (object_type, internal_object_id, error)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (object_type, internal_object_id) WHERE resolved_at IS NULL
+            DO UPDATE SET error = EXCLUDED.error, attempts = ghl_push_failures.attempts + 1,
+                          last_failed_at = now()
+            """,
+            object_type, str(internal_id), (error or "")[:2000],
+        )
+    except Exception:
+        logger.exception("no se pudo registrar ghl_push_failures(%s, %s)", object_type, internal_id)
 
 
 @_serialized("listing")
@@ -351,6 +379,8 @@ async def push_listing_to_ghl(listing_id: str, campos: dict) -> Optional[str]:
         logger.warning("push_listing_to_ghl(%s): %s", listing_id, e)
         if existing:
             await _record_sync_result("listing", listing_id, existing["ghl_object_id"], "failed", str(e))
+        else:
+            await _record_push_failure("listing", listing_id, str(e))
         return None
 
     try:
@@ -373,6 +403,8 @@ async def push_listing_to_ghl(listing_id: str, campos: dict) -> Optional[str]:
         logger.error("push_listing_to_ghl(%s) falló (sin reintentos restantes): %s", listing_id, e)
         if existing:
             await _record_sync_result("listing", listing_id, existing["ghl_object_id"], "failed", str(e))
+        else:
+            await _record_push_failure("listing", listing_id, str(e))
         return None
 
     await _record_sync_result("listing", listing_id, ghl_id, "synced", None)
@@ -496,6 +528,8 @@ async def push_tienda_to_ghl(tienda_id: int, campos: dict) -> Optional[str]:
         logger.warning("push_tienda_to_ghl(%s): %s", tienda_id, e)
         if existing:
             await _record_sync_result("tienda", tienda_id, existing["ghl_object_id"], "failed", str(e))
+        else:
+            await _record_push_failure("tienda", tienda_id, str(e))
         return None
 
     try:
@@ -518,6 +552,8 @@ async def push_tienda_to_ghl(tienda_id: int, campos: dict) -> Optional[str]:
         logger.warning("push_tienda_to_ghl(%s) falló: %s", tienda_id, e)
         if existing:
             await _record_sync_result("tienda", tienda_id, existing["ghl_object_id"], "failed", str(e))
+        else:
+            await _record_push_failure("tienda", tienda_id, str(e))
         return None
 
     await _record_sync_result("tienda", tienda_id, ghl_id, "synced", None)
@@ -602,6 +638,8 @@ async def push_agency_to_ghl(agency_id: str, campos: dict) -> Optional[str]:
         logger.warning("push_agency_to_ghl(%s) falló: %s", agency_id, e)
         if existing:
             await _record_sync_result("agency", agency_id, existing["ghl_object_id"], "failed", str(e))
+        else:
+            await _record_push_failure("agency", agency_id, str(e))
         return None
 
     await _record_sync_result("agency", agency_id, ghl_id, "synced", None)
