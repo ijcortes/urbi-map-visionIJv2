@@ -73,7 +73,7 @@ fi
 # que rompe Optional[List[UploadFile]] (uploads de /publicar).
 echo "Iniciando backend  → http://localhost:$API_PORT"
 : > "$BACKEND_LOG"
-python -m uvicorn api.main:app --host 0.0.0.0 --port "$API_PORT" \
+ENV=dev python -m uvicorn api.main:app --host 0.0.0.0 --port "$API_PORT" \
   > "$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
 

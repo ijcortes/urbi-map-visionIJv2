@@ -38,6 +38,10 @@ import psycopg2.extras
 import requests
 from dotenv import load_dotenv
 
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).parent.parent))
+from scraping.utils.cost_ledger import charge  # noqa: E402  (raises BudgetExceeded at the monthly cap)
+
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 DB_URL  = os.environ["DATABASE_URL"]
@@ -345,6 +349,7 @@ def fase_d(conn, dry_run: bool, max_listings: int | None, delay: float = 1.2) ->
 
     for i, row in enumerate(to_enrich, 1):
         lid = row["listing_id"]
+        charge("airroi", "listings", 0.01)
         resp = session.get(f"{BASE}/listings", params={"id": lid}, timeout=20)
         cost += 0.01
         time.sleep(delay)

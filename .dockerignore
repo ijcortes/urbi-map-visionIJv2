@@ -1,5 +1,19 @@
+# Shared by all three Dockerfiles (web / api / cron) -> keep it to things nobody needs.
+# The web image has extra exclusions in Dockerfile.dockerignore (BuildKit picks it up automatically).
 node_modules
 dist
+dist-ssr
 .git
 .env*
+!.env.example
 *.md
+*.log
+*.csv
+*:Zone.Identifier
+test_simulador_resultado.json
+Caddyfile.bak
+.serena
+.vscode
+.idea
+__pycache__
+*.pyc

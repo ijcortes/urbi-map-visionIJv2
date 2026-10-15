@@ -1,7 +1,8 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { auth } from "@/lib/auth";
-import { getToken } from "@/lib/apiClient";
+import { authHeaders, authCredentials } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { ComunidadLayout } from "@/components/comunidad/ComunidadLayout";
 import { K as TOKENS } from "@/design/tokens";
@@ -19,6 +20,7 @@ interface Agente {
 }
 
 export const Route = createFileRoute("/conectar-agente")({
+  head: () => seo({ title: "Conecta con un agente · Medellín Social", description: "Te conectamos con un agente inmobiliario verificado de tu zona.", path: "/conectar-agente" }),
   validateSearch: (s: Record<string, unknown>) => ({
     // listing.id es UUID (modelo unificado). Se conserva como string.
     listing_id: s.listing_id != null ? String(s.listing_id) : "",
@@ -64,7 +66,8 @@ function ConectarAgentePage() {
 
       const res = await fetch(API_ENDPOINTS.listingsPropiosSolicitudes, {
         method: "POST",
-        headers: { Authorization: `Bearer ${getToken()}` },
+        headers: authHeaders(),
+        credentials: authCredentials,
         body: fd,
       });
 

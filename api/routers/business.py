@@ -7,7 +7,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from api.db import get_pool
 from api.dependencies import get_current_user
 from api.limiter import limiter
-from api.utils.urls import require_safe_url
+from api.utils.urls import require_plain_text, require_safe_url
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -372,6 +372,14 @@ class MiNegocioIn(BaseModel):
 
     _validar_website = field_validator("website")(require_safe_url)
     _validar_foto_url = field_validator("foto_url")(require_safe_url)
+    # Stored XSS defense: these end up in a public map popup / directory.
+    _v_nombre = field_validator("nombre")(require_plain_text(120))
+    _v_categoria = field_validator("categoria")(require_plain_text(60))
+    _v_descripcion = field_validator("descripcion")(require_plain_text(2000))
+    _v_direccion = field_validator("direccion")(require_plain_text(200))
+    _v_telefono = field_validator("telefono")(require_plain_text(30))
+    _v_whatsapp = field_validator("whatsapp")(require_plain_text(30))
+    _v_instagram = field_validator("instagram")(require_plain_text(100))
 
 
 class MiNegocioOut(BaseModel):

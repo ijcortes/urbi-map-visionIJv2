@@ -1,10 +1,12 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { useRegister } from "@/hooks/useAuth";
+import { useRegister, useResendVerification } from "@/hooks/useAuth";
 import { AuthShell, Field, ErrorBanner, AuthButton, inputStyle } from "./login";
 import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 
 export const Route = createFileRoute("/register")({
+  head: () => seo({ title: "Crear cuenta · Medellín Social", description: "Crea tu cuenta gratis en Medellín Social.", path: "/register" }),
   component: RegisterPage,
 });
 
@@ -25,6 +27,8 @@ function getOrigenFromReferrer(): "mls" | "comunidad" {
 function RegisterPage() {
   const navigate = useNavigate();
   const register = useRegister();
+  const resend = useResendVerification();
+  const [sentTo, setSentTo] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [telefono, setTelefono] = useState("");
@@ -45,15 +49,42 @@ function RegisterPage() {
     setError("");
     try {
       await register.mutateAsync({ email, password, nombre: name, telefono, origen });
+      // No session yet: the account only works after the emailed link is confirmed.
       localStorage.removeItem("registro_origen");
       localStorage.removeItem("onboarding_complete");
       localStorage.setItem("onboarding_origen", origen);
-      window.dispatchEvent(new CustomEvent("show-onboarding", { detail: { origen } }));
-      navigate({ to: origen === "mls" ? "/map" : "/" });
+      setSentTo(email);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al crear la cuenta.");
     }
   };
+
+  if (sentTo) {
+    return (
+      <AuthShell
+        title="Revisa tu correo"
+        subtitle={`Te enviamos un enlace de confirmación a ${sentTo}`}
+        editorial={"Únete a la comunidad que\nestá construyendo Medellín."}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 16, fontFamily: "'Inter', system-ui, sans-serif", fontSize: 14, color: "#5B5F5C" }}>
+          <p style={{ margin: 0 }}>
+            Confirma tu correo para activar tu cuenta y luego inicia sesión. Si no llega en unos minutos, revisa spam o pide otro enlace.
+          </p>
+          <button
+            type="button"
+            disabled={resend.isPending}
+            onClick={() => resend.mutate({ email: sentTo })}
+            style={{ background: "none", border: "none", color: "#0F8A4F", fontWeight: 700, cursor: "pointer", padding: 0, textAlign: "left" }}
+          >
+            {resend.isSuccess ? "Enlace reenviado" : "Reenviar enlace"}
+          </button>
+          <Link to="/login" style={{ color: "#0F8A4F", fontWeight: 700, textDecoration: "none" }}>
+            Ir a iniciar sesión
+          </Link>
+        </div>
+      </AuthShell>
+    );
+  }
 
   return (
     <AuthShell

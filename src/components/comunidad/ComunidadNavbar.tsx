@@ -1,3 +1,4 @@
+import { Name, useT } from "@/lib/i18n";
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useBarrio } from './BarrioContext'
 import { useTicker } from '../../hooks/useTicker'
@@ -86,7 +87,7 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
     setGlobalLang(l)
   }
 
-  const t = (es: string, en: string) => lang === 'es' ? es : en
+  const t = useT()
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -232,7 +233,7 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
         @media (prefers-reduced-motion: reduce) {
           .k-ticker-inner, .k-tricolor > i, .masthead-logo, .masthead-tag { animation: none !important; }
         }
-        @media (max-width: 768px) {
+        @media (max-width: 767px) {
           .mobile-menu-btn { display: flex !important; align-items: center; justify-content: center; }
           .desktop-nav-links { display: none !important; }
           .desktop-only { display: none !important; }
@@ -298,14 +299,14 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
                   <optgroup label="── Medellín ──" style={{ color: K.ink, background: '#fff' }}>
                     {medellin.map(b => (
                       <option key={b.slug} value={b.slug} style={{ color: K.ink, background: '#fff' }}>
-                        {b.nombre}
+                        <Name>{b.nombre}</Name>
                       </option>
                     ))}
                   </optgroup>
                   <optgroup label="── Valle de Aburrá ──" style={{ color: K.ink, background: '#fff' }}>
                     {valleAbura.map(b => (
                       <option key={b.slug} value={b.slug} style={{ color: K.ink, background: '#fff' }}>
-                        {b.nombre}
+                        <Name>{b.nombre}</Name>
                       </option>
                     ))}
                   </optgroup>
@@ -398,6 +399,9 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
                 <button
                   key={l}
                   onClick={() => setLang(l)}
+                  aria-label={l === 'es' ? 'Español' : 'English'}
+                  aria-pressed={lang === l}
+                  data-testid={`lang-${l}`}
                   style={{
                     border: 'none',
                     background: lang === l ? K.amarillo : 'transparent',
@@ -420,6 +424,7 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
                   key={l}
                   onClick={() => setLang(l)}
                   aria-label={l === 'es' ? 'Español' : 'English'}
+                  aria-pressed={lang === l}
                   style={{
                     border: 'none',
                     background: lang === l ? K.amarillo : 'transparent',
@@ -481,14 +486,14 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
                 <optgroup label="── Medellín ──" style={{ color: K.ink, background: '#fff' }}>
                   {medellin.map(b => (
                     <option key={b.slug} value={b.slug} style={{ color: K.ink, background: '#fff' }}>
-                      {b.nombre}
+                      <Name>{b.nombre}</Name>
                     </option>
                   ))}
                 </optgroup>
                 <optgroup label="── Valle de Aburrá ──" style={{ color: K.ink, background: '#fff' }}>
                   {valleAbura.map(b => (
                     <option key={b.slug} value={b.slug} style={{ color: K.ink, background: '#fff' }}>
-                      {b.nombre}
+                      <Name>{b.nombre}</Name>
                     </option>
                   ))}
                 </optgroup>

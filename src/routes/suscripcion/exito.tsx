@@ -1,13 +1,15 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { auth } from "@/lib/auth";
-import { getToken } from "@/lib/apiClient";
+import { getToken, authHeaders, authCredentials } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { K as TOKENS } from "@/design/tokens";
 
 const K = TOKENS;
 
 export const Route = createFileRoute("/suscripcion/exito")({
+  head: () => seo({ title: "Suscripción activa · Medellín Social", description: "Tu suscripción quedó activa.", noindex: true }),
   validateSearch: (s: Record<string, unknown>) => ({
     plan: (s.plan as string) ?? "",
   }),
@@ -24,7 +26,8 @@ function ExitoPage() {
 
     // Refresh user plan in localStorage from DB
     fetch(API_ENDPOINTS.suscripcionesMiPlan, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: authHeaders(),
+      credentials: authCredentials,
     })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {

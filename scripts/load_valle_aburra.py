@@ -17,9 +17,14 @@ import re
 import unicodedata
 from pathlib import Path
 
+import sys
+
 import psycopg2
 import psycopg2.extras
-from shapely.geometry import Point, shape
+from shapely.geometry import shape
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from scraping.utils.quality import in_valle, resolve_barrio  # noqa: E402
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -131,7 +136,6 @@ def load_real_listings(cur, db_features: list[dict], dry_run: bool):
             continue
 
         valid_muns = SLUG_VALID_MUNICIPIOS[slug]
-        candidates = by_slug.get(slug, [])
 
         with open(json_file) as f:
             listings = json.load(f)
@@ -158,9 +162,10 @@ def load_real_listings(cur, db_features: list[dict], dry_run: bool):
                 continue
 
             url = FINCARAIZ_URL.format(listing_id)
+            # Already-known URLs are UPSERTED (price/area/last_seen refresh), not
+            # skipped: skipping froze prices and made every listing look unseen.
             if url in existing_urls:
-                skipped_dup += 1
-                continue
+                skipped_dup += 1  # counted as "updated" below
 
             # Filter outliers
             if tipo == "venta":
@@ -175,24 +180,13 @@ def load_real_listings(cur, db_features: list[dict], dry_run: bool):
                 if area > 0 and not (MIN_AREA <= area <= MAX_AREA):
                     continue
 
-            # PIP to find barrio_id
+            # Polygon check (not the lat/lon box) + barrio with a 300 m cap.
             barrio_id = None
             if lat and lng:
-                pt = Point(float(lng), float(lat))
-                best_dist = float("inf")
-                best_id = None
-                for feat in candidates:
-                    if not feat["geom"]:
-                        continue
-                    if feat["geom"].contains(pt):
-                        barrio_id = feat["barrio_id"]
-                        break
-                    d = feat["geom"].distance(pt)
-                    if d < best_dist:
-                        best_dist = d
-                        best_id = feat["barrio_id"]
-                if barrio_id is None and best_dist < 0.02:  # ~2km tolerance
-                    barrio_id = best_id
+                if not in_valle(cur, lat, lng):
+                    skipped_geo += 1
+                    continue
+                barrio_id = resolve_barrio(cur, lat, lng)
 
             if barrio_id is None:
                 skipped_geo += 1
@@ -215,22 +209,30 @@ def load_real_listings(cur, db_features: list[dict], dry_run: bool):
                         (fuente, tipo_operacion, tipo_inmueble, precio, area_m2,
                          habitaciones, banos, direccion_raw,
                          barrio_id, url, barrio_raw, municipio_raw, raw_data, activo,
-                         lat, lon, estrato_real, descripcion, amenidades, fecha_scraping)
-                    VALUES ('fincaraiz',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,true,%s,%s,%s,%s,%s,NOW())
+                         lat, lon, estrato_real, descripcion, amenidades, fecha_scraping,
+                         fotos, last_seen_at, destacado, anunciante_tipo, moneda,
+                         precio_incluye_admin, area_tipo)
+                    VALUES ('fincaraiz',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,true,%s,%s,%s,%s,%s,NOW(),
+                            %s,NOW(),%s,%s,%s,%s,%s)
                     ON CONFLICT (url) DO UPDATE SET
-                        descripcion    = EXCLUDED.descripcion,
-                        amenidades     = EXCLUDED.amenidades,
+                        descripcion    = COALESCE(EXCLUDED.descripcion, listings_fincaraiz.descripcion),
+                        amenidades     = COALESCE(EXCLUDED.amenidades, listings_fincaraiz.amenidades),
+                        fotos          = CASE WHEN array_length(EXCLUDED.fotos,1) > 0 THEN EXCLUDED.fotos ELSE listings_fincaraiz.fotos END,
                         precio         = EXCLUDED.precio,
                         area_m2        = EXCLUDED.area_m2,
                         habitaciones   = EXCLUDED.habitaciones,
                         banos          = EXCLUDED.banos,
                         tipo_inmueble  = EXCLUDED.tipo_inmueble,
                         raw_data       = EXCLUDED.raw_data,
-                        fecha_scraping = EXCLUDED.fecha_scraping
-                    WHERE
-                        EXCLUDED.descripcion IS NOT NULL
-                        OR EXCLUDED.amenidades IS NOT NULL
-                        OR listings_fincaraiz.descripcion IS NULL
+                        fecha_scraping = EXCLUDED.fecha_scraping,
+                        barrio_id      = COALESCE(EXCLUDED.barrio_id, listings_fincaraiz.barrio_id),
+                        activo         = true,
+                        last_seen_at   = NOW(),
+                        destacado      = EXCLUDED.destacado,
+                        anunciante_tipo = COALESCE(EXCLUDED.anunciante_tipo, listings_fincaraiz.anunciante_tipo),
+                        moneda         = EXCLUDED.moneda,
+                        precio_incluye_admin = EXCLUDED.precio_incluye_admin,
+                        area_tipo      = EXCLUDED.area_tipo
                     """,
                     (
                         tipo, tipo_inmueble, precio, area if area > 0 else None,
@@ -245,6 +247,12 @@ def load_real_listings(cur, db_features: list[dict], dry_run: bool):
                         lst.get("estrato") or None,
                         lst.get("descripcion"),
                         amenidades_list if amenidades_list else None,
+                        (lst.get("fotos") or None),
+                        lst.get("destacado"),
+                        lst.get("anunciante_tipo"),
+                        lst.get("moneda") or "COP",
+                        lst.get("precio_incluye_admin"),
+                        lst.get("area_tipo"),
                     ),
                 )
 
@@ -255,7 +263,7 @@ def load_real_listings(cur, db_features: list[dict], dry_run: bool):
                 arriendo_n += 1
 
     print(f"listings: {venta_n} venta + {arriendo_n} arriendo inserted")
-    print(f"  skipped: {skipped_mun} wrong-mun, {skipped_geo} no-geo/barrio, {skipped_dup} already exist")
+    print(f"  skipped: {skipped_mun} wrong-mun, {skipped_geo} outside Valle/no-geo; {skipped_dup} existing URLs refreshed")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────

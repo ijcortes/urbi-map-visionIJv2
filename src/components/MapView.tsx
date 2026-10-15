@@ -4,6 +4,12 @@ import mapboxgl, { Map as MapboxMap } from "mapbox-gl";
 import { pointOnFeature } from "@turf/turf";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { MAPBOX_TOKEN } from "@/lib/mapboxToken";
+import { isMobileWidth, isTabletWidth, MOBILE_QUERY } from "@/lib/breakpoints";
+import { buildViewportParams, viewportCacheKey, type ListingQueryFilters } from "@/lib/listingParams";
+
+import { usePriceFormat } from "@/hooks/usePriceFormat";
+import type { Segmento } from "@/lib/segmento";
+import { toast } from "sonner";
 import { auth, MAP_STYLES } from "@/lib/auth";
 import { barrioToNeighborhood, type ApiBarrio, type Neighborhood } from "@/lib/adapters";
 import { useBarriosRaw, useScoreThresholds, useComunasMetrics, type ComunaMetrics } from "@/hooks/useBarrios";
@@ -27,6 +33,9 @@ import {
   setScoreThresholds,
   type ScorePaletteId,
 } from "@/config/mapColors";
+
+const VIEWPORT_REFRESH_MS = 2 * 60 * 1000;
+
 type Props = {
   onSelect: (n: Neighborhood) => void;
   selectedId: number | null;
@@ -61,11 +70,13 @@ type Props = {
     amenidades: string[] | null;
     estadoInmueble: string | null;
     pisoMin: number | null;
+    segmento?: Segmento | null;
+    ocultarDestacados?: boolean;
   };
+  /** Hold viewport fetching (e.g. until the residential/commercial segment is chosen). */
+  paused?: boolean;
   onViewportListingsChange?: (listings: ApiListing[]) => void;
   onViewportLoadingChange?: (loading: boolean) => void;
-  onAutoSelectBarrio?: (barrioId: number | null) => void;
-  onAutoSelectComuna?: (cd: number | null, municipio: string | null, nombre: string | null) => void;
   highlightedListingId?: number | null;
   flyToListingRef?: React.MutableRefObject<((lat: number, lng: number, zoom?: number) => void) | null>;
   onListingClickFromMap?: (id: number, screenX: number, screenY: number) => void;
@@ -121,13 +132,17 @@ const VALLE_BOUNDS: [[number, number], [number, number]] = [[-75.65, 6.150], [-7
 // el umbral si molesta). El zoom-in a calles sigue libre en ambos.
 const VALLE_BOUNDS_WIDE: [[number, number], [number, number]] = [[-75.68, 6.106], [-75.51, 6.3623]];
 function heroFit(): { bounds: [[number, number], [number, number]]; maxBounds: [[number, number], [number, number]] } {
-  return (typeof window !== "undefined" && window.innerWidth < 1024)
+  return (typeof window !== "undefined" && isTabletWidth(window.innerWidth))
     ? { bounds: VALLE_BOUNDS_WIDE, maxBounds: [[-75.71, 6.07], [-75.46, 6.42]] }
     : { bounds: VALLE_BOUNDS, maxBounds: [[-75.715, 6.128], [-75.475, 6.34]] };
 }
 // Zoom at which the polygon tier flips comuna → barrio (matches cluster→points). Knob.
-const POLYGON_TIER_ZOOM = 13;       // clusters → puntos (listings distribuidos de la comuna)
-const BARRIO_TIER_ZOOM = 15;        // puntos distribuidos → polígonos de barrio + auto-select barrio
+const POLYGON_TIER_ZOOM = 13;       // solo para encuadres (fitBounds maxZoom); el backend decide puntos vs clusters
+// Barrios: visibles (hover/click) desde este zoom; antes se ocultaban hasta 15.
+const BARRIO_MIN_ZOOM = 12;
+const BARRIO_LABEL_MIN_ZOOM = 13.5;
+// En vista listings el relleno de comuna cede el paso a los barrios a este zoom (zoom range, no visibility).
+const COMUNA_FILL_MAX_ZOOM = BARRIO_MIN_ZOOM;
 // ponytail: dos umbrales a propósito. A 13 aparecen los listings distribuidos de toda
 // la comuna; solo a 15 se baja a barrio (polígonos + narrow). Antes ambos caían en 13
 // = "pasaba a barrio directamente" sin fase intermedia. Tunear 15 si el salto se siente.
@@ -165,109 +180,7 @@ function featureCentroid(feat: mapboxgl.MapboxGeoJSONFeature): [number, number] 
   return [c.lat, c.lng];
 }
 
-// ── Popup HTML for individual listing ───────────────────────────────────────
-
-function _fmtCOP(n: number): string {
-  const m = Math.round(n / 1_000_000);
-  return `$${m.toLocaleString("es-CO")}M`;
-}
-
-function _fmtM2(n: number): string {
-  return `$${(n / 1_000_000).toFixed(1)}M/m²`;
-}
-
-function _scoreLabel(s: number): string {
-  if (s >= 70) return "EXCELENTE";
-  if (s >= 55) return "BUENO";
-  if (s >= 40) return "MODERADO";
-  return "BAJO";
-}
-
-function buildListingPopupHTML(
-  props: Record<string, unknown>,
-  barrio: ApiBarrio | undefined,
-  _perfil?: string,
-): string {
-  const precio_cop   = (props.precio_cop   as number | null) ?? null;
-  const precio_usd   = (props.precio_usd   as number | null) ?? null;
-  const precio_m2    = (props.precio_m2    as number | null) ?? null;
-  const mediana      = (props.precio_m2_mediana_barrio as number | null) ?? null;
-  const area_m2      = (props.area_m2      as number | null) ?? null;
-  const habitaciones = (props.habitaciones as number | null) ?? null;
-  const banos        = (props.banos        as number | null) ?? null;
-  const tipo_op      = (props.tipo_op      as string) ?? "venta";
-  const tipo_inmueble= (props.tipo_inmueble as string) ?? "";
-  const barrio_nombre= (props.barrio_nombre as string) ?? "";
-  const fuente       = ((props.fuente      as string) ?? "").toLowerCase();
-  const url          = (props.url          as string) ?? "";
-
-  const tipoBg    = tipo_op === "arriendo" ? "#E7F4EC" : "#FCE8EA";
-  const tipoColor = tipo_op === "arriendo" ? "#0F8A4F" : "#CE1126";
-  const tipoBadge = `<span style="background:${tipoBg};color:${tipoColor};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.05em;">${tipo_op.toUpperCase()}</span>`;
-  const inmBadge     = tipo_inmueble
-    ? `<span style="background:rgba(26,18,8,.07);color:#5B5F5C;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;text-transform:capitalize;">${tipo_inmueble}</span>`
-    : "";
-
-  const specs = [
-    area_m2      ? `📐 ${area_m2}m²`        : null,
-    habitaciones ? `🛏️ ${habitaciones}hab`  : null,
-    banos        ? `🚿 ${banos}baños`        : null,
-  ].filter(Boolean).join("&nbsp;&nbsp;");
-
-  let badgeHTML = "";
-  if (tipo_op === "venta" && precio_m2 && mediana && mediana > 0) {
-    const diff = (precio_m2 - mediana) / mediana * 100;
-    if (diff < -10)
-      badgeHTML = `<div style="margin-top:8px;"><div style="color:#0A5C36;font-weight:700;font-size:12px;">🟢 BUENA OFERTA</div><div style="color:#6E726E;font-size:11px;">${Math.abs(diff).toFixed(0)}% bajo la mediana del barrio</div></div>`;
-    else if (diff > 15)
-      badgeHTML = `<div style="margin-top:8px;"><div style="color:#CE1126;font-weight:700;font-size:12px;">🔴 SOBRE PRECIO</div><div style="color:#6E726E;font-size:11px;">${diff.toFixed(0)}% sobre la mediana</div></div>`;
-    else
-      badgeHTML = `<div style="margin-top:8px;"><div style="color:#6E726E;font-weight:700;font-size:12px;">⚪ PRECIO JUSTO</div><div style="color:#6E726E;font-size:11px;">Dentro del rango del barrio</div></div>`;
-  }
-
-  let yieldHTML = "";
-  if (tipo_op === "venta" && precio_cop && barrio?.mercado?.arriendo_p50_cop) {
-    const y = barrio.mercado.arriendo_p50_cop * 12 / precio_cop * 100;
-    if (y > 0 && y < 30)
-      yieldHTML = `<div style="color:#6E726E;font-size:11px;">Yield estimado: <strong style="color:#111418;">${y.toFixed(1)}%</strong></div>`;
-  }
-
-  let scoreHTML = "";
-  if (barrio?.scores?.score_activo != null) {
-    const s = barrio.scores.score_activo;
-    scoreHTML = `<div style="color:#6E726E;font-size:11px;">Score zona: <strong style="color:#0F8A4F;">${s}</strong> · ${_scoreLabel(s)}</div>`;
-  }
-
-  const sourceMap: Record<string, string> = {
-    fincaraiz:      "Ver en Fincaraíz →",
-    metrocuadrado:  "Ver en Metrocuadrado →",
-    medellinliving: "Ver en MedellinLiving →",
-  };
-  const sourceLabel = sourceMap[fuente] ?? "Ver listado →";
-  const waText  = encodeURIComponent(
-    `Hola, estoy interesado en una propiedad en ${barrio_nombre} de ${precio_cop ? _fmtCOP(precio_cop) : "—"} COP. ¿Pueden ayudarme?`
-  );
-  const waUrl   = `https://wa.me/+573122502394?text=${waText}`;
-  const btnBase = `cursor:pointer;padding:6px 10px;border-radius:6px;font-size:11px;font-weight:600;border:1px solid;`;
-  const btnSrc  = url
-    ? `<button onclick="window.open('${url.replace(/'/g,"\\'")}','_blank')" style="${btnBase}background:transparent;border-color:#E5E0D5;color:#5B5F5C;">${sourceLabel}</button>`
-    : "";
-  const btnWa   = `<button onclick="window.open('${waUrl}','_blank')" style="${btnBase}background:#0A5C36;border-color:#0A5C36;color:#FFFFFF;">Agente 💬</button>`;
-
-  return `
-<div style="font-family:system-ui,sans-serif;min-width:220px;max-width:290px;color:#111418;">
-  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;">${tipoBadge}${inmBadge}</div>
-  <div data-i18n-skip style="color:#6E726E;font-size:11px;margin-bottom:8px;">${barrio_nombre}</div>
-  ${precio_cop  ? `<div style="font-size:18px;font-weight:700;color:#111418;">${_fmtCOP(precio_cop)} COP</div>` : ""}
-  ${precio_usd  ? `<div style="color:#6E726E;font-size:11px;margin-bottom:6px;">~${precio_usd >= 1000000 ? `$${(precio_usd/1000000).toFixed(1)}M` : `$${Math.round(precio_usd/1000)}k`} USD</div>` : ""}
-  ${specs       ? `<div style="font-size:12px;color:#5B5F5C;margin:6px 0;">${specs}</div>` : ""}
-  ${precio_m2 && tipo_op === "venta" ? `<div style="font-size:11px;color:#6E726E;">Precio/m²: <strong style="color:#111418;">${_fmtM2(precio_m2)}</strong></div>` : ""}
-  ${mediana && tipo_op === "venta" ? `<div style="font-size:11px;color:#6E726E;">Mediana zona: <strong style="color:#111418;">${_fmtM2(mediana)}</strong></div>` : ""}
-  ${badgeHTML}
-  ${yieldHTML || scoreHTML ? `<div style="margin-top:6px;">${yieldHTML}${scoreHTML}</div>` : ""}
-  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">${btnSrc}${btnWa}</div>
-</div>`;
-}
+// Listing popups are the React <ListingPopup> (no HTML-string builder).
 
 export function MapView({
   onSelect,
@@ -290,8 +203,7 @@ export function MapView({
   mlsFilters,
   onViewportListingsChange,
   onViewportLoadingChange,
-  onAutoSelectBarrio,
-  onAutoSelectComuna,
+  paused = false,
   highlightedListingId,
   flyToListingRef,
   onListingClickFromMap,
@@ -311,6 +223,9 @@ export function MapView({
   const mapRef = useRef<MapboxMap | null>(null);
   const mapLoadedRef = useRef(false);
   const [mapLoaded, setMapLoaded] = useState(false);
+  // Rejected token (401/403, e.g. URL-restricted) or a style that never loads: the
+  // "load" event never fires — show a real error instead of an endless veil.
+  const [mapFailed, setMapFailed] = useState(false);
   const isMobile = useIsMobile();
   const [legendOpen, setLegendOpen] = useState(false);
   const [showVolverValle, setShowVolverValle] = useState(false);  // /map: botón "Volver al Valle" al drillear
@@ -324,14 +239,22 @@ export function MapView({
   const markersRef = useRef<mapboxgl.Marker[]>([]);
   const mlsLastFlyToRef = useRef<number | null>(null);
   const zoneFlyRef = useRef<string | null>(null);  // last comuna/municipio flown-to
-  const lastAutoBarrioRef = useRef<number | null>(null);  // camera-auto-selected barrio
-  const lastAutoComunaRef = useRef<string | null>(null);  // camera-auto-selected comuna/muni key
+  const selectedBarrioRef = useRef<number | null>(null);  // barrio con relleno de selección (explícito: click/búsqueda)
   const flattenSkipRef = useRef(false);  // skip listings-toggle pitch easeTo when a zone fit drives it
   const pendingFlyRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);  // deep-link flyTo que llegó antes del "load" del mapa
   const lastViewportQueryRef = useRef("");  // dedup identical viewport fetches
+  const lastViewportAtRef = useRef(0);
+  // Which barrio array is currently loaded in the "barrios-mls" source (by reference).
+  const barrioSourceDataRef = useRef<unknown>(null);
+  const { currency: priceCurrency, trm: priceTrm } = usePriceFormat();
+  const priceCurrencyRef = useRef(priceCurrency);
+  const priceTrmRef = useRef(priceTrm);
+  priceCurrencyRef.current = priceCurrency;
+  priceTrmRef.current = priceTrm;
+  const pendingClickCleanupRef = useRef<(() => void) | null>(null);  // limpia el timer de 220ms del click
   const pulseRafRef = useRef<number | null>(null);  // animación de pulso de markers Pro
   const tokenError = !MAPBOX_TOKEN || MAPBOX_TOKEN.includes("REPLACE_ME");
-  const isMobileRef = useRef(typeof window !== "undefined" && window.innerWidth < 768);
+  const isMobileRef = useRef(typeof window !== "undefined" && isMobileWidth(window.innerWidth));
 
   // Nivel de vista actual — ref para acceso dentro de closures de Mapbox
   const viewLevelRef = useRef<"comunas" | "barrios">("comunas");
@@ -355,10 +278,6 @@ export function MapView({
   useEffect(() => { onViewportListingsChangeRef.current = onViewportListingsChange; }, [onViewportListingsChange]);
   const onViewportLoadingChangeRef = useRef(onViewportLoadingChange);
   useEffect(() => { onViewportLoadingChangeRef.current = onViewportLoadingChange; }, [onViewportLoadingChange]);
-  const onAutoSelectBarrioRef = useRef(onAutoSelectBarrio);
-  useEffect(() => { onAutoSelectBarrioRef.current = onAutoSelectBarrio; }, [onAutoSelectBarrio]);
-  const onAutoSelectComunaRef = useRef(onAutoSelectComuna);
-  useEffect(() => { onAutoSelectComunaRef.current = onAutoSelectComuna; }, [onAutoSelectComuna]);
   const onBarrioClickRef = useRef(onBarrioClick);
   useEffect(() => { onBarrioClickRef.current = onBarrioClick; }, [onBarrioClick]);
   const bottomInsetRef = useRef(bottomInset);
@@ -480,8 +399,10 @@ export function MapView({
       if (!map || !mapLoadedRef.current) return;
 
       // Poblar source con polígonos de barrio (normalmente solo se hace en mapView=listings)
+      // Same barrio list already in the source (the load effect below): skip the
+      // full re-serialisation of every polygon.
       const src = map.getSource("barrios-mls") as mapboxgl.GeoJSONSource | undefined;
-      if (src) {
+      if (src && barrioSourceDataRef.current !== barriosRef.current) {
         const feats = barriosRef.current
           .filter((b) => b.geometry && b.barrio_id < _REAL_ID_MAX)
           .map((b) => ({
@@ -491,6 +412,7 @@ export function MapView({
             properties: { barrio_id: b.barrio_id, nombre: b.nombre ?? "", cd_comuna: b.cd_comuna ?? null },
           }));
         src.setData({ type: "FeatureCollection", features: feats } as GeoJSON.FeatureCollection);
+        barrioSourceDataRef.current = barriosRef.current;
       }
 
       // Mostrar capas de barrio, ocultar fill de comunas
@@ -526,8 +448,12 @@ export function MapView({
 
     mapboxgl.accessToken = MAPBOX_TOKEN;
     const styleId = auth.get()?.mapStyle ?? "monochrome";
-    const isMobile = window.innerWidth < 768;
+    const isMobile = isMobileWidth(window.innerWidth);
     isMobileRef.current = isMobile;
+    // Keep the ref in sync on rotate/resize (was read once at mount).
+    const mql = window.matchMedia(MOBILE_QUERY);
+    const onMql = () => { isMobileRef.current = mql.matches; };
+    mql.addEventListener("change", onMql);
     const initPitch = pitchRef.current ?? (isMobile ? 0 : 35);
     const initBearing = bearingRef.current ?? (isMobile ? 0 : -10);
     const map = new mapboxgl.Map({
@@ -553,7 +479,8 @@ export function MapView({
         : [[-75.71, 6.07], [-75.46, 6.42]],
       pitch: initPitch,
       bearing: initBearing,
-      antialias: true,
+      // MSAA costs a lot of GPU/battery on phones for little visible gain.
+      antialias: !isMobile,
       cooperativeGestures,
       // Atribución la re-agregamos abajo en modo compacto (ver addControl).
       attributionControl: false,
@@ -574,8 +501,27 @@ export function MapView({
     ro.observe(containerRef.current!);
     requestAnimationFrame(() => map.resize());
 
+    const failTimer = setTimeout(() => { if (!mapLoadedRef.current) setMapFailed(true); }, 20_000);
+    map.on("error", (e) => {
+      const status = (e as unknown as { error?: { status?: number } }).error?.status;
+      if (!mapLoadedRef.current && (status === 401 || status === 403)) {
+        console.error("[mapbox] token rejected (", status, ") — check VITE_MAPBOX_TOKEN and its URL restrictions");
+        setMapFailed(true);
+      }
+    });
+    map.once("remove", () => clearTimeout(failTimer));
+
     map.on("load", () => {
+      clearTimeout(failTimer);
+      setMapFailed(false);
       map.resize();
+      // Min zoom floor = whatever shows the whole pan box on THIS screen (a fixed 11
+      // could not show the valley on a 360 px phone).
+      try {
+        const b = map.getMaxBounds();
+        const cam = b ? map.cameraForBounds(b, { padding: 0 }) : null;
+        if (cam?.zoom != null) map.setMinZoom(Math.min(map.getMinZoom(), Math.floor(cam.zoom * 10) / 10));
+      } catch { /* keep the static floor */ }
       // Re-encuadra con el tamaño REAL del contenedor (el fitBounds del
       // constructor corre antes de que el layout flex asiente → recorta el sur).
       if (fitValleRef.current) {
@@ -752,37 +698,56 @@ export function MapView({
         switchToBarrios(map, cd, nombre, bounds, isMunicipio ? nombre : null);
       });
 
-      // ── CAPA BARRIOS (FIX 1c): polígonos de barrio, tier alto (zoom >= 13) ───
+      // ── CAPA BARRIOS: polígonos con hover/click desde BARRIO_MIN_ZOOM ─────────
+      // Se controla con minzoom (no con toggles de visibility por cámara): en vista
+      // listings las capas quedan visibles y Mapbox las muestra solo desde ese zoom.
       map.addSource("barrios-mls", { type: "geojson", data: EMPTY_FC });
+      barrioSourceDataRef.current = null; // (re)created empty: next load must fill it
       map.addLayer({
         id: "barrios-mls-fill",
         type: "fill",
         source: "barrios-mls",
+        minzoom: BARRIO_MIN_ZOOM,
         layout: { visibility: "none" },
         paint: {
-          // CAMBIO 3: barrio sin relleno (fill-opacity 0, queryable para hit-test);
-          // barrio activo = relleno muy tenue. knobs.
+          // Relleno visible al hover y al seleccionar; base > 0 para que el hit-test funcione.
           "fill-color": "#003893",
-          "fill-opacity": ["case", ["boolean", ["feature-state", "selected"], false], 0.10, 0],
+          "fill-opacity": [
+            "case",
+            ["boolean", ["feature-state", "hover"], false], 0.28,
+            ["boolean", ["feature-state", "selected"], false], 0.14,
+            0.02,
+          ],
         },
       });
       map.addLayer({
         id: "barrios-mls-line",
         type: "line",
         source: "barrios-mls",
+        minzoom: BARRIO_MIN_ZOOM,
         layout: { visibility: "none" },
         paint: {
-          // borde fino y suave; activo algo más marcado. knobs.
           "line-color": "#003893",
-          "line-opacity": ["case", ["boolean", ["feature-state", "selected"], false], 0.7, 0.4],
-          "line-width": ["case", ["boolean", ["feature-state", "selected"], false], 2.5, 1],
+          "line-opacity": [
+            "case",
+            ["boolean", ["feature-state", "hover"], false], 0.9,
+            ["boolean", ["feature-state", "selected"], false], 0.7,
+            0.4,
+          ],
+          "line-width": [
+            "case",
+            ["boolean", ["feature-state", "hover"], false], 2.5,
+            ["boolean", ["feature-state", "selected"], false], 2.5,
+            1,
+          ],
         },
       });
-      // Etiqueta con el nombre del barrio sobre el polígono (tier alto).
+      // Etiqueta con el nombre del barrio (a zooms bajos el nombre sale en el tooltip de hover).
       map.addLayer({
         id: "barrios-mls-label",
         type: "symbol",
         source: "barrios-mls",
+        minzoom: BARRIO_LABEL_MIN_ZOOM,
         layout: {
           visibility: "none",
           "text-field": ["get", "nombre"],
@@ -798,6 +763,13 @@ export function MapView({
         },
       });
       let hoverBarrioId: number | null = null;
+      const barrioPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, offset: 8, className: "urbi-dark-tip" });
+      const showBarrioTip = (lngLat: mapboxgl.LngLat, nombre: string) => {
+        const el = document.createElement("span");
+        el.setAttribute("data-i18n-skip", "");
+        el.textContent = nombre;
+        barrioPopup.setLngLat(lngLat).setDOMContent(el).addTo(map);
+      };
       map.on("mousemove", "barrios-mls-fill", (e) => {
         if (!e.features?.length) return;
         map.getCanvas().style.cursor = "pointer";
@@ -807,20 +779,25 @@ export function MapView({
         }
         hoverBarrioId = id;
         map.setFeatureState({ source: "barrios-mls", id }, { hover: true });
+        const nombre = (e.features[0].properties?.nombre as string | undefined) ?? "";
+        if (nombre) showBarrioTip(e.lngLat, nombre);
       });
       map.on("mouseleave", "barrios-mls-fill", () => {
         map.getCanvas().style.cursor = "";
         if (hoverBarrioId !== null) map.setFeatureState({ source: "barrios-mls", id: hoverBarrioId }, { hover: false });
         hoverBarrioId = null;
+        barrioPopup.remove();
       });
-      // Click en barrio → dirigir el mapa allí (la derivación por cámara lo selecciona).
+      // Click en barrio = selección explícita del usuario (el padre fija el barrio).
       map.on("click", "barrios-mls-fill", (e) => {
         if (!e.features?.length) return;
-        map.fitBounds(featureBounds(e.features[0]), {
+        // Un punto de listing encima gana sobre el polígono.
+        if (map.queryRenderedFeatures(e.point, { layers: ["listings-mls-unclustered", "listings-mls-clusters"] }).length) return;
+        const feat = e.features[0];
+        map.fitBounds(featureBounds(feat), {
           padding: { top: 60, bottom: 60 + bottomInsetRef.current, left: 60, right: 60 },
           maxZoom: 15, duration: 400,
         });
-        const feat = e.features[0];
         const barrioId = typeof feat.id === "number" ? feat.id : Number(feat.id);
         const nombre = (feat.properties?.nombre as string | null) ?? "";
         const cdComunaRaw = feat.properties?.cd_comuna;
@@ -926,7 +903,6 @@ export function MapView({
             ["==", ["get", "tipo_inmueble"], "casa"],               "#CE1126",
             ["==", ["get", "tipo_inmueble"], "casa_lote"],          "#CE1126",
             ["==", ["get", "tipo_inmueble"], "finca"],              "#CE1126",
-            ["==", ["get", "tipo_inmueble"], "apartaestudio"],      "#C2410C",
             ["==", ["get", "tipo_inmueble"], "lote"],               "#8A6A00",
             ["==", ["get", "tipo_inmueble"], "local"],              "#1F5BC6",
             ["==", ["get", "tipo_inmueble"], "oficina"],            "#6D4AA8",
@@ -956,6 +932,7 @@ export function MapView({
 
       // Click en punto individual → mini popup (debounced to distinguish dblclick)
       let _pendingClick: ReturnType<typeof setTimeout> | null = null;
+      pendingClickCleanupRef.current = () => { if (_pendingClick !== null) { clearTimeout(_pendingClick); _pendingClick = null; } };
       map.on("click", "listings-mls-unclustered", (e) => {
         if (!e.features?.length) return;
         const props = e.features[0].properties as Record<string, unknown>;
@@ -964,6 +941,11 @@ export function MapView({
           coords[0] += e.lngLat.lng > coords[0] ? 360 : -360;
         }
         const point = map.project(coords);
+        // Touch has no double-click: open the popup right away instead of waiting 220 ms.
+        if (isMobileRef.current) {
+          onListingClickFromMapRef.current?.(props.id as number, point.x, point.y);
+          return;
+        }
         if (_pendingClick !== null) return;
         _pendingClick = setTimeout(() => {
           _pendingClick = null;
@@ -987,7 +969,9 @@ export function MapView({
 
       // Source starts empty — useEffect([comunasMetrics]) loads static GeoJSON + enriches with API metrics.
 
-      // ── Terreno 3D ────────────────────────────────────────────────────────────
+      // ── Terreno 3D (desktop only: DEM tiles + terrain + fog are the heaviest
+      //    per-frame work on phones and the mobile map is flat anyway) ──────────
+      if (!isMobileRef.current) {
       map.addSource("mapbox-dem", {
         type: "raster-dem",
         url: "mapbox://mapbox.mapbox-terrain-dem-v1",
@@ -1002,14 +986,20 @@ export function MapView({
         "space-color": "#FAF8F3",
         "star-intensity": 0,
       });
+      }
 
       // Pulso de markers Pro/agente: halo que crece y se desvanece en loop (~1.4s).
       // Solo animamos cuando la capa está visible (tier de puntos) para no gastar frames.
       const PULSE_MS = 1400;
+      const PULSE_FRAME_MS = 80; // ~12 fps: setPaintProperty re-evaluates style, don't do it per frame
+      let lastPulsePaint = 0;
       const animatePulse = (ts: number) => {
         pulseRafRef.current = requestAnimationFrame(animatePulse);
+        if (ts - lastPulsePaint < PULSE_FRAME_MS) return;
+        if (typeof document !== "undefined" && document.hidden) return;
         if (!map.getLayer("listings-mls-pulse")) return;
         if (map.getLayoutProperty("listings-mls-pulse", "visibility") === "none") return;
+        lastPulsePaint = ts;
         const t = (ts % PULSE_MS) / PULSE_MS;            // 0 → 1
         map.setPaintProperty("listings-mls-pulse", "circle-radius", 10 + 22 * t);
         map.setPaintProperty("listings-mls-pulse", "circle-opacity", 0.45 * (1 - t));
@@ -1019,6 +1009,8 @@ export function MapView({
 
     return () => {
       ro.disconnect();
+      mql.removeEventListener("change", onMql);
+      pendingClickCleanupRef.current?.();
       if (pulseRafRef.current !== null) cancelAnimationFrame(pulseRafRef.current);
       mapLoadedRef.current = false;
       map.remove();
@@ -1132,121 +1124,71 @@ export function MapView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapView]);
 
-  // ── Vista 1 (zonas): zoom-out en nivel barrio vuelve a comunas ──────────────
-  // El toggle de arriba solo corre al cambiar `mapView` (una vez, en Home nunca
-  // cambia) — sin esto, una vez entrado a barrios (flyToBarriosRef o el click
-  // directo en una comuna) no había manera de volver: el zoom-out no hacía nada.
-  const RETURN_TO_COMUNAS_ZOOM = 11.8;
+  // ── Vista 1 (zonas): botón "Volver al Valle" ────────────────────────────────
+  // La cámara ya NO cambia la zona/filtros: ni el zoom-in entra a una comuna (drill por
+  // zoom) ni el zoom-out sale de ella. Solo un click/búsqueda explícito cambia la zona;
+  // el botón "Volver" (o "Toda la ciudad") la limpia.
   const VOLVER_VALLE_ZOOM = 12.5;  // drilleado más allá del overview de comuna → ofrece volver al valle
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoadedRef.current || mapView !== "zonas") return;
-    const onZoomEnd = () => {
-      const z = map.getZoom();
-      if (
-        viewLevelRef.current === "barrios" &&
-        !enteringBarriosRef.current &&
-        z < RETURN_TO_COMUNAS_ZOOM
-      ) {
-        switchToComunas(map);
-      } else if (
-        // Drill por zoom: acercarse a una comuna en vista zonas = entrar a ella
-        // (igual que el clic) → vista listings + polígonos de barrio al pasar a
-        // BARRIO_TIER_ZOOM. Sin esto, hacer zoom en zonas nunca mostraba barrios.
-        viewLevelRef.current === "comunas" &&
-        !enteringBarriosRef.current &&
-        z >= POLYGON_TIER_ZOOM
-      ) {
-        const c = map.project(map.getCenter());
-        const feats = map.queryRenderedFeatures([c.x, c.y], { layers: ["comunas-fill"] });
-        if (feats.length) {
-          const f = feats[0];
-          const isMuni = f.properties?.is_municipio === true;
-          const cd = isMuni ? null : (f.properties?.cd_comuna as number);
-          const nombre = (f.properties?.nombre ?? "").toString();
-          // queryRenderedFeatures recorta la geometría al tile bajo el centro → usa el
-          // feature completo (por nombre) para encuadrar/estado toda la zona.
-          const full = staticFeaturesRef.current?.find((sf) => (sf.properties?.nombre ?? "") === nombre);
-          const bounds = featureBounds((full ?? f) as mapboxgl.MapboxGeoJSONFeature);
-          const featureId = f.id as number;
-          if (selectedComunaIdRef.current != null && selectedComunaIdRef.current !== featureId) {
-            map.setFeatureState({ source: "comunas", id: selectedComunaIdRef.current }, { selected: false });
-          }
-          map.setFeatureState({ source: "comunas", id: featureId }, { selected: true });
-          selectedComunaIdRef.current = featureId;
-          lastComunaBoundsRef.current = bounds;
-          switchToBarrios(map, cd as number, nombre, bounds, isMuni ? nombre : null, true);
-        }
-      }
-      setShowVolverValle(z > VOLVER_VALLE_ZOOM);
-    };
+    const onZoomEnd = () => { setShowVolverValle(map.getZoom() > VOLVER_VALLE_ZOOM); };
     map.on("zoomend", onZoomEnd);
     return () => { map.off("zoomend", onZoomEnd); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapView, mapLoaded]);
 
   // ── Vista 2: actualizar datos GeoJSON cuando llegan listings ────────────────
+  // Pins at every zoom: the backend returns thinned points at zoom 10-12, all points at
+  // >= 13 and clusters only below 10. No frontend zoom gate. Scope = viewport bbox plus
+  // the sidebar filters; a zone is applied ONLY when the user explicitly picked one.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapLoadedRef.current || mapView !== "listings") return;
+    if (!map || !mapLoadedRef.current || mapView !== "listings" || paused) return;
 
     let cancelled = false;
     let debounce: ReturnType<typeof setTimeout> | null = null;
+    let seq = 0;                       // request id: only the newest response may write
+    let ctrl: AbortController | null = null;
+    let inFlight = false;
 
     const loadViewport = async () => {
       const b = map.getBounds();
       if (!b) return;
-      const params = new URLSearchParams({
-        min_lng: String(b.getWest()),
-        min_lat: String(b.getSouth()),
-        max_lng: String(b.getEast()),
-        max_lat: String(b.getNorth()),
-        zoom: String(Math.round(map.getZoom())),
+      const zone = { barrioId: mlsBarrioId, cdComuna: mlsCdComuna, municipio: mlsMunicipio };
+      const params = buildViewportParams({
+        bounds: { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() },
+        zoom: map.getZoom(),
+        zone,
+        filters: {
+          tipoOp: mlsTipoOp,
+          precioMin: mlsPrecioMin,
+          precioMax: mlsPrecioMax,
+          amoblado: mlsAmoblado,
+          ...mlsFilters,
+        } as ListingQueryFilters,
+        price: { currency: priceCurrencyRef.current, trm: priceTrmRef.current },
       });
-      if (mlsTipoOp) params.set("tipo_operacion", mlsTipoOp);
-      if (mlsPrecioMin != null) params.set("precio_min", String(mlsPrecioMin));
-      if (mlsPrecioMax != null) params.set("precio_max", String(mlsPrecioMax));
-      if (mlsAmoblado != null) params.set("amoblado", String(mlsAmoblado));
-      // Geographic selection — backend ignores bbox when a zone is active.
-      if (mlsBarrioId != null) params.set("barrio_id", String(mlsBarrioId));
-      if (mlsCdComuna != null) params.set("cd_comuna", String(mlsCdComuna));
-      if (mlsMunicipio) params.set("municipio", mlsMunicipio);
-      // Remaining shared filters — server-side WHERE in /viewport.
-      const f = mlsFilters;
-      if (f?.habitaciones != null) params.set("habitaciones", String(f.habitaciones));
-      if (f?.banos != null) params.set("banos", String(f.banos));
-      if (f?.areaMin != null) params.set("area_min", String(f.areaMin));
-      if (f?.areaMax != null) params.set("area_max", String(f.areaMax));
-      if (f?.estrato?.length) for (const e of f.estrato) params.append("estrato", String(e));
-      if (f?.tipoInmueble?.length) for (const t of f.tipoInmueble) params.append("tipo_inmueble", t);
-      if (f?.diasMercado) params.set("dias_mercado", f.diasMercado);
-      if (f?.busqueda?.trim()) params.set("busqueda", f.busqueda.trim());
-      if (f?.amenidades?.length) for (const a of f.amenidades) params.append("amenidades", a);
-      if (f?.estadoInmueble) params.set("estado_inmueble", f.estadoInmueble);
-      if (f?.pisoMin != null) params.set("piso_min", String(f.pisoMin));
-      // Dedup: with a zone active the backend ignores bbox, so panning within the
-      // zone returns identical data — skip the refetch (key excludes bbox then).
-      // Zoom only matters as clusters-vs-points mode (backend flips at
-      // POLYGON_TIER_ZOOM) — a raw zoom number here meant a fly-through
-      // animation crossing zoom 11→12→13 fired a fresh fetch at every integer
-      // step even though clusters-mode data is identical the whole way, which
-      // is what made a single comuna click cascade into 4-7 sequential requests.
-      const hasGeo = mlsBarrioId != null || mlsCdComuna != null || !!mlsMunicipio;
-      const filterKey = `${f?.habitaciones}|${f?.banos}|${f?.areaMin}|${f?.areaMax}|${f?.estrato?.join(",")}|${f?.tipoInmueble?.join(",")}|${f?.diasMercado}|${f?.busqueda}|${f?.amenidades?.join(",")}|${f?.estadoInmueble}|${f?.pisoMin}`;
-      const zoomMode = map.getZoom() >= POLYGON_TIER_ZOOM ? "points" : "clusters";
-      const dedupKey = hasGeo
-        ? `${zoomMode}|${mlsBarrioId}|${mlsCdComuna}|${mlsMunicipio}|${mlsTipoOp}|${mlsPrecioMin}|${mlsPrecioMax}|${mlsAmoblado}|${filterKey}`
-        : params.toString();
-      if (dedupKey === lastViewportQueryRef.current) return;
-      lastViewportQueryRef.current = dedupKey;
+      const key = viewportCacheKey(params, zone);
+      // Same query within 2 min = skip; older = refetch (the dedupe used to pin a
+      // view's data until a filter/pan changed, however long the tab stayed open).
+      const now = Date.now();
+      if (key === lastViewportQueryRef.current && now - lastViewportAtRef.current < VIEWPORT_REFRESH_MS) return;
+      lastViewportQueryRef.current = key;
+      lastViewportAtRef.current = now;
+
+      ctrl?.abort();
+      ctrl = new AbortController();
+      const myCtrl = ctrl;
+      const mySeq = ++seq;
+      inFlight = true;
       onViewportLoadingChangeRef.current?.(true);
       try {
-        const res = await apiFetch<ViewportResponse>(`${API_ENDPOINTS.allListings}/viewport?${params}`);
-        if (cancelled) return;
+        const res = await apiFetch<ViewportResponse>(`${API_ENDPOINTS.allListings}/viewport?${params}`, { signal: myCtrl.signal });
+        if (cancelled || mySeq !== seq) return;   // stale response: a newer request owns the map
         const src = map.getSource("listings-mls") as mapboxgl.GeoJSONSource | undefined;
         if (!src) return;
         if (res.mode === "clusters") {
-          // CAMBIO 4A: clusters mode also returns a capped panel list → feed the panel.
           onViewportListingsChangeRef.current?.(res.listings ?? []);
           src.setData({
             type: "FeatureCollection",
@@ -1275,11 +1217,22 @@ export function MapView({
             })),
           } as unknown as GeoJSON.FeatureCollection);
         }
-      } catch { /* transient fetch error — keep current dots */ }
-      // Always clear: guarding on !cancelled could leave the spinner stuck true if
-      // a superseded fetch is followed by a dedup early-return. A newer inflight
-      // fetch re-sets true anyway.
-      finally { onViewportLoadingChangeRef.current?.(false); }
+        inFlight = false;
+      } catch (err) {
+        if ((err as { name?: string })?.name === "AbortError") return;   // superseded; owner handles state
+        // Real failure: allow the identical query to be retried and tell the user.
+        if (mySeq === seq) {
+          lastViewportQueryRef.current = "";
+          inFlight = false;
+          if (!cancelled) toast.error(
+            document.documentElement.lang === "en"
+              ? "Could not load listings. Move the map or change a filter to retry."
+              : "No se pudieron cargar los inmuebles. Mueve el mapa o cambia un filtro para reintentar.",
+          );
+        }
+      } finally {
+        if (!cancelled && mySeq === seq) onViewportLoadingChangeRef.current?.(false);
+      }
     };
 
     const onMove = () => {
@@ -1294,113 +1247,77 @@ export function MapView({
     return () => {
       cancelled = true;
       if (debounce) clearTimeout(debounce);
+      if (inFlight) {
+        // Aborted before it landed: the next effect run must be able to refetch the same key.
+        ctrl?.abort();
+        lastViewportQueryRef.current = "";
+      }
+      onViewportLoadingChangeRef.current?.(false);
       map.off("moveend", onMove);
       map.off("zoomend", onMove);
     };
-  // mapLoaded en deps: mismo race que FIX 1c (ver ~l.1336) y el toggle de vista.
-  // Deep-link a listings (?cd_comuna/?municipio) pone mapView="listings" en mount,
-  // ANTES del evento "load" → este efecto salía por !mapLoadedRef y NO re-corría
-  // (mapLoadedRef es ref, no dispara efecto) → loadViewport nunca se llamaba → sin puntos.
+  // mapLoaded en deps: deep-link a listings pone mapView="listings" ANTES del evento "load".
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapView, mapLoaded, mlsBarrioId, mlsCdComuna, mlsMunicipio, mlsTipoOp, mlsPrecioMin, mlsPrecioMax, mlsAmoblado,
+  }, [mapView, mapLoaded, paused, mlsBarrioId, mlsCdComuna, mlsMunicipio, mlsTipoOp, mlsPrecioMin, mlsPrecioMax, mlsAmoblado,
       mlsFilters?.habitaciones, mlsFilters?.banos, mlsFilters?.areaMin, mlsFilters?.areaMax,
       mlsFilters?.estrato?.join(","), mlsFilters?.tipoInmueble?.join(","), mlsFilters?.diasMercado, mlsFilters?.busqueda,
-      mlsFilters?.amenidades?.join(",")]);
+      mlsFilters?.amenidades?.join(","), mlsFilters?.estadoInmueble, mlsFilters?.pisoMin,
+      mlsFilters?.segmento, mlsFilters?.ocultarDestacados, priceCurrency, priceTrm]);
 
-  // ── FIX 1c: polígono tier (comuna↔barrio por zoom) + auto-select por cámara ──
+  // ── Polígonos de barrio: fuente cargada una vez; capas por zoom range ──────
+  // NINGUNA derivación por cámara: mover/zoomear el mapa no cambia zona ni filtros.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapLoadedRef.current || mapView !== "listings") return;
-
-    // Poblar polígonos de barrio desde barriosRaw (ids reales 1-945, con geometry).
+    if (!map || !mapLoadedRef.current) return;
     const src = map.getSource("barrios-mls") as mapboxgl.GeoJSONSource | undefined;
-    if (src) {
-      const feats = (barriosRaw ?? [])
-        .filter((b) => b.geometry && b.barrio_id < _REAL_ID_MAX)
-        .map((b) => ({
-          type: "Feature" as const,
-          id: b.barrio_id,
-          geometry: b.geometry as GeoJSON.Geometry,
-          properties: { barrio_id: b.barrio_id, nombre: b.nombre ?? "", cd_comuna: b.cd_comuna ?? null },
-        }));
-      src.setData({ type: "FeatureCollection", features: feats } as GeoJSON.FeatureCollection);
-    }
+    if (!src || barrioSourceDataRef.current === barriosRaw) return;
+    const feats = (barriosRaw ?? [])
+      .filter((b) => b.geometry && b.barrio_id < _REAL_ID_MAX)
+      .map((b) => ({
+        type: "Feature" as const,
+        id: b.barrio_id,
+        geometry: b.geometry as GeoJSON.Geometry,
+        properties: { barrio_id: b.barrio_id, nombre: b.nombre ?? "", cd_comuna: b.cd_comuna ?? null },
+      }));
+    src.setData({ type: "FeatureCollection", features: feats } as GeoJSON.FeatureCollection);
+    barrioSourceDataRef.current = barriosRaw;
+  }, [barriosRaw, mapLoaded]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
     const setVis = (id: string, v: "visible" | "none") => {
       if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", v);
     };
-    const applyTier = () => {
-      const hi = map.getZoom() >= BARRIO_TIER_ZOOM;
-      setVis("comunas-fill",  hi ? "none" : "visible");
-      setVis("comunas-label", hi ? "none" : "visible");
-      setVis("comunas-line",  "visible");
-      if (map.getLayer("comunas-line")) {
-        map.setPaintProperty("comunas-line", "line-width",   hi ? 0.8 : 2);
-        map.setPaintProperty("comunas-line", "line-opacity", hi ? 0.35 : 0.6);
-      }
-      setVis("barrios-mls-fill",  hi ? "visible" : "none");
-      setVis("barrios-mls-line",  hi ? "visible" : "none");
-      setVis("barrios-mls-label", hi ? "visible" : "none");
-    };
-
-    // FIX 1d — free navigation: zone derived from the camera on every move (no
-    // lock). zoom<TIER → comuna under center; zoom>=TIER → barrio under center.
-    const clearBarrioSel = () => {
-      if (lastAutoBarrioRef.current != null) {
-        map.setFeatureState({ source: "barrios-mls", id: lastAutoBarrioRef.current }, { selected: false });
-        lastAutoBarrioRef.current = null;
-      }
-    };
-    const autoSelect = () => {
-      const c = map.project(map.getCenter());
-      if (map.getZoom() < BARRIO_TIER_ZOOM) {
-        if (lastAutoBarrioRef.current != null) { clearBarrioSel(); onAutoSelectBarrioRef.current?.(null); }
-        const cfeats = map.queryRenderedFeatures([c.x, c.y], { layers: ["comunas-fill"] });
-        const f = cfeats.length ? cfeats[0].properties : undefined;
-        const isMuni = f?.is_municipio === true;
-        const cd = isMuni ? null : ((f?.cd_comuna as number) ?? null);
-        const muni = isMuni ? ((f?.nombre as string) ?? null) : null;
-        const nombre = (f?.nombre as string) ?? null;
-        const key = isMuni ? `m:${muni}` : cd != null ? `c:${cd}` : null;
-        if (key !== lastAutoComunaRef.current) {
-          lastAutoComunaRef.current = key;
-          onAutoSelectComunaRef.current?.(cd, muni, nombre);
-        }
-        return;
-      }
-      // barrio under center (zoom >= TIER)
-      lastAutoComunaRef.current = null;
-      const feats = map.queryRenderedFeatures([c.x, c.y], { layers: ["barrios-mls-fill"] });
-      const bid = feats.length ? (feats[0].id as number) : null;
-      if (bid != null && bid !== lastAutoBarrioRef.current) {
-        clearBarrioSel();
-        map.setFeatureState({ source: "barrios-mls", id: bid }, { selected: true });
-        lastAutoBarrioRef.current = bid;
-        onAutoSelectBarrioRef.current?.(bid);
-      }
-    };
-
-    let debounce: ReturnType<typeof setTimeout> | null = null;
-    const onMove = () => {
-      applyTier();                       // tier visual is immediate
-      if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(autoSelect, 180);   // derive on every move (gesture or fly-to)
-    };
-
-    applyTier();
-    map.on("moveend", onMove);
-    map.on("zoomend", onMove);
+    if (mapView !== "listings") return;
+    // Barrios visibles (zoom range via minzoom de la capa); comuna fill cede a barrios.
+    for (const id of ["barrios-mls-fill", "barrios-mls-line", "barrios-mls-label"]) setVis(id, "visible");
+    if (map.getLayer("comunas-fill")) map.setLayerZoomRange("comunas-fill", 0, COMUNA_FILL_MAX_ZOOM);
+    if (map.getLayer("comunas-label")) map.setLayerZoomRange("comunas-label", 0, COMUNA_FILL_MAX_ZOOM);
+    setVis("comunas-line", "visible");
+    if (map.getLayer("comunas-line")) {
+      map.setPaintProperty("comunas-line", "line-width", ["interpolate", ["linear"], ["zoom"], 11, 2, 14, 0.8]);
+      map.setPaintProperty("comunas-line", "line-opacity", ["interpolate", ["linear"], ["zoom"], 11, 0.6, 14, 0.35]);
+    }
     return () => {
-      if (debounce) clearTimeout(debounce);
-      map.off("moveend", onMove);
-      map.off("zoomend", onMove);
+      if (map.getLayer("comunas-fill")) map.setLayerZoomRange("comunas-fill", 0, 24);
+      if (map.getLayer("comunas-label")) map.setLayerZoomRange("comunas-label", 0, 24);
     };
-  // mapLoaded en deps: la geometría de barrios ahora llega rápido (API 168KB, ya no
-  // 10.5MB de geojson estáticos). En conexiones rápidas barriosRaw gana la carrera al
-  // evento "load" del mapa → este efecto salía por !mapLoadedRef y NO re-corría
-  // (barriosRaw/mapView estables) → barrios-mls vacío → sin polígonos al hacer zoom.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapView, barriosRaw, mapLoaded]);
+  }, [mapView, mapLoaded]);
+
+  // Barrio seleccionado (explícito) → relleno de selección.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current || !map.getSource("barrios-mls")) return;
+    if (selectedBarrioRef.current != null) {
+      map.setFeatureState({ source: "barrios-mls", id: selectedBarrioRef.current }, { selected: false });
+      selectedBarrioRef.current = null;
+    }
+    if (mlsBarrioId != null) {
+      map.setFeatureState({ source: "barrios-mls", id: mlsBarrioId }, { selected: true });
+      selectedBarrioRef.current = mlsBarrioId;
+    }
+  }, [mlsBarrioId, mapLoaded, mapView, barriosRaw]);
 
   // ── Highlight listing seleccionado ───────────────────────────────────────────
   useEffect(() => {
@@ -1477,26 +1394,29 @@ export function MapView({
     return (
       <div className="absolute inset-0 grid place-items-center bg-background px-6 text-center">
         <div className="max-w-md rounded-xl border border-border bg-surface p-6">
-          <h2 className="font-display text-lg font-semibold">Token de Mapbox requerido</h2>
+          <h2 className="font-display text-lg font-semibold">Mapbox token required</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Configura el secreto{" "}
-            <code className="rounded bg-background/60 px-1.5 py-0.5 text-xs">MAPBOX_PUBLIC_TOKEN</code>{" "}
-            en Lovable Cloud para cargar el mapa de Medellín.
+            Set{" "}
+            <code className="rounded bg-background/60 px-1.5 py-0.5 text-xs">VITE_MAPBOX_TOKEN</code>{" "}
+            at build time to load the map.
           </p>
         </div>
       </div>
     );
   }
 
-  const LEGEND_ITEMS = [
-    { color: "#0F8A4F", label: "Apto" },
-    { color: "#CE1126", label: "Casa" },
-    { color: "#C2410C", label: "Aptaestudio" },
-    { color: "#8A6A00", label: "Lote" },
-    { color: "#1F5BC6", label: "Local" },
-    { color: "#6D4AA8", label: "Oficina" },
-    { color: "#6E726E", label: "Bodega" },
+  const ALL_LEGEND_ITEMS = [
+    { color: "#0F8A4F", label: "Apto", seg: "residencial" },
+    { color: "#CE1126", label: "Casa", seg: "residencial" },
+    { color: "#8A6A00", label: "Lote", seg: "comercial" },
+    { color: "#1F5BC6", label: "Local", seg: "comercial" },
+    { color: "#6D4AA8", label: "Oficina", seg: "comercial" },
+    { color: "#6E726E", label: "Bodega", seg: "comercial" },
   ];
+  // Segment-aware: only list the types the active segment can actually show.
+  const LEGEND_ITEMS = ALL_LEGEND_ITEMS.filter(
+    (i) => !mlsFilters?.segmento || i.seg === mlsFilters.segmento,
+  );
 
   const legendPanel = (
     <div data-tour="legend" style={{
@@ -1537,7 +1457,22 @@ export function MapView({
 
       {/* Loading veil — claro (matchea el mapa cargado, no un void negro), fade-out
           al estar listo. z-[1] → bajo el navbar/filtros (chrome queda visible). */}
-      <LoadingVeil label="el mapa" show={!mapLoaded} className="absolute z-[1]" />
+      <LoadingVeil label="el mapa" show={!mapLoaded && !mapFailed} className="absolute z-[1]" />
+      {mapFailed && !mapLoaded && (
+        <div role="alert" className="absolute inset-0 z-[2] grid place-items-center bg-background px-6 text-center">
+          <div className="max-w-sm rounded-xl border border-border bg-surface p-6">
+            <h2 className="font-display text-lg font-semibold">No pudimos cargar el mapa</h2>
+            <p className="mt-2 text-sm text-muted-foreground">Revisa tu conexión e intenta de nuevo.</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 rounded-lg px-4 py-2 text-sm font-semibold text-white"
+              style={{ background: "#0F8A4F" }}
+            >
+              Recargar
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Leyenda tipos de inmueble — pill que despliega la card (desktop + móvil) */}
       {mapView === "listings" && (

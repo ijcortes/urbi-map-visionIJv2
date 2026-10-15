@@ -2,6 +2,10 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# cron(8) itself stays root as PID 1 (it must read /etc/cron.d and setuid per job),
+# but every JOB runs as the unprivileged "app" user (uid 10001, same as Dockerfile.api):
+# a compromised scraper/parser no longer runs as root inside the container.
+
 # System deps: cron + libpq for psycopg2 + gcc for some packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cron libpq-dev gcc \
@@ -13,6 +17,8 @@ RUN pip install --no-cache-dir -r /tmp/api-requirements.txt
 
 # Scraping deps (requests, bs4, feedparser, playwright, etc.)
 COPY scraping/requirements.txt /tmp/scraping-requirements.txt
+# Shared browser path: installed by root at build, readable by the "app" job user.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN pip install --no-cache-dir -r /tmp/scraping-requirements.txt \
     && playwright install chromium --with-deps
 
@@ -47,6 +53,13 @@ COPY api/ ./api/
 COPY scraping/ ./scraping/
 COPY dbt/ ./dbt/
 
+# Job user + the only places jobs write: /app (scrape JSON, dbt target/logs, link-review
+# digests) and /var/log/urbi.
+RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin app \
+ && mkdir -p /var/log/urbi \
+ && chown -R app:app /app /var/log/urbi \
+ && chmod -R a+rX /ms-playwright
+
 # Crontab — todo en UTC. Migrado 2026-08-24 de los DAGs de Airflow local
 # (airflow/dags/*.py, que corren solo en WSL2, nunca en la nube) a este cron
 # plano, mismo patrón que ya usaban refresh_data.py / run_comunidad.py.
@@ -57,7 +70,8 @@ COPY dbt/ ./dbt/
 #
 #   listings/renta:
 #     03:00 diario        refresh_data.py            (fincaraiz+remates, ya existía)
-#     08:00 cada 3 días    run_listings_metrocuadrado.py (metrocuadrado+habi+dedup+R2+dbt)
+#     08:00 diario         run_listings_metrocuadrado.py (metrocuadrado+habi+dedup+stale+R2+dbt; completo domingos)
+#     13:00 diario         data_quality_check.py     (frescura/volumen/fotos → alerta Sentry/webhook)
 #     09:00 cada 3 días    run_renta_corta.py         (airbnb/vrbo/nomadbarrio/flatio/booking)
 #   comunidad:
 #     cada 6h              run_comunidad.py           (eventos+noticias, ya existía)
@@ -69,7 +83,7 @@ COPY dbt/ ./dbt/
 #   ingest / mantenimiento:
 #     03:30 día 1 del mes  load_barrios.py
 #     04:00 lunes          load_pois.py --build-analytics
-#     04:00 domingo        validate_listings_urls.py  (ya existía)
+#     09:30 diario         scraping.link_checker      (reemplaza validate_listings_urls.py semanal)
 #     12:00 día 1 del mes  run_seguridad_mensual.py
 #     11:00 diario         fetch_usd_rate.py          (parametros_diario)
 #     11:15 lunes          fetch_trm.py               (trm_semanal)
@@ -80,21 +94,22 @@ COPY dbt/ ./dbt/
 # crontab file (both /etc/cron.d and user crontabs).
 RUN printf '%s\n' \
     "PATH=/usr/local/bin:/usr/bin:/bin" \
-    "0 3 * * * root cd /app && python3 scripts/refresh_data.py >> /var/log/refresh.log 2>&1" \
-    "0 */6 * * * root cd /app && python3 scraping/run_comunidad.py >> /var/log/comunidad.log 2>&1" \
-    "0 4 * * 0 root cd /app && python3 scripts/validate_listings_urls.py --batch 3000 >> /var/log/validate.log 2>&1" \
-    "0 8 */3 * * root cd /app && python3 scripts/run_listings_metrocuadrado.py >> /var/log/listings_m2.log 2>&1" \
-    "0 9 */3 * * root cd /app && python3 scripts/run_renta_corta.py >> /var/log/renta_corta.log 2>&1" \
-    "30 5 * * * root cd /app && python3 scripts/translate_descripciones.py >> /var/log/translate.log 2>&1" \
-    "0 7 * * * root cd /app && python3 scripts/run_analytics_usuarios.py >> /var/log/analytics_usuarios.log 2>&1" \
-    "0 8 * * 0 root cd /app && python3 scripts/run_airbnb_semanal.py >> /var/log/airbnb_semanal.log 2>&1" \
-    "30 7 * * 1 root cd /app && python3 scripts/run_dbt_full_refresh.py >> /var/log/dbt_full_refresh.log 2>&1" \
-    "0 10 * * 3 root cd /app && python3 scripts/dbt_run.py run --select score_largo_plazo barrios_score_consolidado >> /var/log/remates_dbt.log 2>&1" \
-    "30 3 1 * * root cd /app && python3 scripts/load_barrios.py >> /var/log/ingest_barrios.log 2>&1" \
-    "0 4 * * 1 root cd /app && python3 scripts/load_pois.py --build-analytics >> /var/log/ingest_pois.log 2>&1" \
-    "0 12 1 * * root cd /app && python3 scripts/run_seguridad_mensual.py >> /var/log/seguridad_mensual.log 2>&1" \
-    "0 11 * * * root cd /app && python3 scripts/fetch_usd_rate.py >> /var/log/parametros_diario.log 2>&1" \
-    "15 11 * * 1 root cd /app && python3 scripts/fetch_trm.py >> /var/log/trm_semanal.log 2>&1" \
+    "0 3 * * * app cd /app && python3 scripts/refresh_data.py >> /var/log/urbi/refresh.log 2>&1" \
+    "0 */6 * * * app cd /app && python3 scraping/run_comunidad.py >> /var/log/urbi/comunidad.log 2>&1" \
+    "30 9 * * * app cd /app && python3 -m scraping.link_checker --limit 2000 >> /var/log/urbi/link_check.log 2>&1" \
+    "0 8 * * * app cd /app && python3 scripts/run_listings_metrocuadrado.py >> /var/log/urbi/listings_m2.log 2>&1" \
+    "0 13 * * * app cd /app && python3 scripts/data_quality_check.py >> /var/log/urbi/data_quality.log 2>&1" \
+    "0 9 */3 * * app cd /app && python3 scripts/run_renta_corta.py >> /var/log/urbi/renta_corta.log 2>&1" \
+    "30 5 * * * app cd /app && python3 scripts/translate_descripciones.py >> /var/log/urbi/translate.log 2>&1" \
+    "0 7 * * * app cd /app && python3 scripts/run_analytics_usuarios.py >> /var/log/urbi/analytics_usuarios.log 2>&1" \
+    "0 8 * * 0 app cd /app && python3 scripts/run_airbnb_semanal.py >> /var/log/urbi/airbnb_semanal.log 2>&1" \
+    "30 7 * * 1 app cd /app && python3 scripts/run_dbt_full_refresh.py >> /var/log/urbi/dbt_full_refresh.log 2>&1" \
+    "0 10 * * 3 app cd /app && python3 scripts/dbt_run.py run --select score_largo_plazo barrios_score_consolidado >> /var/log/urbi/remates_dbt.log 2>&1" \
+    "30 3 1 * * app cd /app && python3 scripts/load_barrios.py >> /var/log/urbi/ingest_barrios.log 2>&1" \
+    "0 4 * * 1 app cd /app && python3 scripts/load_pois.py --build-analytics >> /var/log/urbi/ingest_pois.log 2>&1" \
+    "0 12 1 * * app cd /app && python3 scripts/run_seguridad_mensual.py >> /var/log/urbi/seguridad_mensual.log 2>&1" \
+    "0 11 * * * app cd /app && python3 scripts/fetch_usd_rate.py >> /var/log/urbi/parametros_diario.log 2>&1" \
+    "15 11 * * 1 app cd /app && python3 scripts/fetch_trm.py >> /var/log/urbi/trm_semanal.log 2>&1" \
     > /etc/cron.d/urbidata \
     && chmod 0644 /etc/cron.d/urbidata \
     && crontab /etc/cron.d/urbidata

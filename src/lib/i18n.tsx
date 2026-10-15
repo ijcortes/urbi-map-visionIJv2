@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { setFormatLang } from "./format";
 
 export type Lang = "es" | "en";
 const KEY = "medellin-social.lang";
@@ -8,2806 +9,112 @@ const KEY = "medellin-social.lang";
  * inside larger ones. Keep all-lowercase keys are matched
  * case-insensitively at word boundaries; cased keys match exactly.
  */
-const PHRASES: Array<[string, string]> = [
-  // ── Filtros del mapa (MapFilterBar) ──
-  ["Otros municipios", "Other municipalities"],
-  ["Toda la comuna", "Entire comuna"],
-  ["Estado del inmueble", "Property condition"],
-  ["Piso mínimo", "Minimum floor"],
-  ["Menos filtros", "Fewer filters"],
-  ["Usado", "Used"],
-  ["Precio / mes", "Price / mo"],
-  ["+30 días", "+30 days"],
-  ["+60 días", "+60 days"],
-  // ── Navbar (cuenta) ──
-  ["Mi perfil", "My profile"],
-  ["Mi plan", "My plan"],
-  ["Panel de agente", "Agent dashboard"],
-  // ── Popup listing (ListingDrawer) — chrome del form de visita/financiación ──
-  ["Ver en Metrocuadrado →", "View on Metrocuadrado →"],
-  ["Ver en MedellinLiving →", "View on MedellinLiving →"],
-  ["Espacio público (parque, plaza)", "Public space (park, plaza)"],
-  ["Te contactaremos pronto para confirmar.", "We'll contact you soon to confirm."],
-  ["Tu teléfono", "Your phone"],
-  ["Sin especificar", "Unspecified"],
-  ["Para vivir", "To live in"],
-  ["Para invertir", "To invest"],
-  ["Menos de $200M", "Under $200M"],
-  ["Más de $1.000M", "Over $1.000M"],
-  ["Crédito aprobado", "Pre-approved"],
-  ["Crédito", "Financing"],
-  ["De contado", "Cash"],
-  ["En trámite", "In process"],
-  ["Aún no", "Not yet"],
-  // ── Mini popup / paneles del mapa ──
-  ["En comparación", "In comparison"],
-  ["Ordenado por relevancia para tu perfil", "Sorted by relevance for your profile"],
-  ["Foto del inmueble", "Property photo"],
-  // ── OnboardingModal (stragglers no traducidos) ──
-  ["Publica y conecta con compradores e inversores", "List and connect with buyers and investors"],
-  ["Continuar →", "Continue →"],
-  ["Ver comunidad →", "View community →"],
-  ["Subir fotos y contenido de eventos", "Upload photos and event content"],
-  ["Descubrir negocios y tiendas locales", "Discover local businesses and shops"],
-  ["Conectar con tu comunidad", "Connect with your community"],
-  ["Explorar la comunidad →", "Explore the community →"],
-  ["Ver inmuebles en el mapa →", "View properties on the map →"],
-  ["Perfil guardado. Explorando el mapa…", "Profile saved. Opening the map…"],
-  // ── MapView (leyenda de tipos + fallback de fuente) ──
-  ["Ver leyenda de tipos", "View type legend"],
-  ["Ver listado →", "View listing →"],
-  ["Aptaestudio", "Studio"],
-  ["Apto", "Apt"],
-  // ── ListingDrawer — resto del popup (form visita, confirmación, badges) ──
-  ["Cuéntanos más para preparar tu visita (opcional)", "Tell us more to prepare your visit (optional)"],
-  ["Equipamiento urbano (colegio, hospital, etc.)", "Urban facilities (school, hospital, etc.)"],
-  ["¡Visita solicitada!", "Visit requested!"],
-  ["Link copiado ✅", "Link copied ✅"],
-  ["Solo explorando", "Just browsing"],
-  ["Sin verificar", "Unverified"],
-  ["Creando…", "Creating…"],
-  ["Tour 3D / Video", "3D Tour / Video"],
-  ["Tour 3D", "3D Tour"],
-  ["¿Cuándo?", "When?"],
-  ["¿Para qué?", "What for?"],
-  ["Inmueble", "Property"],
-  ["Listo", "Done"],
-  // ── MLSPanel — badges + tipos + modalidad de renta ──
-  ["YA NO DISPONIBLE", "NO LONGER AVAILABLE"],
-  ["BUENA OFERTA", "GOOD DEAL"],
-  ["Modalidad:", "Term:"],
-  ["Consultorio", "Medical office"],
-  ["Comercial", "Commercial"],
-  ["Finca", "Estate"],
-  ["Corto", "Short"],
-  ["Largo", "Long"],
-  // ── FloatingPanel — amenidades + caption ──
-  ["Cocina", "Kitchen"],
-  ["Lavadora", "Washer"],
-  ["Brecha mercado/catastro vs. mediana ciudad · Medellín 2026", "Market/cadastre gap vs. city median · Medellín 2026"],
-  ["p25 · mediana · p75", "p25 · median · p75"],
-  // ── Navbar ──
-  ["Herramientas", "Tools"],
-  ["Unidad", "Units"],
-
-  ["Tutorial de la página", "Page tutorial"],
-  ["NEGOCIOS", "BUSINESSES"],
-  ["EVENTOS", "EVENTS"],
-  // ── Realtor dashboard (frases largas primero) ──────────────────────────────
-  ["No hay solicitudes con este filtro. Cuando alguien agende una visita desde el mapa, aparecerá aquí.", "No requests with this filter. When someone books a visit from the map, it will appear here."],
-  ["¡Zona adquirida! Ya patrocinas esa zona.", "Zone acquired! You now sponsor that zone."],
-  ["Esa zona ya tiene patrocinador", "That zone already has a sponsor"],
-  ["No se pudo completar la compra", "Couldn't complete the purchase"],
-  ["Lead de listing destacado — priorízalo", "Featured listing lead — prioritize it"],
-  ["Predial al día", "Property tax up to date"],
-  ["Administración al día", "HOA fees up to date"],
-  ["Servicios al día", "Utilities up to date"],
-  ["Persona jurídica", "Legal entity"],
-  ["Título del aviso", "Listing title"],
-  ["Horario de contacto preferido", "Preferred contact time"],
-  ["Horario guardado", "Schedule saved"],
-  ["Horario", "Schedule"],
-  ["Apartamento en El Poblado con balcón", "Apartment in El Poblado with balcony"],
-  ["Sin leads en esta vista. Cuando un propietario publique en tu zona, aparecerá aquí.",
-    "No leads in this view. When an owner publishes in your zone, it will appear here."],
-  ["No tienes inmuebles asignados. Cuando un owner publique en tu zona, aparecerá aquí.",
-    "You have no assigned properties. When an owner publishes in your zone, it will appear here."],
-  ["Sin solicitudes de visita por ahora. Cuando alguien agende una visita desde el mapa, aparecerá aquí.",
-    "No showing requests yet. When someone schedules a showing from the map, it will appear here."],
-  ["Los asignados no aceptados a tiempo pueden volver al pool. Responder rápido protege tu zona.",
-    "Assignments not accepted in time may return to the pool. Responding fast protects your zone."],
-  ["No tienes zonas patrocinadas activas. Patrocina un barrio o comuna para recibir inmuebles con prioridad.",
-    "You have no active sponsored zones. Sponsor a neighborhood or comuna to receive properties with priority."],
-  ["Inmueble en pool abierto: el primer agente que lo tome se lo queda.",
-    "Property in the open pool: the first agent to take it keeps it."],
-  ["Acepta este inmueble para iniciar la verificación de documentos.",
-    "Accept this property to start document verification."],
-  ["Verifica con el propietario los documentos pendientes.",
-    "Verify the pending documents with the owner."],
-  ["Documentos al día. Completa la ficha para poder publicar.",
-    "Documents in order. Complete the listing details to publish."],
-  ["Los datos del propietario se revelan al tomar el inmueble.",
-    "Owner details are revealed when you take the property."],
-  ["Agrega listings o patrocina una zona para ver métricas de mercado.",
-    "Add listings or sponsor a zone to see market metrics."],
-  ["Las medianas son nominales; deflactar con IPC (DANE) antes de comparar períodos.",
-    "Medians are nominal; deflate with CPI (DANE) before comparing periods."],
-  ["Aún no tienes listings. Publica tu primer inmueble desde el inbox.",
-    "You have no listings yet. Publish your first property from the inbox."],
-  ["Usuarios que guardaron tus listings en favoritos",
-    "Users who saved your listings as favorites"],
-  ["Nadie ha guardado tus listings todavía.", "No one has saved your listings yet."],
-  ["vistas a tus listings de esta zona en los últimos 30 días",
-    "views on your listings in this zone in the last 30 days"],
-  ["Personas que quieren ver tus inmuebles", "People who want to see your properties"],
-  ["Retorno de tus zonas patrocinadas", "Return on your sponsored zones"],
-  ["No se pudieron cargar los inmuebles asignados.", "Could not load assigned properties."],
-  ["No se pudo cargar el pool de oportunidades.", "Could not load the opportunity pool."],
-  ["No se pudieron cargar tus listings.", "Could not load your listings."],
-  ["No se pudo cargar tu desempeño.", "Could not load your performance."],
-  ["No se pudo cargar tu agenda.", "Could not load your schedule."],
-  ["No se pudo cargar la inteligencia del barrio.", "Could not load neighborhood intelligence."],
-  ["Selecciona un lead para ver el detalle", "Select a lead to see details"],
-  ["El pool está vacío por ahora.", "The pool is empty for now."],
-  ["Todo listo para enviar a revisión.", "Everything ready to submit for review."],
-  ["Campos de la ficha por completar", "Listing fields to complete"],
-  ["Documentos por verificar", "Documents to verify"],
-  ["Declarado por el propietario", "Declared by the owner"],
-  ["Sin características declaradas", "No declared features"],
-  ["Nuevo · requiere respuesta", "New · needs response"],
-  ["Verificando documentos", "Verifying documents"],
-  ["Listo para publicar", "Ready to publish"],
-  ["Ficha incompleta", "Incomplete listing"],
-  ["Disponible en pool", "Available in pool"],
-  ["Zona sin patrocinador", "Zone without sponsor"],
-  ["Asignado por tu zona", "Assigned via your zone"],
-  ["Inmueble del pool", "Property from the pool"],
-  ["Buscar por barrio u owner", "Search by neighborhood or owner"],
-  ["Cuenta pendiente de aprobación", "Account pending approval"],
-  ["Centro de agente", "Agent center"],
-  ["Solicitudes de visita", "Showing requests"],
-  ["Sin fecha propuesta", "No proposed date"],
-  ["Sin datos de contacto", "No contact details"],
-  ["¿Cómo terminó?", "How did it go?"],
-  ["Marcar realizada", "Mark as done"],
-  ["No asistió", "No-show"],
-  ["Hará oferta", "Will make an offer"],
-  ["Descartado", "Not interested"],
-  ["Interesado", "Interested"],
-  ["Tasa de aceptación", "Acceptance rate"],
-  ["Velocidad de respuesta", "Response speed"],
-  ["mediana hasta aceptar", "median time to accept"],
-  ["Vistas en 30 días", "Views in 30 days"],
-  ["Vistas 30 días", "Views 30 days"],
-  ["Vistas totales", "Total views"],
-  ["históricas", "all-time"],
-  ["Asistencia a visitas", "Showing attendance"],
-  ["realizadas", "completed"],
-  ["plantones", "no-shows"],
-  ["Visitas con oferta", "Showings with offer"],
-  ["más quedaron interesados", "more were interested"],
-  ["en zonas patrocinadas", "in sponsored zones"],
-  ["Tu desempeño", "Your performance"],
-  ["Últimos 90 días", "Last 90 days"],
-  ["Este mes", "This month"],
-  ["Costo por inmueble", "Cost per property"],
-  ["Inmuebles en la zona", "Properties in the zone"],
-  ["Tomados por ti", "Taken by you"],
-  ["Publicados", "Published"],
-  ["Cerrados", "Closed"],
-  ["Cierres", "Closings"],
-  ["Patrocinio", "Sponsorship"],
-  ["Inteligencia de barrio", "Neighborhood intelligence"],
-  ["Seleccionar zona de análisis", "Select analysis zone"],
-  ["Score consolidado", "Consolidated score"],
-  ["potencial de inversión", "investment potential"],
-  ["facilidad de venta", "ease of sale"],
-  ["Mediana m² venta", "Median m² sale price"],
-  ["precio por m²", "price per m²"],
-  ["Tiempo estimado de venta", "Estimated time to sell"],
-  ["en el mercado", "on the market"],
-  ["Mis listings", "My listings"],
-  ["Desempeño", "Performance"],
-  ["Inteligencia", "Intelligence"],
-  ["En proceso", "In progress"],
-  ["Nuevos asignados", "New assignments"],
-  ["Pool disponible", "Pool available"],
-  ["Aceptar inmueble", "Accept property"],
-  ["Tomar inmueble", "Take property"],
-  ["Publicar listing", "Publish listing"],
-  ["Aceptando…", "Accepting…"],
-  ["Tomando…", "Taking…"],
-  ["Publicando…", "Publishing…"],
-  ["Verificando…", "Verifying…"],
-  ["Pool abierto", "Open pool"],
-  ["recibido", "received"],
-  ["Interesados", "Interested buyers"],
-  ["Guardado", "Saved"],
-  ["Confirmada", "Confirmed"],
-  ["Realizada", "Done"],
-  ["Cancelada", "Canceled"],
-  ["Pendiente de aprobación", "Pending approval"],
-  ["Pendiente", "Pending"],
-  ["En revisión", "In review"],
-  ["Borrador", "Draft"],
-  ["Publicado", "Published"],
-  ["Pausado", "Paused"],
-  ["Rechazado", "Rejected"],
-  ["Cerrado", "Closed"],
-  ["Verificada", "Verified"],
-  ["Propiedad", "Property"],
-  ["Estado", "Status"],
-  ["Nuevos", "New"],
-  ["Nuevo", "New"],
-  ["Todos", "All"],
-  ["Volver", "Back"],
-  ["Mapa", "Map"],
-  // tipos/operación: solo variantes acotadas — el motor reemplaza substrings y
-  // palabras sueltas cortas corrompen otras ("venta"→ventaja, "finca"→fincaraiz)
-  ["apartamento", "apartment"],
-  ["oficina", "office"],
-  ["habitaciones", "bedrooms"],
-  [" hab · ", " bd · "],
-  ["baños", "baths"],
-
-  // Brand / taglines
-  ["Medellin Social · Inteligencia inmobiliaria de Medellín", "Medellin Social · Real estate intelligence for Medellín"],
-  ["Medellin Social · Invierte en Medellín con datos reales", "Medellin Social · Invest in Medellín with real data"],
-  ["Inteligencia inmobiliaria de Medellín", "Real estate intelligence for Medellín"],
-  ["Invierte en Medellín con datos reales", "Invest in Medellín with real data"],
-  ["El primer motor de decisión inmobiliaria para el Valle de Aburrá. Yields, precios justos, seguridad y oportunidades por barrio.",
-    "The first real-estate decision engine for the Aburrá Valley. Yields, fair prices, safety and opportunities by neighborhood."],
-  ["El primer motor de decisión inmobiliaria para el Valle de Aburrá",
-    "The first real-estate decision engine for the Aburrá Valley"],
-  ["Motor de decisión inmobiliaria para el Valle de Aburrá.",
-    "Real-estate decision engine for the Aburrá Valley."],
-  ["Plataforma de analítica geoespacial para inversión inmobiliaria en Medellín. Yields, precios y oportunidades por barrio en tiempo real.",
-    "Geospatial analytics platform for real-estate investment in Medellín. Yields, prices and opportunities by neighborhood in real time."],
-  ["Yields, precios y oportunidades por barrio en Medellín.",
-    "Yields, prices and opportunities by neighborhood in Medellín."],
-  ["Medellín · Valle de Aburrá", "Medellín · Aburrá Valley"],
-  ["Medellin Social © 2026 · Medellín, Colombia", "Medellin Social © 2026 · Medellín, Colombia"],
-
-  // Onboarding
-  ["¿Cuál es tu objetivo principal?", "What is your main goal?"],
-  ["¿Cuál es tu perfil de riesgo?", "What is your risk profile?"],
-  ["¿Cuál es tu presupuesto de inversión?", "What is your investment budget?"],
-  ["Personalizamos la analítica según tu estrategia.", "We tailor the analytics to your strategy."],
-  ["Determina qué barrios destacaremos primero.", "Determines which neighborhoods we highlight first."],
-  ["Maximiza ingresos con renta corta. Analizamos ocupación real, ADR por barrio y demanda turística para identificar las zonas con mayor potencial Airbnb.",
-    "Maximize income with short-term rentals. We analyze real occupancy, ADR by neighborhood and tourist demand to identify the areas with the highest Airbnb potential."],
-  ["Arriendos de 1 a 6 meses para ejecutivos, nómadas digitales y profesionales en movilidad.",
-    "1 to 6 month rentals for executives, digital nomads and mobile professionals."],
-  ["Ingreso estable con menor gestión. Identificamos barrios donde el precio está bajo el valor justo (PBN) con alta seguridad residencial.",
-    "Stable income with less management. We identify neighborhoods where the price is below fair value (PBN) with high residential safety."],
-  ["Renta corta, alta rotación", "Short-term rental, high turnover"],
-  ["Yield + apreciación", "Yield + appreciation"],
-  ["Tipo de inversión", "Investment type"],
-  ["Renta media · 1-6 meses", "Mid-term rental · 1-6 months"],
-  ["Renta media", "Mid-term rental"],
-
-  // Calculator
-  ["Simula tu inversión", "Simulate your investment"],
-  ["Simulador de inversión", "Investment simulator"],
-  ["Simulador", "Simulator"],
-  ["Inversión inicial", "Initial investment"],
-  ["Apartamento típico", "Typical apartment"],
-  ["Años recupero", "Payback years"],
-  ["Apreciación a 5–10 años", "Appreciation in 5–10 years"],
-  ["Valorización proyectada", "Projected appreciation"],
-  ["Valorización", "Appreciation"],
-  ["Sin valorización", "No appreciation"],
-  ["Comparación vs CDT", "Comparison vs CDT"],
-  ["Tu inversión", "Your investment"],
-  ["Retorno 5 años", "5-year return"],
-  ["Yield real, precio justo (PBN), años de recupero, proyección a 5 años y comparación vs CDT bancario.",
-    "Real yield, fair price (PBN), payback years, 5-year projection and comparison vs bank CDT."],
-  ["o con intuición?", "or with intuition?"],
-  ["Simulación Medellin Social", "Medellin Social simulation"],
-  ["📈 valorización anual", "📈 average annual appreciation"],
-
-  // Map / floating panel
-  ["Cómo funciona Medellin Social", "How Medellin Social works"],
-  ["Cómo funciona", "How it works"],
-  ["Selecciona un barrio en el mapa para ver análisis detallado.",
-    "Select a neighborhood on the map to see detailed analysis."],
-  ["Cada barrio muestra su score de inversión según TU perfil. Verde = oportunidad. Rojo = evitar.",
-    "Each neighborhood shows its investment score based on YOUR profile. Green = opportunity. Red = avoid."],
-  ["Según tu perfil de inversión", "Based on your investor profile"],
-  ["¿Cómo calculamos esto?", "How do we calculate this?"],
-  ["Distancia al metro >2km puede afectar ocupación Airbnb.",
-    "Metro distance >2 km may affect Airbnb occupancy."],
-  ["📈 Para valorización, El Rodeo y Robledo muestran el mayor potencial de apreciación a 5 años.",
-    "📈 For appreciation, El Rodeo and Robledo show the highest 5-year potential."],
-  ["3,239 puntos de interés urbano", "3,239 urban points of interest"],
-  ["Mall más cercano", "Nearest mall"],
-  ["Metro más cercano", "Nearest metro"],
-  ["Parque más cercano", "Nearest park"],
-  ["Área estim.", "Est. area"],
-  ["Métrica", "Metric"],
-  ["Robledo · Medellín", "Robledo · Medellín"],
-
-  // Opportunities
-  ["INVERSIÓN SEGURA", "SAFE INVESTMENT"],
-  ["PRECIO BAJO MERCADO", "BELOW-MARKET PRICE"],
-  ["ALTO RENDIMIENTO", "HIGH YIELD"],
-  ["Cotiza 43% bajo el precio justo según arriendo de la zona",
-    "Listed 43% below the fair price for area rents"],
-  ["Yield 8.4% — sobre promedio Medellín (6.8%)",
-    "Yield 8.4% — above Medellín average (6.8%)"],
-  ["Fácil de vender", "Easy to sell"],
-  ["Difícil de vender", "Hard to sell"],
-  ["Tarda en vender", "Slow to sell"],
-  ["Tiempo razonable", "Reasonable time"],
-  ["Balance entre yield y precio (Estadio, Belén).", "Balance between yield and price (Estadio, Belén)."],
-
-  // Auth
-  ["Iniciar sesión", "Sign in"],
-  ["Crear cuenta", "Create account"],
-  ["Crear una cuenta", "Create an account"],
-  ["Bienvenido de vuelta a Medellin Social", "Welcome back to Medellin Social"],
-  ["Ingresa tu correo y contraseña.", "Enter your email and password."],
-  ["Las contraseñas no coinciden", "Passwords do not match"],
-  ["Mínimo 8 caracteres", "Minimum 8 characters"],
-  ["Confirmar contraseña", "Confirm password"],
-  ["Nueva contraseña", "New password"],
-  ["Contraseña", "Password"],
-  ["Correo", "Email"],
-  ["Teléfono", "Phone"],
-  ["Nombre completo", "Full name"],
-  ["Nombre", "Name"],
-  ["Entrar", "Enter"],
-  ["¿Sin cuenta?", "No account?"],
-  ["¿Ya tienes cuenta?", "Already have an account?"],
-  ["Inicia sesión", "Sign in"],
-
-  // Profile / settings
-  ["Configuración de cuenta", "Account settings"],
-  ["Configuración del mapa", "Map settings"],
-  ["Configuración mapa", "Map settings"],
-  ["Configuración", "Settings"],
-  ["Métodos de pago", "Payment methods"],
-  ["Foto, nombre, correo y contraseña.", "Photo, name, email and password."],
-  ["Tarjetas y métodos para suscripciones premium y reportes.",
-    "Cards and methods for premium subscriptions and reports."],
-  ["Tus últimas búsquedas, simulaciones y favoritos.",
-    "Your latest searches, simulations and favorites."],
-  ["Barrios guardados con tu configuración exacta.",
-    "Neighborhoods saved with your exact configuration."],
-  ["Nuevo método de pago", "New payment method"],
-  ["Número (últimos 4 visibles)", "Number (last 4 visible)"],
-  ["¿Borrar todo el historial?", "Delete all history?"],
-  ["¿Cerrar sesión?", "Sign out?"],
-  ["Cerrar sesión", "Sign out"],
-  ["Próximamente:", "Coming soon:"],
-  ["Sin personalización", "No personalization"],
-  ["Satélite", "Satellite"],
-
-  // Problems / sources
-  ["Información dispersa", "Scattered information"],
-  ["El dato de Airbnb está en una plataforma, la seguridad en otra, la valorización en otra. Nadie los cruza.",
-    "Airbnb data lives on one platform, safety on another, appreciation on another. No one cross-references them."],
-  ["Fincaraíz y Metrocuadrado muestran precios de oferta. Nadie te dice si ese precio es justo o un 30% inflado.",
-    "Fincaraíz and Metrocuadrado show listing prices. No one tells you if that price is fair or 30% inflated."],
-  ["Alcaldía MDE", "Medellín City Hall"],
-  ["Presupuesto, objetivo (Airbnb, renta larga, renta media) y perfil de riesgo. El mapa se personaliza para ti.",
-    "Budget, goal (Airbnb, long-term, mid-term rental) and risk profile. The map is personalized for you."],
-
-  // Liquidity bullets
-  ["• Interés de la zona (demanda Airbnb)", "• Area interest (Airbnb demand)"],
-  ["• Tiempo de publicación de listings activos", "• Listing duration of active properties"],
-
-  // 404
-  ["Página no encontrada", "Page not found"],
-  ["Esta ruta no existe en Medellin Social.", "This route does not exist in Medellin Social."],
-  ["Ir al inicio", "Go home"],
-
-  // Common short labels (apply last so they don't break compounds above)
-  ["Comparador", "Compare"],
-  ["Favoritos", "Favorites"],
-  ["Historial", "History"],
-  ["Perfil Inversor", "Investor Profile"],
-  ["Perfil inversor", "Investor profile"],
-  ["Cuenta", "Account"],
-  ["Salir", "Log out"],
-  ["Invitado", "Guest"],
-  ["Guardar cambios", "Save changes"],
-  ["Guardar", "Save"],
-  ["Cancelar", "Cancel"],
-  ["Eliminar", "Delete"],
-  ["Editar", "Edit"],
-  ["Continuar", "Continue"],
-  ["Siguiente", "Next"],
-  ["Atrás", "Back"],
-  ["Volver", "Back"],
-  ["Cerrar", "Close"],
-  ["Aceptar", "Accept"],
-  ["Confirmar", "Confirm"],
-  ["Buscar", "Search"],
-  ["Detalles", "Details"],
-  ["Seguridad", "Safety"],
-  ["Servicios", "Services"],
-  ["Ingresos", "Income"],
-  ["Gastos", "Expenses"],
-  ["Ahorros", "Savings"],
-  ["Riesgo", "Risk"],
-  ["Bajo", "Low"],
-  ["Medio", "Medium"],
-  ["Alto", "High"],
-  ["Conservador", "Conservative"],
-  ["Moderado", "Moderate"],
-  ["Agresivo", "Aggressive"],
-  ["Estrategia", "Strategy"],
-  ["Objetivo", "Goal"],
-  ["Presupuesto", "Budget"],
-  ["Resultado", "Result"],
-  ["Resultados", "Results"],
-  ["Mensual", "Monthly"],
-  ["Anual", "Annual"],
-  ["Mes", "Month"],
-  ["Año", "Year"],
-  ["Años", "Years"],
-  ["años", "years"],
-  ["Tiempo estimado", "Estimated time"],
-  ["Actividad de Mercado", "Market Activity"],
-  ["Oportunidades detectadas", "Opportunities detected"],
-  ["Ver en mapa", "View on map"],
-  ["Score", "Score"],
-  ["Liquidez", "Liquidity"],
-  ["Simular inversión aquí", "Simulate investment here"],
-  ["Simular", "Simulate"],
-  ["Calcular", "Calculate"],
-  ["Yield bruto", "Gross yield"],
-  ["Yield neto", "Net yield"],
-  ["Precio justo", "Fair price"],
-  ["Arriendo estimado", "Estimated rent"],
-  ["Arriendo", "Rent"],
-  ["Compra", "Purchase"],
-  ["Venta", "Sale"],
-  ["Listings", "Listings"],
-  ["activos", "active"],
-  ["frescos", "fresh"],
-  ["Días promedio en mercado", "Average days on market"],
-  ["días", "days"],
-  ["meses", "months"],
-  ["Ver más", "See more"],
-  ["Cargando", "Loading"],
-  ["Error", "Error"],
-  ["Reintentar", "Retry"],
-  ["Sí", "Yes"],
-  ["No", "No"],
-  ["Idioma", "Language"],
-
-  // ---- Additional coverage (titles, subtitles, labels) ----
-  // Landing — Hero
-  ["Medellin Social cruza precios de mercado, rendimiento Airbnb, seguridad, conectividad y valorización histórica para decirte exactamente dónde y cómo invertir en Medellín.",
-    "Medellin Social crosses market prices, Airbnb performance, safety, connectivity and historical appreciation to tell you exactly where and how to invest in Medellín."],
-  ["Cruzamos +2,400 listings activos, 3,239 puntos de interés urbano, 10 años de datos de valorización y criminalidad por barrio — todo en tiempo real.",
-    "We cross-reference +2,400 active listings, 3,239 urban points of interest, 10 years of appreciation and crime data by neighborhood — all in real time."],
-  ["Ingresa tu presupuesto y zona objetivo. Medellin Social calcula yield neto, proyección de valorización y retorno total a 5 años — comparado contra un CDT bancario.",
-    "Enter your budget and target area. Medellin Social calculates net yield, appreciation projection and total 5-year return — compared to a bank CDT."],
-  ["Ya analizamos +65 barrios del Valle de Aburrá", "We've already analyzed +65 neighborhoods in the Aburrá Valley"],
-  ["Accede gratis durante el beta. Sin tarjeta de crédito.", "Free access during the beta. No credit card required."],
-  ["Datos con fines informativos. No constituye asesoría financiera.", "For informational purposes only. Not financial advice."],
-  ["El mercado inmobiliario en Medellín es opaco.", "The real estate market in Medellín is opaque."],
-  ["Comenzar ahora — Es gratis", "Start now — It's free"],
-  ["Datos actualizados · Mayo 2026", "Updated data · May 2026"],
-  ["¿Estás invirtiendo con datos", "Are you investing with data"],
-  ["Construido sobre", "Built on"],
-  ["Deja de adivinar.", "Stop guessing."],
-  ["Empieza a invertir", "Start investing"],
-  ["Medellín crece.", "Medellín grows."],
-  ["Más popular", "Most popular"],
-  ["Un motor de decisión,", "A decision engine,"],
-  ["Ver demo", "View demo"],
-  ["Explorar", "Explore"],
-  ["Paso", "Step"],
-
-  // Landing & sections
-  ["Toma decisiones con datos", "Make decisions with data"],
-  ["Hasta ahora.", "Until now."],
-  ["con datos reales.", "with real data."],
-  ["datos reales", "real data"],
-  ["no un portal de listados.", "not a listings portal."],
-  ["en segundos.", "in seconds."],
-  ["Nosotros mostramos los datos.", "We show the data."],
-  ["o con intuición?", "or on intuition?"],
-  ["Prueba el simulador", "Try the simulator"],
-  ["Explora el mapa", "Explore the map"],
-  ["Ir al mapa", "Go to the map"],
-  ["Comenzar gratis", "Start free"],
-  ["Cómo funciona Medellin Social", "How Medellin Social works"],
-  ["Cómo funciona", "How it works"],
-  ["Para inversores", "For investors"],
-  ["Datos que usamos", "Data we use"],
-  ["Datos", "Data"],
-  ["El problema", "The Problem"],
-  ["Tres perfiles, un mapa", "Three profiles, one map"],
-  ["Define tu perfil", "Define your profile"],
-  ["Editamos tus filtros y recomendaciones del mapa.", "We tune your filters and map recommendations."],
-  ["Lo usaremos para filtrar oportunidades en el mapa.", "We'll use it to filter opportunities on the map."],
-  ["Precios sin contexto", "Prices without context"],
-  ["Un inversor Airbnb necesita datos distintos que uno de arriendo largo. Los portales tratan a todos igual.",
-    "An Airbnb investor needs different data than a long-term landlord. Portals treat everyone the same."],
-  ["Hasta 12.6% yield anual", "Up to 12.6% annual yield"],
-  ["Demanda creciendo 151% anual", "Demand growing 151% annually"],
-  ["Mayor yield potencial en zonas emergentes (El Rodeo, Robledo).",
-    "Highest yield potential in emerging areas (El Rodeo, Robledo)."],
-  ["Zonas consolidadas con yields estables (El Poblado, Laureles).",
-    "Consolidated areas with stable yields (El Poblado, Laureles)."],
-  ["retorno anual total", "total annual return"],
-  ["retorno anual", "annual return"],
-  ["vs CDT bancario", "vs bank CDT"],
-  ["CDT bancario", "Bank CDT"],
-  ["Barrios analizados", "Neighborhoods analyzed"],
-  ["Yield promedio", "Average yield"],
-  ["📊 propiedades analizadas", "📊 properties analyzed"],
-  ["📊 Listings activos", "📊 Active listings"],
-  ["🔄 Listings frescos (<30d)", "🔄 Fresh listings (<30d)"],
-  ["🕐 Tiempo prom. publicado", "🕐 Avg. listing time"],
-  ["🏘️ barrios con datos", "🏘️ neighborhoods with real data"],
-  ["• Volumen de propiedades en venta", "• Volume of properties for sale"],
-  ["✓ Actualizado", "✓ Updated"],
-  ["Token de Mapbox requerido", "Mapbox token required"],
-  ["Vista de ciudad", "City view"],
-  ["Mueve el panel", "Move the panel"],
-  ["Minimizar", "Minimize"],
-
-  // Comparador
-  ["Comparador de barrios", "Neighborhood comparator"],
-  ["Top 5 barrios por yield", "Top 5 neighborhoods by yield"],
-  ["Tendencia de precio · 12 meses", "Price trend · 12 months"],
-  ["Mejor zona perfil", "Best zone for profile"],
-  ["Listings destacados", "Featured listings"],
-  ["Listings arriendo", "Rental listings"],
-  ["Listings venta", "For-sale listings"],
-  ["Precio m² (venta)", "Price /m² (sale)"],
-  ["Precio m² mediana", "Median price /m²"],
-  ["Precio m²", "Price /m²"],
-  ["Precio", "Price"],
-  ["Zona / Barrio", "Zone / Neighborhood"],
-  ["Zona", "Zone"],
-  ["Barrio", "Neighborhood"],
-  ["Comuna", "Comuna"],
-  ["Estrato", "Stratum"],
-  ["Tipo", "Type"],
-  ["Valor", "Value"],
-  ["Recupero", "Payback"],
-  ["Horizonte", "Horizon"],
-  ["Tradicional", "Traditional"],
-  ["Mixto", "Mixed"],
-  ["Renta corta", "Short-term rental"],
-  ["Renta larga", "Long-term rental"],
-  ["Renta media", "Mid-term rental"],
-  ["Arriendo largo", "Long-term rent"],
-  ["Arriendo tradicional", "Traditional rent"],
-  ["Arriendo prom.", "Avg. rent"],
-  ["Arriendo", "Rent"],
-  ["Yield largo plazo", "Long-term yield"],
-  ["Corto plazo", "Short-term"],
-  ["Mediano plazo", "Mid-term"],
-  ["Largo plazo", "Long-term"],
-  ["Entrada al mercado", "Market entry"],
-  ["Ingreso mensual estable", "Stable monthly income"],
-  ["Ingreso/mes", "Income/mo"],
-  ["Ingresos netos", "Net income"],
-  ["Portafolio diversificado", "Diversified portfolio"],
-  ["Premium / 2 unidades", "Premium / 2 units"],
-  ["ROI total", "Total ROI"],
-  ["BUENA OPORTUNIDAD", "GOOD OPPORTUNITY"],
-  ["EXCELENTE", "EXCELLENT"],
-  ["MODERADA", "MODERATE"],
-  ["NO RECOMENDADA", "NOT RECOMMENDED"],
-  ["SOBRE", "ABOVE"],
-  ["BAJO", "LOW"],
-  ["Activa", "Active"],
-
-  // Floating panel chips
-  ["Cerca metro", "Near metro"],
-  ["Cerca parque", "Near park"],
-  ["Conectividad", "Connectivity"],
-  ["Dist. metro", "Metro dist."],
-  ["Dist. mall", "Mall dist."],
-  ["Dist. parque", "Park dist."],
-  ["Precio bajo mercado · 43% oportunidad", "Below-market price · 43% opportunity"],
-  ["El Rodeo: 88/100 score", "El Rodeo: 88/100 score"],
-  ["Guardar en favoritos", "Save to favorites"],
-  ["Quitar de favoritos", "Remove from favorites"],
-
-  // Profile
-  ["Perfil de riesgo", "Risk profile"],
-  ["Cambiar foto", "Change photo"],
-  ["Dejar en blanco para no cambiar", "Leave blank to keep current"],
-  ["Elige la paleta visual del mapa.", "Choose the map's visual palette."],
-  ["Tarjeta principal", "Primary card"],
-  ["Tarjeta", "Card"],
-  ["Titular", "Cardholder"],
-  ["Nombre / Etiqueta", "Name / Label"],
-  ["Hoy", "Today"],
-  ["Completa todos los campos.", "Complete all fields."],
-
-  // Opportunities banner / map
-  ["MEDELLÍN", "MEDELLÍN"],
-
-  // ---- Floating panel ----
-  ["ℹ️ Precio de negociación estimado descontando comisión inmobiliaria (3% venta, 10% arriendo). Dato real disponible próximamente con escrituras SNR.",
-    "ℹ️ Estimated negotiation price after brokerage fee (3% sale, 10% rent). Real data coming soon from SNR deed records."],
-  ["Haz clic en un barrio del mapa para ver su análisis →", "Click a neighborhood on the map to see its analysis →"],
-  ["Comparado con la zona más verde del Valle de Aburrá", "Compared to the greenest area in the Aburrá Valley"],
-  ["Sin remates activos ✅", "No active auctions ✅"],
-  ["Fuente: avisos judiciales públicos", "Source: public judicial notices"],
-  ["No hay listings con estos filtros.", "No listings match these filters."],
-  ["No hay listings de", "No listings for"],
-  ["Corrección inmobiliaria", "Real-estate correction"],
-  ["Precio publicado:", "Listed price:"],
-  ["Precio negociación:", "Negotiation price:"],
-  ["Arriendo publicado:", "Listed rent:"],
-  ["Arriendo neto:", "Net rent:"],
-  ["Yield publicado:", "Listed yield:"],
-  ["Yield real est.:", "Est. real yield:"],
-  ["Índice verde", "Green index"],
-  ["Salud financiera", "Financial health"],
-  ["Volver al barrio", "Back to neighborhood"],
-  ["Volver al mapa", "Back to map"],
-  ["Recomendación", "Recommendation"],
-  ["Buena oferta", "Good deal"],
-  ["Ver →", "View →"],
-  ["Cargando…", "Loading…"],
-  ["disponibles.", "available."],
-  ["resetear", "reset"],
-  ["resultado", "result"],
-  ["resultados", "results"],
-  ["baños", "baths"],
-  ["hab", "bd"],
-
-  // ---- Comparador ----
-  ["Selecciona hasta 3 barrios para comparar scores, mercado, seguridad y conectividad.",
-    "Select up to 3 neighborhoods to compare scores, market, safety and connectivity."],
-  ["Mayor score = mejor oportunidad para este perfil de inversión", "Higher score = better opportunity for this investment profile"],
-  ["Error al cargar datos del backend. Verifica que la API esté activa.", "Error loading backend data. Verify the API is running."],
-  ["Comparativa por dimensión", "Comparison by dimension"],
-  ["Añadir barrio", "Add neighborhood"],
-  ["Cargando datos...", "Loading data..."],
-  ["Tiempo venta est.", "Est. sale time"],
-  ["mayor es mejor", "higher is better"],
-  ["menor es mejor", "lower is better"],
-  ["Barra más larga = mejor rendimiento relativo en cada dimensión", "Longer bar = better relative performance in each dimension"],
-  ["Score Arriendo largo", "Long-term Rent Score"],
-  ["Score Renta media", "Mid-term rental Score"],
-  ["Score Airbnb", "Airbnb Score"],
-  ["Score seguridad", "Safety score"],
-  ["Score liquidez", "Liquidity score"],
-  ["Demanda de zona", "Zone demand"],
-  ["Zona turística", "Tourist area"],
-  ["Cafés (500m)", "Cafés (500m)"],
-  ["Tu perfil", "Your profile"],
-  ["TODOS LOS SCORES", "ALL SCORES"],
-  ["MERCADO", "MARKET"],
-  ["CONECTIVIDAD", "CONNECTIVITY"],
-  ["LIQUIDEZ", "LIQUIDITY"],
-  ["SEGURIDAD", "SAFETY"],
-
-  // ---- Simulador ----
-  ["Ajusta los parámetros y presiona Calcular para ver los resultados.", "Adjust parameters and press Calculate to see results."],
-  ["Ajusta los parámetros y presiona", "Adjust the parameters and press"],
-  ["Calcular inversión", "Calculate investment"],
-  ["para ver los resultados.", "to see the results."],
-  ["Resultados con datos reales del mercado", "Results with real market data"],
-  ["Calidad de inversión · Mayor score = mejor oportunidad", "Investment quality · Higher score = better opportunity"],
-  ["en ingresos netos (5 años) · Retorno total:", "in net income (5 years) · Total return:"],
-  ["✓ Tu propiedad supera al CDT en retorno total", "✓ Your property outperforms CDT in total return"],
-  ["Retorno total · 5 años", "Total return · 5 years"],
-  ["Ingresos netos acum.", "Accum. net income"],
-  ["Ver barrios similares", "View similar neighborhoods"],
-  ["Compartir simulación", "Share simulation"],
-  ["Error al calcular. Intenta de nuevo.", "Calculation error. Try again."],
-  ["Calculando...", "Calculating..."],
-  ["Resumen", "Summary"],
-  ["Año 5", "Year 5"],
-  ["Año 3", "Year 3"],
-  ["Año 1", "Year 1"],
-
-  // ---- Auth ----
-  ["Bienvenido de nuevo", "Welcome back"],
-  ["Ingresa a tu cuenta para continuar", "Log in to your account to continue"],
-  ["Crea tu cuenta", "Create your account"],
-  ["Explora el mercado inmobiliario y la comunidad del Valle de Aburrá",
-    "Explore the real estate market and the Aburrá Valley community"],
-  ["Tu ciudad, tus datos,\ntus decisiones.", "Your city, your data,\nyour decisions."],
-  ["Únete a la comunidad que\nestá construyendo Medellín.", "Join the community\nbuilding Medellín."],
-  ["54,000+ propiedades · 606 barrios · 12,000+ negocios",
-    "54,000+ properties · 606 neighborhoods · 12,000+ businesses"],
-  ["¿No tienes cuenta?", "Don't have an account?"],
-  ["Regístrate", "Sign up"],
-  ["Crear cuenta →", "Create account →"],
-  ["Creando cuenta…", "Creating account…"],
-  ["Error al crear la cuenta.", "Error creating account."],
-  ["Credenciales inválidas.", "Invalid credentials."],
-  ["Entrando…", "Signing in…"],
-
-  // ---- Perfil / configuración ----
-  ["PNG o JPG. La imagen se guarda solo en tu dispositivo.", "PNG or JPG. Image stored on your device only."],
-  ["🔒 Demo: los datos se guardan localmente. Próximamente integraremos pasarela segura.",
-    "🔒 Demo: data saved locally. Secure gateway coming soon."],
-  ["El cambio colorea los polígonos de barrios en tiempo real. El fondo del mapa no cambia.",
-    "Changes neighborhood polygon colors in real time. Map background unaffected."],
-  ["Color de los polígonos según score de inversión. Cambio inmediato.", "Polygon color by investment score. Changes immediately."],
-  ["Muestra barrios con oportunidades detectadas directamente en el mapa", "Shows neighborhoods with detected opportunities on the map"],
-  ["Fondo cartográfico. Se aplica al volver al mapa.", "Map background. Applied when returning to the map."],
-  ["Aún no tienes métodos de pago guardados.", "No payment methods saved yet."],
-  ["Sin favoritos aún. Toca el ⭐ en un barrio para guardarlo.", "No favorites yet. Tap ⭐ on a neighborhood to save it."],
-  ["Sin actividad reciente.", "No recent activity."],
-  ["Alertas de oportunidad", "Opportunity alerts"],
-  ["Paleta de barrios", "Neighborhood palette"],
-  ["Estilo del mapa", "Map style"],
-  ["Agregar método de pago", "Add payment method"],
-  ["Pasarela segura", "Secure gateway"],
-  ["Limpiar historial", "Clear history"],
-  ["Guardar perfil", "Save profile"],
-  ["Actualizado", "Updated"],
-  ["Quitar", "Remove"],
-
-  // ---- Onboarding / mapa ----
-  ["No pudimos guardar tu perfil en el servidor. Puedes continuar normalmente.",
-    "Could not save your profile to the server. You can continue normally."],
-  ["Mayor yield potencial en zonas emergentes", "Highest yield potential in emerging areas"],
-  ["Zonas consolidadas con yields estables", "Consolidated areas with stable yields"],
-  ["Zonas emergentes", "Emerging areas"],
-  ["Elige tu estrategia.", "Choose your strategy."],
-
-  // ---- Categorías de score (uppercase) ----
-  ["MUY BUENO", "VERY GOOD"],
-  ["MUY BAJO", "VERY LOW"],
-  ["MUY SEGURO", "VERY SAFE"],
-  ["MUY VERDE", "VERY GREEN"],
-  ["POCO SEGURO", "SOMEWHAT UNSAFE"],
-  ["POCO VERDE", "NOT GREEN"],
-  ["PELIGROSO", "DANGEROUS"],
-  ["EXCELENTE", "EXCELLENT"],
-  ["MODERADO", "MODERATE"],
-  ["BUENO", "GOOD"],
-  ["SEGURO", "SAFE"],
-  ["VERDE", "GREEN"],
-  ["MUY ALTO", "VERY HIGH"],
-  ["ALTA", "HIGH"],
-  ["MEDIA", "MEDIUM"],
-  ["BAJA", "LOW"],
-
-  // ---- Misc ----
-  ["Redimensionar", "Resize"],
-  ["Municipio", "Municipality"],
-
-  // ---- Comunidad ----
-  ["Comunidad Medellín · Eventos & Cultura Local", "Medellín Community · Events & Local Culture"],
-  ["🌎 Comunidad", "🌎 Community"],
-  ["Comunidad Medellín", "Medellín Community"],
-  ["Eventos, meetups y experiencias locales en el Valle de Aburrá — curados por personas que realmente viven aquí.",
-    "Events, meetups and local experiences across the Aburrá Valley — curated by people who actually live here."],
-  ["✨ Eventos Destacados", "✨ Featured Events"],
-  ["— espacios patrocinados", "— sponsored spots"],
-  ["Todos los eventos", "All Events"],
-  ["Próximos", "Upcoming"],
-  ["Esta semana", "This Week"],
-  ["Este mes", "This Month"],
-  ["Todos", "All"],
-  ["Otro", "Other"],
-  ["Destacado", "Featured"],
-  ["Ver detalles", "View details"],
-  ["Ningún evento coincide con los filtros actuales.", "No events match the current filters."],
-
-  // ---- Real estate ----
-  ["Agentes Certificados · Medellín Social", "Certified Agents · Medellín Social"],
-  ["🏠 Bienes Raíces", "🏠 Real Estate"],
-  ["Agentes Inmobiliarios Certificados", "Certified Real Estate Agents"],
-  ["Trabaja con profesionales verificados que garantizan todo tu proceso de compra — desde la selección del barrio hasta la firma de escrituras.",
-    "Work with verified professionals who guarantee your entire buying process — from neighborhood selection to signing the deed."],
-  ["Ver Mapa de Inversión", "View Investment Map"],
-  ["Certificado", "Certified"],
-  ["Especialidad", "Specialty"],
-  ["Operaciones", "Deals"],
-  ["transacciones", "transactions"],
-  ["Nuestros Agentes Certificados", "Our Certified Agents"],
-  ["Cómo Funciona", "How It Works"],
-  ["Elige tu barrio en el mapa", "Choose your neighborhood on the map"],
-  ["Explora 606 barrios del Valle de Aburrá, cada uno con score de potencial de inversión.",
-    "Browse 606 neighborhoods across the Aburrá Valley, each scored for investment potential."],
-  ["Conéctate con un agente certificado", "Get matched with a certified agent"],
-  ["Te conectamos con un agente local verificado especializado en tu barrio objetivo.",
-    "We connect you with a verified local agent who specializes in your target neighborhood."],
-  ["Tu inversión está garantizada", "Your investment is guaranteed"],
-  ["Los agentes certificados te guían por los pasos legales, notariales y financieros — de principio a fin.",
-    "Certified agents guide you through legal, notarial and financial steps — end to end."],
-  ["¿Eres agente local?", "Are you a local agent?"],
-  ["Únete a nuestra red. Obtén el badge certificado, listings enriquecidos con informes CMA automáticos y acceso directo a inversores globales.",
-    "Join our network. Get a certified badge, enriched listings with automatic CMA reports and direct access to global investors."],
-  ["Aplicar como Agente", "Apply as Agent"],
-
-  // ---- Stores ----
-  ["Negocios Locales · Medellín Social", "Local Businesses · Medellín Social"],
-  ["🏪 Negocios Locales", "🏪 Local Businesses"],
-  ["Negocios Locales", "Local Businesses"],
-  ["Descubre los mejores lugares en cada barrio — seleccionados y recomendados por la comunidad de Medellín Social.",
-    "Discover the best spots in each neighborhood — handpicked and recommended by the Medellín Social community."],
-  ["Recomendado", "Recommended"],
-  ["Sitio web", "Website"],
-  ["⭐ Mejores Lugares", "⭐ Top Spots"],
-  ["Mejores Lugares", "Top Spots"],
-  ["Ordenado por recomendación de la comunidad", "Ordered by community recommendation"],
-  ["¿Quieres tu negocio aquí?", "Want your business here?"],
-  ["Obtén el badge Recomendado y llega a miles de inversores y locales cada mes.",
-    "Get a Recommended badge and reach thousands of investors and locals every month."],
-  ["Registra tu Negocio", "List Your Business"],
-  ["Restaurante", "Restaurant"],
-  ["Mercado Gourmet", "Food Market"],
-  ["Gimnasio", "Gym"],
-
-  // ---- Onboarding step 0 ----
-  ["¿Qué te trae a Medellín Social?", "What brings you to Medellín Social?"],
-  ["Personalizaremos tu experiencia según tu objetivo.", "We'll personalize your experience according to your goal."],
-  ["💼 INVERSOR", "💼 INVESTOR"],
-  ["Quiero invertir en bienes raíces en el Valle de Aburrá", "I want to invest in real estate in the Aburrá Valley"],
-  ["🌎 EXPLORADOR", "🌎 EXPLORER"],
-  ["Quiero descubrir Medellín como un local", "I want to discover Medellín like a local"],
-
-  // ---- Onboarding step 3 airbnb ----
-  ["¿Cuántas unidades estás planeando?", "How many units are you planning?"],
-  ["Ajustamos las recomendaciones según el tamaño de tu portafolio.", "We tailor recommendations to your portfolio size."],
-  ["1 unidad — personal", "1 unit — personal"],
-  ["Empieza pequeño, aprende el mercado", "Start small, learn the market"],
-  ["2-5 unidades — portafolio pequeño", "2-5 units — small portfolio"],
-  ["Escala con complejidad manejable", "Build scale with manageable complexity"],
-  ["5+ unidades — portafolio completo", "5+ units — full portfolio"],
-  ["Estrategia de operador y objetivos de yield", "Operator-level strategy and yield targets"],
-
-  // ---- Onboarding step 3 mediano_plazo ----
-  ["¿Quién es tu inquilino objetivo?", "Who is your target tenant?"],
-  ["Destacaremos los barrios con mayor demanda para tu perfil.", "We'll highlight neighborhoods with the highest demand for your profile."],
-  ["Nómadas digitales y trabajadores remotos", "Digital nomads & remote workers"],
-  ["Alta demanda en El Poblado, Laureles", "High demand in El Poblado, Laureles"],
-  ["Ejecutivos y profesionales locales", "Local executives & professionals"],
-  ["Demanda estable, estadías más largas", "Stable demand, longer stays"],
-  ["Estudiantes", "Students"],
-  ["Arriendo menor, alta ocupación", "Lower rent, high occupancy rate"],
-  ["Flexible — cualquier perfil", "Flexible — any"],
-  ["Mayor cobertura de mercado", "Broader market coverage"],
-
-  // ---- Onboarding step 3 renta-larga ----
-  ["¿Cómo planeas pagar?", "How are you planning to pay?"],
-  ["Esto define qué barrios y estructuras de negocio priorizamos.", "This shapes which neighborhoods and deal structures we'll prioritize."],
-  ["Contado — pago total", "Cash — full payment"],
-  ["Máximo poder de negociación, cierre más rápido", "Maximum negotiation power, faster closing"],
-  ["Crédito hipotecario / financiamiento", "Mortgage/financing"],
-  ["Apalancamiento para propiedades de mayor valor", "Leverage to access higher-value properties"],
-  ["Aún no lo sé", "Not sure yet"],
-  ["Te mostraremos todas las opciones disponibles", "We'll show you all available options"],
-
-  // ---- Onboarding step 4 airbnb ----
-  ["¿Cómo planeas administrarlo?", "How do you plan to manage it?"],
-  ["El estilo de gestión impacta directamente tu yield neto.", "Management style has a direct impact on your net yield."],
-  ["Autogestión", "Self-managed"],
-  ["Mayor yield, más involucramiento directo", "Higher yield, more hands-on involvement"],
-  ["Contratar administrador", "Hire property manager"],
-  ["Ingreso pasivo, menor yield neto (~15–20% comisión)", "Passive income, lower net yield (~15–20% fee)"],
-  ["Te explicamos los pros y contras", "We'll walk you through the tradeoffs"],
-
-  // ---- Onboarding step 4 mediano_plazo ----
-  ["¿Amoblado o sin amoblar?", "Furnished or unfurnished?"],
-  ["El mobiliario afecta el precio, tiempo de arriendo y tipo de inquilino.", "Furnishing affects price, time-to-lease, and tenant type."],
-  ["Completamente amoblado (arriendo mayor)", "Fully furnished (higher rent)"],
-  ["Hasta 30% de prima, atrae nómadas y ejecutivos", "Up to 30% premium, attracts nomads & executives"],
-  ["Sin amoblar (más fácil de arrendar)", "Unfurnished (easier to find)"],
-  ["Menor barrera, inquilinos estables a largo plazo", "Lower barrier, stable long-term tenants"],
-  ["Decide propiedad por propiedad", "Decide property by property"],
-
-  // ---- Onboarding step 4 renta-larga ----
-  ["¿Cuál es tu horizonte de inversión?", "What's your investment horizon?"],
-  ["Tu horizonte define el perfil riesgo/retorno que optimizamos.", "Your timeline shapes the risk/return profile we optimize for."],
-  ["5 años", "5 years"],
-  ["Enfoque en barrios de mayor valorización", "Focus on fastest-appreciating neighborhoods"],
-  ["10 años", "10 years"],
-  ["Balance entre yield y valorización a largo plazo", "Balance between yield and long-term appreciation"],
-  ["20+ años — largo plazo", "20+ years — long term"],
-  ["Prioriza estabilidad y activos defensivos", "Prioritize stability and defensive assets"],
-
-  // ---- Onboarding step 6 ----
-  ["¿Es tu primera propiedad en Colombia?", "Is this your first property in Colombia?"],
-  ["Personalizaremos las guías y recursos que te compartimos.", "We'll customize the guidance and resources we share with you."],
-  ["Sí — soy nuevo en el mercado inmobiliario colombiano", "Yes — I'm new to Colombian real estate"],
-  ["Te asignamos un agente especializado en guiar inversores extranjeros en el proceso de compra colombiano.",
-    "We'll assign you an agent who specializes in guiding foreign investors through the Colombian buying process."],
-  ["No — ya he invertido aquí antes", "No — I've invested here before"],
-  ["Proceso estándar, sin orientación adicional necesaria.", "Standard process, no extra hand-holding needed."],
-  ["¿Te gustaría ser contactado por un agente certificado?", "Would you like to be contacted by a certified agent?"],
-  ["Un experto local puede ayudarte a navegar el proceso de principio a fin.", "A local expert can help you navigate the process end-to-end."],
-  ["Sí, conéctame con un agente", "Yes, connect me with an agent"],
-  ["Un agente certificado te contactará en 24 horas.", "A certified agent will reach out within 24 hours."],
-  ["No, exploraré por mi cuenta primero", "No, I'll explore on my own first"],
-  ["Siempre puedes solicitar un agente desde tu perfil.", "You can always request an agent later from your profile."],
-
-  // ---- Common footer / misc ----
-  ["Inicio", "Home"],
-  ["Ir al mapa", "Go to the map"],
-
-  // ---- Forgot / Reset password ----
-  ["¡Contraseña actualizada!", "Password updated!"],
-  ["Contraseña actualizada correctamente. Serás redirigido en segundos.", "Password successfully updated. You will be redirected shortly."],
-  ["Copia el token para restablecer tu contraseña", "Copy the token to reset your password"],
-  ["En producción esto llegaría a tu email. Válido por 1 hora.", "In production this would be sent to your email. Valid for 1 hour."],
-  ["La contraseña debe tener mínimo 8 caracteres.", "Password must have at least 8 characters."],
-  ["Error. Token inválido o expirado.", "Error. Invalid or expired token."],
-  ["Token inválido o ya utilizado", "Invalid or already used token"],
-  ["Ingresa el token de recuperación.", "Enter the recovery token."],
-  ["Ingresa el token y tu nueva contraseña", "Enter the token and your new password"],
-  ["Te enviaremos instrucciones para recuperarla", "We'll send you instructions to recover it"],
-  ["Ir a restablecer contraseña →", "Go to reset password →"],
-  ["Redirigiendo al login…", "Redirecting to login…"],
-  ["¿Olvidaste tu contraseña?", "Forgot your password?"],
-  ["Token de recuperación (beta)", "Recovery token (beta)"],
-  ["Token de recuperación", "Recovery token"],
-  ["Token generado", "Token generated"],
-  ["Correo registrado", "Registered email"],
-  ["Enviando…", "Sending…"],
-  ["Enviar instrucciones", "Send instructions"],
-  ["Actualizar contraseña", "Update password"],
-  ["Solicitar nuevo token", "Request new token"],
-  ["Actualizando…", "Updating…"],
-  ["Volver al login", "Back to login"],
-  ["Pega el token aquí", "Paste the token here"],
-  ["Repite la contraseña", "Repeat password"],
-  ["Mínimo 8 caracteres", "Minimum 8 characters"],
-  ["Ingresa tu correo.", "Enter your email."],
-  ["Error. Intenta de nuevo.", "Error. Try again."],
-
-  // ---- Onboarding ----
-  ["Airbnb y renta corta, alta rotación", "Airbnb and short-term rental, high turnover"],
-  ["1–6 meses: ejecutivos, nómadas digitales y profesionales en movilidad.", "1–6 months: executives, digital nomads and mobile professionals."],
-  ["Renta Corta", "Short-term Rental"],
-
-  // ---- Perfil (profile) ----
-  ["Personaliza tu cuenta, perfil de inversor y experiencia de mapa.", "Customize your account, investor profile and map experience."],
-  ["Error al cargar favoritos. Verifica tu conexión.", "Error loading favorites. Check your connection."],
-  ["Error al cargar historial. Verifica tu conexión.", "Error loading history. Check your connection."],
-  ["Tus últimas simulaciones y búsquedas (últimas 20).", "Your latest simulations and searches (last 20)."],
-  ["Cargando favoritos...", "Loading favorites..."],
-  ["Cargando historial...", "Loading history..."],
-  ["Comparó barrios", "Compared neighborhoods"],
-  ["Guardar método", "Save method"],
-  ["✓ Guardado", "✓ Saved"],
-  ["Activo", "Active"],
-
-  // ---- Simulador ----
-  ["Resultados basados en datos reales del mercado", "Results based on real market data"],
-  ["Comparar barrios", "Compare neighborhoods"],
-  ["· 8% costos operativos (vacancia + mantenimiento)", "· 8% operating costs (vacancy + maintenance)"],
-  ["· 2.7% predial + adm. + seguros", "· 2.7% property tax + mgmt. + insurance"],
-  ["Después de descontar:", "After deducting:"],
-  ["Ingreso real mensual:", "Real monthly income:"],
-  ["Precio máx", "Max price"],
-  ["Área mín", "Min area"],
-  ["Año 10", "Year 10"],
-  ["neto", "net"],
-
-  // ---- FloatingPanel — city / barrio ----
-  ["✅ Alta demanda de renta media. Cafés, coworking y servicios consolidados. Zona con flujo sostenido de ejecutivos y profesionales remotos.",
-    "✅ High mid-term rental demand. Cafés, coworking and consolidated services. Area with sustained flow of executives and remote professionals."],
-  ["⚡ Demanda de zona moderada. Infraestructura disponible. Potencial creciente para arriendos de 1 a 6 meses.",
-    "⚡ Moderate zone demand. Available infrastructure. Growing potential for 1 to 6 month rentals."],
-  ["⚠️ Demanda limitada en esta zona. Considera zonas con mayor densidad de servicios para renta media.",
-    "⚠️ Limited demand in this area. Consider areas with higher service density for mid-term rentals."],
-  ["Arriendos de 1 a 6 meses · Ejecutivos y profesionales en movilidad.", "1 to 6 month rentals · Executives and mobile professionals."],
-  ["Próximamente: integraremos datos reales de transacciones de la Superintendencia de Notariado y Registro para mostrar tiempo real de venta por barrio.",
-    "Coming soon: we will integrate real transaction data from the Notary and Registry authority to show real sale time by neighborhood."],
-  ["Basado en volumen de mercado activo. Liquidez real disponible próximamente con datos de transacciones oficiales.",
-    "Based on active market volume. Real liquidity coming soon with official transaction data."],
-  ["Este índice mide la actividad del mercado inmobiliario basado en:", "This index measures real estate market activity based on:"],
-  ["Proyección 5 años:", "5-year projection:"],
-  ["Fuente: DANE IPVN · Ajustado por estrato", "Source: DANE IPVN · Adjusted for stratum"],
-  ["📍 Demanda de la zona", "📍 Zone demand"],
-  ["💰 Rendimiento estimado", "💰 Estimated yield"],
-  ["📊 Precio justo (PBN)", "📊 Fair price (PBN)"],
-  ["📈 Valorización histórica", "📈 Historical appreciation"],
-  ["🎯 ¿Por qué este score?", "🎯 Why this score?"],
-  ["Perfil Renta Media", "Mid-term Rental Profile"],
-  ["Arriendo tradicional:", "Traditional rent:"],
-  ["Renta media estimada:", "Estimated mid-term rent:"],
-  ["Premium vs largo plazo:", "Premium vs long-term:"],
-  ["Yield renta media:", "Mid-term rental yield:"],
-  ["Yield largo plazo (ref):", "Long-term yield (ref):"],
-  ["Yield renta media", "Mid-term rental yield"],
-  ["Precio actual:", "Current price:"],
-  ["PBN justo:", "Fair PBN:"],
-  ["Oportunidad detectada", "Opportunity detected"],
-  ["Volver a ciudad", "Back to city"],
-  ["Seguridad percibida", "Perceived safety"],
-  ["Cafés en 500m", "Cafés within 500m"],
-  ["Coworking en 1km", "Coworking within 1km"],
-  ["Gimnasios en 1km", "Gyms within 1km"],
-  ["Buscar barrio…", "Search neighborhood…"],
-  ["Tu perfil:", "Your profile:"],
-  ["desde 2015", "since 2015"],
-  ["último año", "last year"],
-  ["sin datos", "no data"],
-  ["Sin datos", "No data"],
-  ["ahora", "now"],
-
-  // ---- Auth — recommendation strings ----
-  ["🎯 Para tu perfil Airbnb, El Poblado y Laureles tienen la mayor demanda de renta corta estimada. Yield promedio zona: 7.4%",
-    "🎯 For your Airbnb profile, El Poblado and Laureles have the highest estimated short-term rental demand. Average zone yield: 7.4%"],
-  ["🏠 Para renta larga, Robledo y Aranjuez ofrecen el mejor balance precio/arriendo con baja vacancia.",
-    "🏠 For long-term rental, Robledo and Aranjuez offer the best price/rent balance with low vacancy."],
-  ["📅 Para renta media (1-6 meses), El Poblado y Laureles lideran en yield renta media y demanda de ejecutivos y profesionales en movilidad.",
-    "📅 For mid-term rental (1-6 months), El Poblado and Laureles lead in mid-term rental yield and demand from executives and mobile professionals."],
-
-  // ---- FloatingPanel / MLSPanel / ListingPanel ----
-  ["Sin datos reales de ocupación en esta zona", "No real occupancy data for this area"],
-  ["% de propiedades en la zona con:", "% of properties in the area with:"],
-  ["Ingresos anuales estimados:", "Est. annual income:"],
-  ["Ratio mercado/catastro", "Market/cadastral ratio"],
-  ["Área mediana apto", "Median apt. area"],
-  ["Seleccionar barrio…", "Select neighborhood…"],
-  ["Seleccionar comuna…", "Select municipality…"],
-  ["Intenta con otros filtros", "Try other filters"],
-  ["Sin resultados", "No results"],
-  ["Score equipamiento:", "Amenity score:"],
-  ["Tipo de anuncio:", "Listing type:"],
-  ["Mediana zona:", "Zone median:"],
-  ["Precio por noche:", "Price per night:"],
-  ["Yield estimado:", "Est. yield:"],
-  ["Yield Airbnb:", "Airbnb yield:"],
-  ["Precio/m²:", "Price/m²:"],
-  ["Score zona:", "Zone score:"],
-  ["proy. 3 años", "3-yr proj."],
-  ["Ocupación", "Occupancy"],
-  ["% Apartamentos", "% Apartments"],
-  ["Total predios", "Total properties"],
-  ["Invertir", "Invest"],
-  ["Comunidad", "Community"],
-  ["Calidad:", "Quality:"],
-  ["Habs:", "Beds:"],
-
-  // ---- Simulador — new cards / breakdown rows ----
-  ["Análisis crédito hipotecario · 70% LTV", "Mortgage analysis · 70% LTV"],
-  ["Datos insuficientes — muestra muy pequeña", "Insufficient data — very small sample"],
-  ["Sobre capital propio (entrada)", "On own capital (down payment)"],
-  ["−38% opex (plataforma + limpieza + vacancia + suministros)", "−38% opex (platform + cleaning + vacancy + supplies)"],
-  ["−28% opex (admin edificio + predial + seguros + mant. + vacancia)", "−28% opex (building mgmt + property tax + insurance + maint. + vacancy)"],
-  ["−22% opex (admin + predial + seguros + mant. + vacancia)", "−22% opex (mgmt + property tax + insurance + maint. + vacancy)"],
-  ["Después de descontar costos operativos", "After deducting operating costs"],
-  ["Estructura de capital", "Capital structure"],
-  ["Desglose presupuesto", "Budget breakdown"],
-  ["Desglose gestión", "Management breakdown"],
-  ["Apreciación / entrada", "Appreciation / down payment"],
-  ["Ingreso bruto Airbnb", "Gross Airbnb income"],
-  ["Costo amoblado est.", "Est. furnishing cost"],
-  ["Cuota hipoteca (est.)", "Mortgage payment (est.)"],
-  ["Costo gestión (−25%)", "Management cost (−25%)"],
-  ["Arriendo neto (−10%)", "Net rent (−10%)"],
-  ["Crédito banco (70%)", "Bank credit (70%)"],
-  ["Presupuesto efectivo", "Effective budget"],
-  ["Presupuesto total", "Total budget"],
-  ["Entrada (30%)", "Down payment (30%)"],
-  ["Perfil activo", "Active profile"],
-  ["Ingreso neto", "Net income"],
-  ["neto / año", "net / yr"],
-
-  // ---- Landing — paywall modal (LandingMapHeader) ----
-  ["Acceso gratuito incluye perfil básico. Datos premium desde $5 USD/mes",
-    "Free access includes basic profile. Premium data from $5 USD/month"],
-  ["Score de inversión personalizado", "Personalized investment score"],
-  ["Conexión con agentes certificados", "Certified agent connection"],
-  ["Yield Airbnb con datos reales", "Airbnb yield with real data"],
-  ["Datos de inversión completos", "Full investment data"],
-  ["Precio/m² y arriendo real", "Price/m² and real rent"],
-  ["Ya tengo cuenta — Iniciar sesión", "I have an account — Sign in"],
-  ["Crear cuenta — Gratis →", "Create account — Free →"],
-  ["Simulador de retorno", "Return simulator"],
-
-  // ---- BarrioChoiceModal ----
-  ["Conoce el barrio, cafés y eventos locales", "Discover the neighborhood, cafés and local events"],
-  ["Ver yields, precios y análisis de inversión", "See yields, prices and investment analysis"],
-
-  // ---- Landing page — SiteNavbar / index.tsx / LandingMapHeader ----
-  ["Evita las trampas turísticas. Conecta con locales reales que conocen su barrio — cafés ocultos, eventos comunitarios y los lugares que solo los locales conocen.",
-    "Skip the tourist traps. Connect with real locals who know their neighborhoods — hidden cafés, community events and the places only locals know about."],
-  ["Cruza precios de mercado reales, rendimiento Airbnb, puntuaciones de seguridad y valorización histórica para encontrar exactamente dónde invertir en el Valle de Aburrá.",
-    "Cross real market prices, Airbnb performance, security scores and historical appreciation to find exactly where to invest in the Aburrá Valley."],
-  ["Lugares seleccionados por personas que realmente viven ahí — no influencers.", "Curated spots by people who actually live there — not influencers."],
-  ["Del nightlife de El Poblado a los mercados de agricultores de Laureles.", "From El Poblado nightlife to Laureles farmers markets."],
-  ["Descubre los lugares que hacen único a cada barrio.", "Discover the spots that make each neighborhood unique."],
-  ["Precio por m², yields y reportes CMA respaldados por +43,000 listings.", "Price per m², yield calculations and CMA reports backed by 43,000+ listings."],
-  ["Cada barrio puntuado para potencial Airbnb, renta media y renta larga.", "Every neighborhood scored for Airbnb, mid-term and long-term potential."],
-  ["Agentes verificados que garantizan todo el proceso de compra.", "Verified agents who guarantee the entire buying process."],
-  ["Bienvenido al Valle de Aburrá", "Welcome to the Aburrá Valley"],
-  ["Medellín y comunidades cercanas", "Medellín & Surrounding Communities"],
-  ["488 barrios analizados · Datos en vivo", "488 neighborhoods analyzed · Live data"],
-  ["Desplaza para explorar", "Scroll to explore"],
-  ["Empieza a invertir con datos.", "Start Investing with Data."],
-  ["Recomendaciones Locales", "Local Recommendations"],
-  ["Eventos por Barrio", "Events by Neighborhood"],
-  ["Apoya el Comercio Local", "Support Local Business"],
-  ["Inteligencia de Mercado Real", "Real Market Intelligence"],
-  ["Puntuación por Barrio", "Neighborhood Scoring"],
-  ["Agentes Certificados", "Certified Agents"],
-  ["Descubre Medellín", "Experience Medellín"],
-  ["Como un Local", "Like a Local"],
-  ["Alto potencial", "High potential"],
-  ["Explorar Comunidad", "Explore Community"],
-  ["Tiendas", "Stores"],
-  ["Agentes", "Agents"],
-  ["Comenzar", "Get Started"],
-
-  // ── MapFilterBar ──────────────────────────────────────────────────────────
-  ["Toda la ciudad", "Entire city"],
-  ["Comunas Medellín", "Medellín districts"],
-  ["4+ baños", "4+ baths"],
-  ["< 7 días", "< 7 days"],
-  ["< 30 días", "< 30 days"],
-  ["> 90 días", "> 90 days"],
-  ["Filtros PRO", "PRO filters"],
-  ["Todas las antigüedades", "All ages"],
-  ["Analiza tu barrio:", "Analyze your neighborhood:"],
-  ["Tipo de inmueble", "Property type"],
-  ["Todos los tipos", "All types"],
-  ["Tiempo en mercado", "Time on market"],
-  ["Tiempo publicado", "Time listed"],
-  ["Recién publicado", "Just listed"],
-  ["Más de 60 días", "Over 60 days"],
-  ["Más de 30 días", "Over 30 days"],
-  ["Canon mediano del barrio", "Median neighborhood rent"],
-  ["Evolución de arriendos", "Rent trend"],
-  ["Historial de disponibilidad", "Availability history"],
-  ["Limpiar todo", "Clear all"],
-  ["Aplicar filtros", "Apply filters"],
-  ["Buenas ofertas", "Good deals"],
-  ["Yield mínimo", "Min yield"],
-  ["Score de zona", "Zone score"],
-  ["Sin límite", "No limit"],
-  ["Precio/mes", "Price/mo"],
-  ["Más filtros", "More filters"],
-  ["Habitaciones", "Bedrooms"],
-  ["Antigüedad", "Age"],
-  ["Cualquiera", "Any"],
-  ["Demorado", "Slow"],
-  ["Reciente", "Recent"],
-  ["Filtros", "Filters"],
-  ["Aplicar", "Apply"],
-  ["Baños", "Bathrooms"],
-  ["Nuevo", "New"],
-  ["lleva tiempo", "been a while"],
-  ["negociable", "negotiable"],
-  ["Área", "Area"],
-  ["Mín", "Min"],
-  ["Máx", "Max"],
-
-  // ── MLSPanel ──────────────────────────────────────────────────────────────
-  ["Cargando listings…", "Loading listings…"],
-  ["Volver al análisis", "Back to analysis"],
-  ["Sin propiedades", "No properties"],
-  ["Publicado hoy", "Listed today"],
-  ["Hace 1 día", "1 day ago"],
-  ["Simular inversión", "Simulate investment"],
-  ["Residencial", "Residential"],
-  ["Terreno", "Land"],
-
-  // ── ListingDrawer ─────────────────────────────────────────────────────────
-  ["¿Cómo se calcula este estimado?", "How is this estimate calculated?"],
-  ["Estimado calculado con el rango de precios reales de propiedades similares en", "Estimate calculated using real price ranges of similar properties in"],
-  ["A medida que más ventas se cierren en la plataforma, este estimado será más preciso.", "As more sales close on the platform, this estimate will become more accurate."],
-  ["Sin cambios de precio desde que se publicó en Medellín Social", "No price changes since listed on Medellín Social"],
-  ["Te avisamos si esta propiedad baja de precio o aparece algo similar en", "We'll notify you if this property drops in price or something similar appears in"],
-  ["Alerta creada ✅ Te avisamos si baja de precio.", "Alert created ✅ We'll notify you if price drops."],
-  ["Basado en el precio/m² de", "Based on the price/m² of"],
-  ["Valor estimado de mercado", "Estimated market value"],
-  ["Dentro del rango típico del barrio", "Within the typical neighborhood range"],
-  ["Dentro del rango típico de", "Within typical range for"],
-  ["Con potencial de inversión en valorización y renta.", "With investment potential in appreciation and rental income."],
-  ["Ver en Fincaraíz →", "View on Fincaraíz →"],
-  ["Si arriendas esta propiedad", "If you rent out this property"],
-  ["Airbnb (corto)", "Airbnb (short-term)"],
-  ["Nómadas (medio)", "Nomads (mid-term)"],
-  ["Airbnb — zona turística activa", "Airbnb — active tourist area"],
-  ["Nómadas — demanda internacional", "Nomads — international demand"],
-  ["Renta larga — zona residencial estable", "Long-term rental — stable residential area"],
-  ["Alta demanda turística en la zona (", "High tourist demand in the area ("],
-  ["/10) con buen potencial de ocupación para renta corta.", "/10) with good occupancy potential for short-term rental."],
-  ["Zona mixta con demanda de profesionales y nómadas digitales. Balance entre ocupación y estabilidad.", "Mixed area with demand from professionals and digital nomads. A balance of occupancy and stability."],
-  ["Zona principalmente residencial (índice nómada ", "Mostly residential area (nomad index "],
-  ["/10). Mayor estabilidad de ocupación a largo plazo.", "/10). Greater long-term occupancy stability."],
-  [" — considera el índice de seguridad antes de decidir.", " — consider the safety index before deciding."],
-  ["Elige un día", "Choose a day"],
-  ["Días anteriores", "Previous days"],
-  ["Días siguientes", "Next days"],
-  ["Domingo", "Sunday"],
-  ["Lunes", "Monday"],
-  ["Martes", "Tuesday"],
-  ["Miércoles", "Wednesday"],
-  ["Jueves", "Thursday"],
-  ["Viernes", "Friday"],
-  ["Sábado", "Saturday"],
-  ["Rango de precios del barrio", "Neighborhood price range"],
-  ["Descripción no disponible.", "Description unavailable."],
-  ["Propiedades similares", "Similar properties"],
-  ["Análisis de precio", "Price analysis"],
-  ["Historial de precio", "Price history"],
-  ["Detalle del inmueble", "Property details"],
-  ["Mínimo mercado", "Market minimum"],
-  ["Típico del barrio", "Neighborhood typical"],
-  ["Premio del barrio", "Neighborhood premium"],
-  ["Canon mediana barrio", "Median neighborhood rent"],
-  ["✓ BUENA OFERTA", "✓ GOOD DEAL"],
-  ["bajo el precio típico de", "below typical price for"],
-  ["◎ PRECIO JUSTO", "◎ FAIR PRICE"],
-  ["↑ SOBRE PRECIO", "↑ OVERPRICED"],
-  ["sobre el precio típico de", "above typical price for"],
-  ["Precios en", "Prices in"],
-  ["Quitado del comparador", "Removed from comparator"],
-  ["Agregado al comparador", "Added to comparator"],
-  ["Quitar del comparador", "Remove from comparator"],
-  ["Agregar a comparación", "Add to comparison"],
-  ["Simular esta propiedad →", "Simulate this property →"],
-  ["Alerta de precio", "Price alert"],
-  ["Crear alerta →", "Create alert →"],
-  ["El vecindario", "The neighborhood"],
-  ["Seguridad moderada", "Moderate safety"],
-  ["Zona de precaución", "Caution zone"],
-  ["¿Cómo calculamos la seguridad?", "How do we calculate safety?"],
-  ["Combinamos reportes de incidentes de la zona, datos de iluminación pública y densidad de comercio activo. Una zona segura tiene menor incidencia de reportes y mayor actividad comercial durante el día y la noche.", "We combine area incident reports, public lighting data and active commerce density. A safe zone has fewer incident reports and higher commercial activity during day and night."],
-  ["¿Cómo medimos el transporte?", "How do we measure transit?"],
-  ["Calculamos la distancia en línea recta desde la propiedad a la estación de metro más cercana del Valle de Aburrá (Medellín Metro). A menor distancia, mayor conectividad.", "We calculate the straight-line distance from the property to the nearest metro station in the Aburrá Valley (Medellín Metro). Shorter distance = better connectivity."],
-  ["¿Qué es el perfil de zona?", "What is the zone profile?"],
-  ["Indica qué tipo de arrendatario predomina en esta zona, basado en la demanda de arriendos cortos, presencia de plataformas como Airbnb y el tipo de comercio cercano.", "Indicates the predominant tenant type in this area, based on short-term rental demand, presence of platforms like Airbnb and nearby commerce type."],
-  ["¿Qué significa mercado activo?", "What does active market mean?"],
-  ["Mide qué tan rápido se venden o arriendan propiedades en esta zona, basado en el volumen de transacciones y el tiempo promedio en mercado.", "Measures how quickly properties sell or rent in this area, based on transaction volume and average time on market."],
-  ["propiedades se venden/arriendan en menos de 30 días", "properties sell/rent in under 30 days"],
-  ["alta demanda Airbnb, ideal para renta corta", "high Airbnb demand, ideal for short-term rental"],
-  ["demanda variada, funciona para varios perfiles", "varied demand, works for multiple profiles"],
-  ["familias y profesionales, ideal para renta larga", "families and professionals, ideal for long-term rental"],
-  ["Excelente conectividad", "Excellent connectivity"],
-  ["Conectividad moderada", "Moderate connectivity"],
-  ["Buena conectividad", "Good connectivity"],
-  ["Zona alejada del metro", "Far from metro"],
-  ["Mercado activo", "Active market"],
-  ["Mercado moderado", "Moderate market"],
-  ["Mercado lento", "Slow market"],
-  ["Zona mixta", "Mixed zone"],
-  ["Contactar agente", "Contact agent"],
-  ["Administración", "Admin fee"],
-  ["Descripción", "Description"],
-  ["Ubicación", "Location"],
-  ["Ver menos", "See less"],
-  ["Mínimo", "Minimum"],
-  ["Este listing", "This listing"],
-
-  // ── Simulador ─────────────────────────────────────────────────────────────
-  ["El Simulador de Inversión es exclusivo de MLS Pro", "The Investment Simulator is exclusive to MLS Pro"],
-  ["Calcula el yield real, flujo de caja y ROI de cualquier propiedad en el Valle de Aburrá con datos reales del mercado.", "Calculate the real yield, cash flow and ROI of any property in the Aburrá Valley with real market data."],
-  ["Suscribirse a MLS Pro → Desde $79,000 COP/mes", "Subscribe to MLS Pro → From $79,000 COP/mo"],
-  ["Impuesto predial (M COP/año — vacío = 0.5% estimado)", "Property tax (M COP/yr — blank = 0.5% estimate)"],
-  ["Retención en la fuente (3.5% si canon >$1.3M)", "Source withholding (3.5% if rent >$1.3M)"],
-  ["Promedio bancos: ~12–14%", "Bank average: ~12–14%"],
-  ["Aún no tienes simulaciones guardadas.", "No saved simulations yet."],
-  ["meses/año sin arrendar", "months/year vacant"],
-  ["Tasa de interés anual E.A.", "Annual interest rate E.A."],
-  ["Mis simulaciones guardadas", "My saved simulations"],
-  ["Seleccionar barrio...", "Select neighborhood..."],
-  ["Cargando barrios...", "Loading neighborhoods..."],
-  ["Seleccionar zona...", "Select zone..."],
-  ["Cargando historial…", "Loading history…"],
-  ["Zona / Comuna", "Zone / Municipality"],
-  ["Horizonte de inversión", "Investment horizon"],
-  ["Mantenimiento anual", "Annual maintenance"],
-  ["Seguro de propiedad", "Property insurance"],
-  ["Fee Airbnb/Booking", "Airbnb/Booking fee"],
-  ["Tipo de compra", "Purchase type"],
-  ["Cuota estimada:", "Estimated payment:"],
-  ["Cargando propiedad...", "Loading property..."],
-  ["Restaurar defaults", "Restore defaults"],
-  ["Cambiar propiedad", "Change property"],
-  ["Ajustar gastos", "Adjust expenses"],
-  ["Cuota inicial", "Down payment"],
-  ["Con crédito", "With credit"],
-  ["Simulando:", "Simulating:"],
-  ["Vacancia", "Vacancy"],
-  ["Contado", "Cash"],
-
-  // ── Comparador ────────────────────────────────────────────────────────────
-  ["Con MLS Pro compara barrios ilimitados y accede a métricas avanzadas.", "With MLS Pro compare unlimited neighborhoods and access advanced metrics."],
-  ["Con el plan Free puedes comparar hasta", "With the Free plan you can compare up to"],
-  ["Aún no tienes comparaciones guardadas.", "No saved comparisons yet."],
-  ["Mis comparaciones guardadas", "My saved comparisons"],
-  ["Comparador limitado", "Limited comparator"],
-
-  // ── Planes ────────────────────────────────────────────────────────────────
-  ["Mapa con 54,000+ propiedades para estudiar el mercado", "Map with 54,000+ properties to study the market"],
-  ["Ver precios reales de venta y arriendo en tu barrio", "See real sale and rental prices in your neighborhood"],
-  ["Filtros por tipo, precio, área, habitaciones, estrato", "Filters by type, price, area, bedrooms, stratum"],
-  ["Publicar tu propiedad sin costo", "List your property at no cost"],
-  ["Recibir contactos de compradores e interesados", "Receive contacts from buyers and interested parties"],
-  ["Todo lo anterior incluido", "Everything above included"],
-  ["Rango de precios real del barrio: barato, típico y caro", "Real neighborhood price range: cheap, typical and expensive"],
-  ["Recomendación: vender rápido / precio justo / precio máximo", "Recommendation: quick sale / fair price / maximum price"],
-  ["Historial de precios del sector", "Area price history"],
-  ["Cómo posicionar la propiedad para compradores en USD", "How to position the property for USD buyers"],
-  ["Tu propiedad destacada en el mapa del barrio", "Your property featured on the neighborhood map"],
-  ["Estadísticas: vistas, guardados y contactos de tu listing", "Stats: views, saves and contacts on your listing"],
-  ["Estimado de liquidez: cuánto tarda en venderse", "Liquidity estimate: how long it takes to sell"],
-  ["Mapa completo con 54,000+ propiedades del Valle de Aburrá", "Full map with 54,000+ properties in the Aburrá Valley"],
-  ["Filtros avanzados para encontrar oportunidades", "Advanced filters to find opportunities"],
-  ["Ver precios por barrio y comuna", "See prices by neighborhood and district"],
-  ["Publicar propiedades de clientes sin costo", "List client properties at no cost"],
-  ["Comunas y barrios con datos de mercado básicos", "Districts and neighborhoods with basic market data"],
-  ["Aparecer como contacto #1 en todos los listings de tu zona", "Appear as the #1 contact on every listing in your zone"],
-  ["1 cupo exclusivo por barrio — quien llega primero se queda", "1 exclusive spot per neighborhood — first come, first served"],
-  ["Perfil verificado con distintivo de agente de zona", "Verified profile with a zone-agent badge"],
-  ["Dashboard: contactos recibidos, vistas y desempeño de zona", "Dashboard: contacts received, views and zone performance"],
-  ["Visibilidad directa a compradores e inversores que buscan en esa zona", "Direct visibility to buyers and investors searching in that zone"],
-  ["¿El Listing Destacado es un pago único o mensual?", "Is the Featured Listing a one-time or monthly payment?"],
-  ["Pago único por listing. Pagas una vez y tu propiedad queda destacada con análisis completo hasta que se venda o arriende.", "One-time payment per listing. You pay once and your property stays featured with full analysis until it sells or rents."],
-  ["¿Qué pasa si mi propiedad no se vende?", "What happens if my property doesn't sell?"],
-  ["El listing queda activo mientras quieras. No hay fecha de vencimiento ni cobro adicional.", "The listing stays active for as long as you want. No expiration date or extra charges."],
-  ["¿Puedo publicar sin el plan Destacado?", "Can I list without the Featured plan?"],
-  ["Sí. El plan gratuito te permite publicar y recibir contactos. El Listing Destacado agrega el análisis de mercado y la posición destacada en el mapa.", "Yes. The free plan lets you list and receive contacts. Featured Listing adds market analysis and a featured spot on the map."],
-  ["¿Qué significa 1 cupo exclusivo por zona?", "What does 1 exclusive spot per zone mean?"],
-  ["Solo puede haber un agente patrocinado por barrio y uno por comuna. Mientras esté activo, apareces como el contacto principal en cada propiedad de esa zona.", "There can only be one sponsored agent per neighborhood and one per district. While active, you appear as the main contact on every property in that zone."],
-  ["Revisamos tu cédula, RUT y referencias profesionales en 24-48 horas. Es obligatoria para garantizar la calidad del directorio.", "We review your ID, RUT and professional references within 24-48 hours. It's mandatory to keep the directory's quality."],
-  ["¿Puedo cancelar la zona patrocinada?", "Can I cancel my sponsored zone?"],
-  ["Sí. Sin permanencia mínima. Si cancelas, la zona queda disponible para otro agente.", "Yes. No minimum commitment. If you cancel, the zone becomes available to another agent."],
-  ["¿Puedo tener más de una zona?", "Can I have more than one zone?"],
-  ["Sí. Puedes patrocinar varios barrios o comunas a la vez. Cada zona se gestiona y cobra por separado.", "Yes. You can sponsor several neighborhoods or districts at once. Each zone is managed and billed separately."],
-  ["¿Quién eres?", "Who are you?"],
-  ["Vende o arrienda mejor", "Sell or rent better"],
-  ["Domina tu zona", "Dominate your zone"],
-  ["Soy propietario", "I'm an owner"],
-  ["Soy agente inmobiliario", "I'm a real estate agent"],
-  ["USD $", "USD $"],
-  ["Para conocer el mercado", "To learn the market"],
-  ["Siempre gratis", "Always free"],
-  ["Comenzar gratis", "Start for free"],
-  ["Para vender o arrendar al mejor precio", "To sell or rent at the best price"],
-  ["pago único · por listing", "one-time · per listing"],
-  ["MEJOR VALOR", "BEST VALUE"],
-  ["Publicar con destacado →", "List with Featured →"],
-  ["Para prospectar y publicar clientes", "To prospect and list clients"],
-  ["Crear cuenta", "Create account"],
-  ["Agente de Zona", "Zone Agent"],
-  ["Cupo exclusivo en tu barrio o comuna", "Exclusive spot in your neighborhood or district"],
-  ["desde $", "from $"],
-  ["por barrio · mes", "per neighborhood · month"],
-  ["/ comuna · mes", "/ district · month"],
-  ["EXCLUSIVO", "EXCLUSIVE"],
-  ["Plan activo", "Active plan"],
-  ["Solicitar zona →", "Request zone →"],
-  ["Requiere verificación (24-48 h)", "Requires verification (24-48h)"],
-  ["Preguntas frecuentes", "Frequently asked questions"],
-  ["Error iniciando el proceso. Intenta de nuevo.", "Error starting the process. Please try again."],
-  ["Solicitud de zona", "Zone request"],
-  ["Cerrar", "Close"],
-
-  ["Toma mejores decisiones en el mercado inmobiliario del Valle de Aburrá con datos reales.", "Make better decisions in the Aburrá Valley real estate market with real data."],
-  ["Sí. Sin permanencia. Cancelas en cualquier momento desde tu perfil.", "Yes. No commitment. Cancel anytime from your profile."],
-  ["Solo se cobra si vendes o arriendas tu propiedad a través de Medellín Social. Publicar es siempre gratis.", "Only charged if you sell or rent through Medellín Social. Listing is always free."],
-  ["Revisamos tu cédula, RUT y referencias en 24-48 horas. Solo para el plan Agente.", "We review your ID, RUT and references within 24-48 hours. Agent plan only."],
-  ["Requiere verificación de agente (24-48h)", "Requires agent verification (24-48h)"],
-  ["Error iniciando suscripción. Intenta de nuevo.", "Error starting subscription. Try again."],
-  ["¿Cómo funciona la comisión del 3%?", "How does the 3% commission work?"],
-  ["¿Qué es la verificación de agente?", "What is agent verification?"],
-  ["¿Puedo cancelar cuando quiera?", "Can I cancel anytime?"],
-  ["Elige tu plan", "Choose your plan"],
-  ["Para conocer el mercado", "To explore the market"],
-  ["Incluido en Agente", "Included in Agent plan"],
-  ["Pesos COP", "Colombian Pesos (COP)"],
-  ["¿Más preguntas?", "More questions?"],
-  ["Cargando planes…", "Loading plans…"],
-  ["Contactar por WhatsApp", "Contact via WhatsApp"],
-  ["Tu plan actual", "Your current plan"],
-  ["Gratis siempre", "Always free"],
-  ["Procesando…", "Processing…"],
-  ["Enviar email", "Send email"],
-  ["Pago manual", "Manual payment"],
-  ["Suscribirse a", "Subscribe to"],
-  ["MÁS POPULAR", "MOST POPULAR"],
-  ["Plan actual", "Current plan"],
-  ["Explorador", "Explorer"],
-  ["Tu plan", "Your plan"],
-
-  // ── Vender ────────────────────────────────────────────────────────────────
-  ["Vende o arrienda con Medellín Social", "Sell or rent with Medellín Social"],
-  ["Llega a compradores locales e inversores extranjeros con datos reales del mercado.", "Reach local buyers and international investors with real market data."],
-  ["Sin costo  ·  Activo en <24h  ·  3% comisión solo si cerrás", "Free  ·  Live in <24h  ·  3% commission only if you close"],
-  ["Publicar mi propiedad →", "List my property →"],
-  ["Ver análisis de mi barrio", "See my neighborhood analysis"],
-  ["El precio correcto.", "The right price."],
-  ["El momento justo.", "The right time."],
-  ["Tu propiedad.", "Your property."],
-  ["Visible en el MLS", "Visible in the MLS"],
-  ["Tu propiedad aparece en el mapa que usan inversores cada día", "Your property appears on the map investors use every day"],
-  ["Alcance internacional", "International reach"],
-  ["Inversores de LATAM, Europa y Norteamérica buscan aquí", "Investors from LATAM, Europe and North America search here"],
-  ["Sin costo por publicar", "No cost to list"],
-  ["Solo pagás el 3% si cerrás la venta a través de la plataforma", "You only pay 3% if the sale closes through the platform"],
-  ["¿Por qué publicar aquí?", "Why list here?"],
-  ["¿Listo para publicar?", "Ready to publish?"],
-  ["Hablar con un agente", "Talk to an agent"],
-  ["días en mercado", "days on market"],
-  ["prom.", "avg."],
-  ["Gratis, activo en menos de 24 horas", "Free, active in under 24 hours"],
-
-  // ── Agentes — index ───────────────────────────────────────────────────────
-  ["Encuentra tu experto inmobiliario en el Valle de Aburrá", "Find your real estate expert in the Aburrá Valley"],
-  ["Agentes verificados por Medellín Social con experiencia local comprobada", "Agents verified by Medellín Social with proven local experience"],
-  ["No se encontraron agentes con esos filtros.", "No agents found with those filters."],
-  ["Únete a nuestra red de expertos verificados", "Join our network of verified experts"],
-  ["Registrarme como agente →", "Register as agent →"],
-  ["¿Eres agente inmobiliario?", "Are you a real estate agent?"],
-  ["Todas las zonas", "All zones"],
-  ["Venta y Arriendo", "Sale and Rent"],
-  ["Limpiar filtros", "Clear filters"],
-  ["Nuestros Agentes", "Our Agents"],
-  ["Agente independiente", "Independent agent"],
-  ["años de experiencia", "years of experience"],
-  ["Ver perfil →", "View profile →"],
-  ["Bilingüe", "Bilingual"],
-  ["Inglés", "English"],
-  ["Todas", "All"],
-
-  // ── Agentes — $slug ───────────────────────────────────────────────────────
-  ["Error al enviar. Intenta de nuevo.", "Error sending. Try again."],
-  ["Cargando perfil...", "Loading profile..."],
-  ["Respuesta en minutos", "Responds in minutes"],
-  ["Listings activos", "Active listings"],
-  ["Años experiencia", "Years of experience"],
-  ["Enviar mensaje", "Send message"],
-  ["No disponible", "Not available"],
-
-  // ── Agentes — registro ────────────────────────────────────────────────────
-  ["Zonas donde opera (comunas/municipios)", "Areas where you operate (municipalities/districts)"],
-  ["Foto de cédula — frente", "ID photo — front"],
-  ["Foto de cédula — reverso", "ID photo — back"],
-  ["Foto de perfil profesional", "Professional profile photo"],
-  ["¿Pertenece a una inmobiliaria?", "Are you with a real estate agency?"],
-  ["Nombre de la inmobiliaria", "Agency name"],
-  ["NIT de la inmobiliaria", "Agency tax ID"],
-  ["Cuota de administración mensual COP", "Monthly admin fee COP"],
-  ["¿Tiene cuota de administración mensual?", "Does it have a monthly admin fee?"],
-  ["Transacciones cerradas", "Closed transactions"],
-  ["Años de experiencia", "Years of experience"],
-  ["Precio mínimo (COP)", "Minimum price (COP)"],
-  ["Precio máximo (COP)", "Maximum price (COP)"],
-  ["Tipo de transacción", "Transaction type"],
-  ["Número de cédula", "ID number"],
-  ["Fecha de nacimiento", "Date of birth"],
-  ["Teléfono celular", "Cell phone"],
-  ["Email profesional", "Professional email"],
-  ["WhatsApp (opcional)", "WhatsApp (optional)"],
-  ["LinkedIn (opcional)", "LinkedIn (optional)"],
-  ["Instagram (opcional)", "Instagram (optional)"],
-  ["Sitio web (opcional)", "Website (optional)"],
-  ["Nombre del cliente", "Client name"],
-  ["Haz clic para subir", "Click to upload"],
-  ["Selecciona", "Select"],
-
-  // ── mis-propiedades.tsx ───────────────────────────────────────────────────
-  ["Mis propiedades", "My properties"],
-  ["Desempeño y estado de tus publicaciones", "Performance and status of your listings"],
-  ["No pudimos cargar tus propiedades.", "We couldn't load your properties."],
-  ["Aún no has publicado ninguna propiedad", "You haven't published any properties yet"],
-  ["Publica la primera →", "Publish your first →"],
-  ["vistas (30d)", "views (30d)"],
-  ["visitas pend.", "pending visits"],
-  ["vistas 30d ·", "views 30d ·"],
-  ["Publicar", "Publish"],
-  ["propiedades", "properties"],
-  ["propiedad", "property"],
-
-  // ── realtor/agency-dashboard.tsx ──────────────────────────────────────────
-  ["Asigna o reasigna listings a agentes del equipo.", "Assign or reassign listings to team agents."],
-  ["Delegar a:", "Delegate to:"],
-  ["Sin acceso", "No access"],
-  ["Visitas pend.", "Pending visits"],
-  ["Agente", "Agent"],
-  ["Listing", "Listing"],
-  ["Rol", "Role"],
-  ["No se pudo enviar la invitación", "Couldn't send the invitation"],
-  ["Sin teléfono", "No phone"],
-  ["No hay agentes en el equipo todavía.", "No agents on the team yet."],
-  ["La agencia no tiene listings todavía.", "The agency doesn't have any listings yet."],
-  ["Sin título", "No title"],
-
-  // ── Perfil ────────────────────────────────────────────────────────────────
-  ["Gestión", "Management"],
-  ["Busco una propiedad para vivir en el Valle de Aburrá", "I'm looking for a property to live in the Aburrá Valley"],
-  ["Analizo rentabilidad, yields y oportunidades", "I analyze profitability, yields and opportunities"],
-  ["Quiero publicar y conectar con compradores", "I want to list and connect with buyers"],
-  ["Uso las herramientas profesionales del MLS", "I use the MLS professional tools"],
-  ["Urbi (predeterminado)", "Urbi (default)"],
-  ["Suave", "Soft"],
-  ["Nocturna", "Night"],
-  ["Contraste", "Contrast"],
-  ["Personaliza tu cuenta, perfil de inversor y experiencia de mapa.", "Customize your account, investor profile and map experience."],
-  ["Personalizamos el mapa y las recomendaciones según tu perfil.", "We customize the map and recommendations based on your profile."],
-  ["Perfil de búsqueda", "Search profile"],
-  ["Comprar o arrendar", "Buy or rent"],
-  ["Invertir en finca raíz", "Invest in real estate"],
-  ["¿Qué estás buscando?", "What are you looking for?"],
-  ["Nómadas digitales", "Digital nomads"],
-  ["Crédito hipotecario", "Mortgage/financing"],
-  ["Cargando favoritos...", "Loading favorites..."],
-  ["Cargando historial...", "Loading history..."],
-  ["No sé aún", "Not sure yet"],
-
-  // ── Publicar ──────────────────────────────────────────────────────────────
-  ["Publica tu propiedad en el MLS de Medellín Social en 5 pasos.", "List your property on Medellín Social's MLS in 5 steps."],
-  ["Información básica", "Basic information"],
-  ["Ubicación y fotos", "Location and photos"],
-  ["Información legal", "Legal information"],
-  ["Contacto", "Contact"],
-  ["Lote", "Lot"],
-  ["Local", "Retail space"],
-  ["Cualquier hora", "Any time"],
-  ["Tardes (12–18)", "Afternoons (12–18)"],
-  ["Noches (18–21)", "Evenings (18–21)"],
-  ["Fines de semana", "Weekends"],
-  ["Cuarto de servicio", "Service room"],
-  ["Cocina integral", "Open kitchen"],
-  ["Walk-in closet", "Walk-in closet"],
-  ["Chimenea", "Fireplace"],
-  ["Jacuzzi", "Jacuzzi"],
-  ["Vigilancia", "Security guard"],
-  ["CCTV", "CCTV"],
-  ["Parque infantil", "Playground"],
-  ["BBQ", "BBQ area"],
-  ["Cancha deportiva", "Sports court"],
-  ["Error cargando el mapa. Verifica tu conexión.", "Error loading the map. Check your connection."],
-  ["Dirección aproximada", "Approximate address"],
-  ["Describe las características principales, el estado del inmueble, qué hace especial esta propiedad…", "Describe the main features, the property's condition, what makes it special…"],
-  ["¿Es propiedad horizontal (edificio/condominio)?", "Is it a horizontal property (building/condo)?"],
-  ["¿Al día con la administración?", "Up to date with HOA fees?"],
-  ["¿Al día con el impuesto predial?", "Up to date with property tax?"],
-  ["¿Tiene hipoteca?", "Does it have a mortgage?"],
-  ["¿Tiene escritura pública?", "Does it have a public deed?"],
-  ["¿Servicios al día (agua, luz, gas)?", "Utilities up to date (water, power, gas)?"],
-  ["Unión libre", "Common-law union"],
-  ["¿Es persona jurídica / empresa?", "Is it a legal entity / company?"],
-  ["Escribe tu teléfono primero", "Enter your phone number first"],
-  ["No se pudo enviar el código. Intenta de nuevo.", "Couldn't send the code. Please try again."],
-  ["Código inválido", "Invalid code"],
-  ["Código inválido o vencido", "Invalid or expired code"],
-  ["Verificar teléfono", "Verify phone"],
-  ["Código de 6 dígitos", "6-digit code"],
-  ["Teléfono / WhatsApp", "Phone / WhatsApp"],
-  ["Selecciona el tipo de operación", "Select the operation type"],
-  ["Marca la ubicación en el mapa", "Mark the location on the map"],
-  ["La descripción debe tener al menos 50 caracteres", "The description must be at least 50 characters"],
-  ["Indica si está al día con la administración", "Indicate whether it's up to date with HOA fees"],
-  ["Indica si está al día con el predial", "Indicate whether it's up to date with property tax"],
-  ["Indica si tiene escritura pública", "Indicate whether it has a public deed"],
-  ["Indica si los servicios están al día", "Indicate whether utilities are up to date"],
-  ["Ingresa tu teléfono", "Enter your phone number"],
-  ["Debes aceptar los términos y condiciones", "You must accept the terms and conditions"],
-  ["Debes confirmar que eres propietario o tienes autorización", "You must confirm you are the owner or have authorization"],
-  ["Debes aceptar el modelo de comisión", "You must accept the commission model"],
-  ["Verifica tu teléfono en el paso de contacto antes de publicar.", "Verify your phone in the contact step before publishing."],
-  ["Vendé más rápido con MLS Pro", "Sell faster with MLS Pro"],
-  ["Análisis de tiempo de venta por barrio, posicionamiento para inversores extranjeros y comparador Airbnb vs renta larga.", "Neighborhood sale-time analysis, positioning for foreign investors and an Airbnb vs. long-term rental comparator."],
-  ["Confirmo que soy el propietario o tengo autorización para publicar esta propiedad", "I confirm I am the owner or have authorization to list this property"],
-  ["Acepto el modelo de comisión del 3% sobre el precio de venta (solo aplica si se cierra la venta)", "I accept the 3% commission model on the sale price (only applies if the sale closes)"],
-  ["Acepto los términos y condiciones de Medellín Social", "I accept the terms and conditions of Medellín Social"],
-  ["Solo se cobra cuando se cierra la venta. Sin costos por publicar.", "Only charged when the sale closes. No listing costs."],
-  ["Características externas / zonas comunes", "External features / common areas"],
-  ["Características interiores", "Interior features"],
-  ["Sobre la comisión de venta", "About the sales commission"],
-  ["Total: 3% sobre el precio de venta", "Total: 3% of the sale price"],
-  ["¿Quieres más visibilidad?", "Want more visibility?"],
-  ["Seleccionar municipio", "Select municipality"],
-  ["Seleccionar comuna", "Select district"],
-  ["Seleccionar barrio", "Select neighborhood"],
-  ["Mascotas permitidas", "Pets allowed"],
-  ["Cuota de administración mensual COP", "Monthly admin fee COP"],
-  ["Tipo de operación", "Operation type"],
-  ["Precio mensual COP", "Monthly price COP"],
-  ["Precio de venta COP", "Sale price COP"],
-  ["Área construida m²", "Built area m²"],
-  ["Área del lote m²", "Lot area m²"],
-  ["Permite Airbnb", "Airbnb allowed"],
-  ["Hacer principal", "Set as main"],
-  ["Parqueaderos", "Parking spots"],
-  ["Amoblado", "Furnished"],
-  ["Piso", "Floor"],
-
-  // ── Real estate page ──────────────────────────────────────────────────────
-  ["El mercado inmobiliario colombiano es fragmentado, costoso y difícil de navegar — especialmente para compradores extranjeros. Medellín Social centraliza datos reales de 54,000+ propiedades en 10 municipios del Valle de Aburrá, con precios verificados, análisis de barrios y agentes locales de confianza.", "The Colombian real estate market is fragmented, costly and hard to navigate — especially for international buyers. Medellín Social centralizes real data from 54,000+ properties across 10 municipalities in the Aburrá Valley, with verified prices, neighborhood analysis and trusted local agents."],
-  ["Nacimos para hacer transparente el mercado más opaco de Colombia", "We were born to make Colombia's most opaque market transparent"],
-  ["Explora 54,000+ propiedades con precios reales, análisis de barrios y agentes verificados.", "Explore 54,000+ properties with real prices, neighborhood analysis and verified agents."],
-  ["Agentes verificados con experiencia local en el Valle de Aburrá.", "Verified agents with local experience in the Aburrá Valley."],
-  ["¿Quieres aparecer aquí? Verifica tu perfil como agente.", "Want to appear here? Verify your agent profile."],
-  ["El equipo detrás del mercado", "The team behind the market"],
-  ["Arriendos en toda el área metropolitana", "Rentals across the metropolitan area"],
-  ["Inversión extranjera directa", "Foreign direct investment"],
-  ["Visitantes internacionales", "International visitors"],
-  ["Compradores extranjeros", "International buyers"],
-  ["Llegadas aéreas 2025", "Air arrivals 2025"],
-  ["Del mercado nacional", "Of the national market"],
-  ["Rango promedio 2025", "Average range 2025"],
-  ["Publica tu propiedad en minutos", "List your property in minutes"],
-  ["Analiza barrios con datos reales", "Analyze neighborhoods with real data"],
-  ["Apartamentos y casas en venta", "Apartments and houses for sale"],
-  ["Inversores locales y extranjeros.", "Local and international investors."],
-  ["en tus manos.", "in your hands."],
-  ["¿Listo para encontrar", "Ready to find"],
-  ["¿Qué querés hacer con tu propiedad?", "What do you want to do with your property?"],
-  ["¿En qué barrio está tu propiedad?", "Which neighborhood is your property in?"],
-  ["Vender mi propiedad", "Sell my property"],
-  ["tu propiedad?", "your property?"],
-  ["Vender", "Sell"],
-
-  // ── Login / Register ──────────────────────────────────────────────────────
-  ["Ingresa tu correo y contraseña.", "Enter your email and password."],
-  ["Credenciales inválidas.", "Invalid credentials."],
-  ["Explora el mercado inmobiliario y la comunidad del Valle de Aburrá", "Explore the real estate market and community of the Aburrá Valley"],
-  ["Únete a la comunidad que\nestá construyendo Medellín.", "Join the community building Medellín."],
-  ["Entrando…", "Signing in…"],
-  ["54K+ propiedades", "54K+ properties"],
-  ["606 barrios", "606 neighborhoods"],
-  ["12K+ negocios", "12K+ businesses"],
-
-  // ── verify-email.tsx ──────────────────────────────────────────────────────
-  ["¡Correo verificado!", "Email verified!"],
-  ["Tu cuenta está activa. Ya puedes usar todas las funciones de Medellín Social.", "Your account is active. You can now use all Medellín Social features."],
-  ["Enlace inválido", "Invalid link"],
-  ["Token inválido o faltante", "Invalid or missing token"],
-  ["Error al verificar", "Verification error"],
-
-  // ── OnboardingModal ───────────────────────────────────────────────────────
-  ["Cuéntanos qué estás buscando para mostrarte lo más relevante", "Tell us what you're looking for so we can show you what's most relevant"],
-  ["Descubre eventos, negocios y la cultura del Valle de Aburrá en nuestra comunidad", "Discover events, businesses and the culture of the Aburrá Valley in our community"],
-  ["Explora tu ciudad, conecta con tu barrio y descubre lo mejor del Valle de Aburrá", "Explore your city, connect with your neighborhood and discover the best of the Aburrá Valley"],
-  ["Tenemos 54,000+ inmuebles en venta y arriendo en el Valle de Aburrá", "We have 54,000+ properties for sale and rent in the Aburrá Valley"],
-  ["Encuentra tu próxima propiedad para vivir en el Valle de Aburrá", "Find your next property to live in the Aburrá Valley"],
-  ["Analiza rentabilidad, yields y oportunidades de inversión", "Analyze profitability, yields and investment opportunities"],
-  ["Herramientas profesionales para cerrar más ventas", "Professional tools to close more deals"],
-  ["¡Ya eres parte de Medellín Social!", "You're now part of Medellín Social!"],
-  ["¡Bienvenido a Medellín Social!", "Welcome to Medellín Social!"],
-  ["¿Buscas tu próxima propiedad?", "Looking for your next property?"],
-  ["Soy agente inmobiliario", "I'm a real estate agent"],
-  ["También en Medellín Social", "Also on Medellín Social"],
-  ["Invertir en finca raíz", "Invest in real estate"],
-
-  // ── ListingMiniPopup ──────────────────────────────────────────────────────
-  ["Máximo 5 inmuebles en el comparador", "Maximum 5 properties in the comparator"],
-
-  // ── MapFilterBar — amenidades & nuevos filtros ────────────────────────────
-  ["Hab. y Baños", "Beds & Baths"],
-  ["Buscar barrio o municipio...", "Search neighborhood or municipality..."],
-  ["Selecciona un barrio...", "Select a neighborhood..."],
-  ["Todos los barrios", "All neighborhoods"],
-  ["Amenidades", "Amenities"],
-  ["EDIFICIO Y CONJUNTO", "BUILDING & COMPLEX"],
-  ["SEGURIDAD Y ENTORNO", "SAFETY & SURROUNDINGS"],
-  ["Cocina integral", "Full kitchen"],
-  ["Aire acondicionado", "Air conditioning"],
-  ["Balcón / Terraza", "Balcony / Terrace"],
-  ["Lavandería", "Laundry"],
-  ["Ascensor", "Elevator"],
-  ["Conjunto cerrado", "Gated community"],
-  ["Salón comunal", "Common room"],
-  ["Piscina", "Swimming pool"],
-  ["Parqueadero visitantes", "Visitor parking"],
-  ["Portería", "Lobby/Doorman"],
-  ["Vigilancia 24h", "24h security"],
-  ["Cámaras de seguridad", "Security cameras"],
-  ["Zonas verdes", "Green areas"],
-  ["Zona de niños", "Children's area"],
-  ["Cerca al transporte", "Near transit"],
-
-  // ── Tipos de inmueble ─────────────────────────────────────────────────────
-  ["Apartaestudio", "Studio apartment"],
-  ["Apartamento", "Apartment"],
-  ["Oficina", "Office"],
-  ["Bodega", "Storage"],
-  ["Remodelado", "Renovated"],
-  ["Casa", "House"],
-
-  // ── Filtros PRO descriptions ──────────────────────────────────────────────
-  ["Propiedades bajo la mediana del barrio", "Properties below neighborhood median"],
-  ["Rentabilidad para inversores", "Return for investors"],
-  ["Calidad y potencial del barrio", "Quality and neighborhood potential"],
-  ["¿Está por encima o debajo del mercado?", "Is it above or below market?"],
-  ["Cómo ha cambiado el precio en la zona", "How the price has changed in the area"],
-  ["Cuánto tarda en arrendarse ese tipo", "How long that type takes to rent"],
-
-  // ── Standalone form labels / actions ─────────────────────────────────────
-  ["Mínima", "Minimum"],
-  ["Máxima", "Maximum"],
-  ["Mínimo", "Minimum"],
-  ["Máximo", "Maximum"],
-  ["Limpiar", "Clear"],
-
-  // ── MapNavbar tabs (must come before shorter substrings like "Compra") ────
-  ["Menú", "Menu"],
-  ["Vender / Arrendar", "Sell / Rent"],
-  ["Encuentra un agente", "Find an agent"],
-  ["Ingresar", "Log in"],
-  ["Registrarse", "Sign up"],
-  ["Comprar", "Buy"],
-  ["Arrendar", "Rent"],
-
-  // ── MapView popup strings (caught by MutationObserver when Mapbox renders) ─
-  ["bajo la mediana del barrio", "below neighborhood median"],
-  ["sobre la mediana", "above median"],
-  ["Dentro del rango del barrio", "Within neighborhood range"],
-  ["VENTA", "SALE"],
-  ["ARRIENDO", "RENT"],
-
-  // ── listing.$id.tsx ───────────────────────────────────────────────────────
-  ["Proyección histórica del barrio", "Neighborhood historical projection"],
-  ["Valorización anual proyectada", "Projected annual appreciation"],
-  ["Período de recupero estimado", "Estimated payback period"],
-  ["Basado en arriendo mediano del barrio", "Based on neighborhood median rent"],
-  ["Ingreso anual estimado", "Estimated annual income"],
-  ["Simulador de rentabilidad", "Profitability simulator"],
-  ["Análisis de inversión", "Investment analysis"],
-  ["Yield estimado (renta larga)", "Est. yield (long-term rental)"],
-  ["Arriendo referencia barrio", "Neighborhood rent reference"],
-  ["Arriendo ref. barrio", "Neighborhood rent ref."],
-  ["vs mediana del barrio", "vs neighborhood median"],
-  ["Similares en la zona", "Similar in the area"],
-  ["Contexto de zona", "Zone context"],
-  ["Galería de fotos", "Photo gallery"],
-  ["Score inversión", "Investment score"],
-  ["Yield bruto barrio", "Neighborhood gross yield"],
-  ["Listing no encontrado", "Listing not found"],
-  ["Será agregado próximamente", "Coming soon"],
-  ["Días en mercado", "Days on market"],
-  ["Características", "Features"],
-  ["Más información", "More info"],
-  ["Mediana zona", "Zone median"],
-  ["Yield zona", "Zone yield"],
-  ["Índice nómada", "Nomad index"],
-
-  // ── EventCard.tsx — categorías de evento + precio ─────────────────────────
-  ["Música", "Music"],
-  ["Gastronomía", "Food & Drink"],
-  ["Cultura", "Culture"],
-  ["Deporte", "Sports"],
-  ["Bienestar", "Wellness"],
-  ["Gratis", "Free"],
-
-  // ── BusinessCard.tsx / categorias_comunidad.ts — categorías de negocio ────
-  ["Estética", "Aesthetics"],
-  ["Almuerzo", "Lunch"],
-  ["Panadería", "Bakery"],
-  ["Asiática", "Asian"],
-  ["Rápida", "Fast Food"],
-  ["Fisio", "Physical Therapy"],
-  ["Dermatología", "Dermatology"],
-
-  // ── realtor/accept-invite.tsx ─────────────────────────────────────────────
-  ["Token inválido", "Invalid token"],
-  ["Invitación inválida", "Invalid invitation"],
-  ["Invitación no encontrada", "Invitation not found"],
-  ["No se pudo aceptar la invitación", "Couldn't accept the invitation"],
-  ["¡Bienvenido al equipo!", "Welcome to the team!"],
-
-  // ── solicitudes.tsx ───────────────────────────────────────────────────────
-  ["Esta sección es solo para agentes verificados.", "This section is for verified agents only."],
-  ["Cuando un propietario te solicite, aparecerá aquí.", "When an owner requests you, it will appear here."],
-  ["Sin solicitudes pendientes", "No pending requests"],
-  ["Cargando solicitudes…", "Loading requests…"],
-  ["Acceso restringido", "Restricted access"],
-
-  // ── conectar-agente.tsx ───────────────────────────────────────────────────
-  ["No hay agentes disponibles en este momento.", "No agents available at the moment."],
-  ["Cargando agentes…", "Loading agents…"],
-  ["Conecta con un agente verificado", "Connect with a verified agent"],
-  ["Un agente gestionará tu propiedad, la promoverá y te conectará con compradores. Tu propiedad se activa de inmediato en el MLS.", "An agent will manage your property, promote it and connect you with buyers. Your property goes live on the MLS immediately."],
-  ["Propiedad #", "Property #"],
-  ["Sin propiedad seleccionada. Publica primero desde", "No property selected. Publish first from"],
-  ["No se pudieron cargar los agentes.", "We couldn't load the agents."],
-  ["No se especificó una propiedad. Vuelve a /publicar.", "No property was specified. Go back to /publicar."],
-  ["Ya enviaste una solicitud a este agente.", "You already sent a request to this agent."],
-  ["Error enviando solicitud. Intenta de nuevo.", "Error sending request. Please try again."],
-  ["Verificado", "Verified"],
-  ["Zonas:", "Areas:"],
-  ["Solicitud enviada ✓", "Request sent ✓"],
-  ["Solicitar gestión", "Request management"],
-  ["¡Solicitudes enviadas!", "Requests sent!"],
-  ["Los agentes revisarán tu propiedad y te responderán pronto. Recibirás un email de confirmación.", "Agents will review your property and get back to you soon. You'll receive a confirmation email."],
-  ["Volver al inicio", "Back to home"],
-
-  // ── agentes.tsx (directorio público) ──────────────────────────────────────
-  ["Contacta directamente a un agente que trabaja en Medellín. Sin formularios, sin esperar una llamada.", "Contact an agent working in Medellín directly. No forms, no waiting for a callback."],
-  ["Aún no tenemos agentes disponibles", "No agents available yet"],
-  ["Estamos construyendo la red de agentes en Medellín. Vuelve pronto.", "We're building the agent network in Medellín. Check back soon."],
-  ["Explora propiedades en el mapa", "Explore properties on the map"],
-  ["Agente inmobiliario", "Real estate agent"],
-  ["Contactar por WhatsApp", "Contact via WhatsApp"],
-  ["Sin agentes por ahora", "No agents yet"],
-  ["agentes disponibles", "agents available"],
-  ["agente disponible", "agent available"],
-  ["Especialista en", "Specialist in"],
-  ["Buscar por nombre", "Search by name"],
-  ["Nombre del agente", "Agent name"],
-  ["Todos los sectores", "All areas"],
-  ["Sector", "Area"],
-  ["Ordenar por", "Sort by"],
-  ["Mejor calificados", "Top rated"],
-  ["Agencias verificadas primero", "Verified agencies first"],
-  ["Ningún agente coincide con tu búsqueda", "No agent matches your search"],
-  ["Prueba con otro nombre o sector.", "Try a different name or area."],
-  ["¿Cómo fue tu experiencia? (opcional)", "How was your experience? (optional)"],
-  ["Enviar reseña", "Submit review"],
-  ["Elige una calificación", "Choose a rating"],
-  ["No se pudo enviar la reseña", "Couldn't submit the review"],
-  ["Sin reseñas aún", "No reviews yet"],
-  ["Escribir una reseña", "Write a review"],
-  ["Inicia sesión para dejar una reseña", "Log in to leave a review"],
-  ["¿No sabes por dónde empezar?", "Not sure where to start?"],
-  ["Cuéntanos qué buscas y en qué zona, y te ayudamos a encontrar el agente correcto.", "Tell us what you're looking for and in which area, and we'll help you find the right agent."],
-  ["Pide ayuda por WhatsApp", "Ask for help on WhatsApp"],
-  ["¿Cuánto cuesta contactar a un agente?", "How much does it cost to contact an agent?"],
-  ["Nada. Hablar con cualquier agente del directorio es gratis y directo por WhatsApp, sin intermediarios ni formularios.", "Nothing. Talking to any agent in the directory is free and direct via WhatsApp, no middlemen or forms."],
-  ["¿Los agentes están verificados?", "Are the agents verified?"],
-  ["Cada agente pasa por una revisión antes de aparecer en el directorio. Cuando trabaja con una agencia que además tiene el sello ✓ verificada, esa agencia fue revisada aparte.", "Every agent goes through a review before appearing in the directory. When they work with an agency that also has the ✓ verified badge, that agency was reviewed separately."],
-  ["¿Las reseñas son reales?", "Are the reviews real?"],
-  ["Sí. Solo usuarios con cuenta pueden dejar una reseña, y cada uno puede dejar una sola por agente — no hay reseñas anónimas ni repetidas.", "Yes. Only users with an account can leave a review, and each one can leave only one per agent — no anonymous or duplicate reviews."],
-  ["¿Cómo elijo el agente correcto?", "How do I choose the right agent?"],
-  ["Filtra por sector para encontrar a quien conoce tu zona, revisa sus reseñas y no dudes en contactar a más de uno para comparar.", "Filter by area to find someone who knows your neighborhood, check their reviews, and don't hesitate to contact more than one to compare."],
-  ["¿Qué pasa si no encuentro un agente en mi zona?", "What if I don't find an agent in my area?"],
-  ["Escríbenos y te ayudamos a conseguir uno — ver sección de arriba.", "Message us and we'll help you find one — see the section above."],
-
-  // ── afiliado.tsx / embajador.tsx ──────────────────────────────────────────
-  ["¿Cómo piensas referir negocios? / Red o canal principal", "How do you plan to refer businesses? / Network or main channel"],
-  ["Barrio que quieres representar", "Neighborhood you want to represent"],
-  ["Cuéntanos sobre tu comunidad en 2–3 oraciones", "Tell us about your community in 2–3 sentences"],
-  ["Cuéntanos sobre tu negocio (opcional)", "Tell us about your business (optional)"],
-  ["Experiencia relevante (opcional)", "Relevant experience (optional)"],
-  ["Compensación", "Compensation"],
-  ["Lo que recibes", "What you get"],
-  ["Por qué funciona", "Why it works"],
-  ["Qué obtienes", "What you get"],
-  ["Qué harás", "What you'll do"],
-  ["Aplica →", "Apply →"],
-  ["Aplicar →", "Apply →"],
-
-  // ── afiliado.tsx ───────────────────────────────────────────────────────────
-  ["Red de negocios locales", "Local business network"],
-  ["Redes sociales / comunidades online", "Social media / online communities"],
-  ["Contactos y conocidos directos", "Direct contacts and acquaintances"],
-  ["Eventos y networking", "Events and networking"],
-  ["Cámara de comercio / gremio", "Chamber of commerce / trade association"],
-  ["Marketing / publicidad / ventas", "Marketing / advertising / sales"],
-  ["Exclusividad de categoría", "Category exclusivity"],
-  ["Un solo negocio por barrio por categoría. No vendes el mismo producto a diez prospectos — ofreces el único cupo.", "One business per neighborhood per category. You're not selling the same product to ten prospects — you're offering the only spot."],
-  ["No es publicidad", "It's not advertising"],
-  ["Es SEO + AEO + autoridad en el mapa local. Los negocios pagan porque el activo se acumula, a diferencia de los anuncios que desaparecen.", "It's SEO + AEO + authority on the local map. Businesses pay because the asset compounds, unlike ads that disappear."],
-  ["Precio de entrada amigable", "Friendly entry price"],
-  ["Hotspot desde $29 USD. El primer sí es barato. El camino de upgrade hace la mayor parte del trabajo.", "Hotspot from $29 USD. The first yes is cheap. The upgrade path does most of the work."],
-  ["Nosotros hacemos el trabajo pesado", "We do the heavy lifting"],
-  ["Una vez que el prospecto firma, el Embajador lo incorpora y el equipo de IA maneja el contenido. Tú vendes — no das soporte.", "Once the prospect signs, the Ambassador onboards them and the AI team handles the content. You sell — you don't do support."],
-  ["Inbound + outbound", "Inbound + outbound"],
-  ["La landing page genera leads inbound. La lista de Google Places de negocios 5 estrellas más directorios de cámaras te dan un outbound pre-calificado.", "The landing page generates inbound leads. The Google Places list of 5-star businesses plus chamber directories give you a pre-qualified outbound list."],
-  ["Ingresos recurrentes", "Recurring income"],
-  ["Featured Business paga mensual. Tu cartera de negocios activos crece cada mes y te sigue pagando aunque no cierres nuevos.", "Featured Business pays monthly. Your portfolio of active businesses grows every month and keeps paying you even if you don't close new ones."],
-  ["La estructura central", "The core structure"],
-  ["15% + 5% en todo", "15% + 5% on everything"],
-  ["Cada producto · Cada nivel · Siempre", "Every product · Every tier · Always"],
-  ["15% comisión única sobre el primer pago de cualquier cuenta nueva que firmes", "15% one-time commission on the first payment of any new account you sign"],
-  ["5% comisión recurrente los primeros 24 meses, luego 2.5% mientras el cliente siga pagando", "5% recurring commission for the first 24 months, then 2.5% for as long as the client keeps paying"],
-  ["Una estructura simple — sin tabla de niveles que memorizar", "One simple structure — no tier table to memorize"],
-  ["Ejemplo · Recurrente mensual", "Example · Monthly recurring"],
-  ["~$820K COP/mes · Exclusividad de categoría", "~$820K COP/month · Category exclusivity"],
-  ["$123K COP único el mes que firman", "$123K COP one-time the month they sign"],
-  ["$41K COP/mes recurrente cada mes que renuevan", "$41K COP/month recurring every month they renew"],
-  ["Valor a 12 meses por cuenta: ~$574K COP", "12-month value per account: ~$574K COP"],
-  ["Ejemplo · Por placement", "Example · Per placement"],
-  ["Hotspot / Oferta especial", "Hotspot / Special offer"],
-  ["desde $29 USD ($120K COP)", "from $29 USD ($120K COP)"],
-  ["$18K COP único por placement (15%)", "$18K COP one-time per placement (15%)"],
-  ["La mayoría hacen pedidos repetidos — relación recurrente", "Most place repeat orders — a recurring relationship"],
-  ["La forma más rápida de abrir una cuenta nueva", "The fastest way to open a new account"],
-  ["Ejemplo · Volumen", "Example · Volume"],
-  ["Múltiples negocios en tu barrio", "Multiple businesses in your neighborhood"],
-  ["Sin límite de referidos", "No referral limit"],
-  ["Cuantos más negocios firmes, mayor tu cartera recurrente", "The more businesses you sign, the bigger your recurring portfolio"],
-  ["Especialízate por categoría: restaurantes, salud, servicios profesionales", "Specialize by category: restaurants, health, professional services"],
-  ["Al Año 1: cartera de 104 clientes te paga $4.2M COP/mes passivo", "By Year 1: a 104-client portfolio pays you $4.2M COP/month passively"],
-  ["8.67 clientes nuevos/mes\n× 15% × $820K COP", "8.67 new clients/month\n× 15% × $820K COP"],
-  ["95 clientes recurrentes\n× 5% × $820K COP", "95 recurring clients\n× 5% × $820K COP"],
-  ["Ingresos mensuales Mes 12", "Month 12 monthly income"],
-  ["Con 2 negocios/semana, tus ingresos totales del Año 1 = ~$32M COP. Cartera recurrente al final del Año 1 = $4.2M COP/mes — eso es $50M COP/año en ingresos pasivos incluso si dejaras de firmar nuevos. Sigue firmando y el Año 2 arranca con $6M+/mes.", "With 2 businesses/week, your total Year 1 income = ~$32M COP. Recurring portfolio at the end of Year 1 = $4.2M COP/month — that's $50M COP/year in passive income even if you stopped signing new ones. Keep signing and Year 2 starts at $6M+/month."],
-  ["Dueños de negocios locales", "Local business owners"],
-  ["Ya conoces a otros empresarios del barrio. Este producto es un valor agregado obvio para tu red.", "You already know other business owners in the neighborhood. This product is an obvious add-on for your network."],
-  ["Agentes inmobiliarios", "Real estate agents"],
-  ["Ya le presentas propuestas a servicios del hogar, abogados y el ecosistema inmobiliario completo.", "You already pitch home services, lawyers and the whole real estate ecosystem."],
-  ["Contadores y asesores", "Accountants and advisors"],
-  ["Tienes relaciones directas con dueños de pequeños negocios en todas las categorías.", "You have direct relationships with small business owners across every category."],
-  ["Corredores de seguros", "Insurance brokers"],
-  ["Ya hablas con cada profesional de servicios, agente inmobiliario y dueño de negocio en la ciudad.", "You already talk to every service professional, real estate agent and business owner in the city."],
-  ["Representantes de marketing", "Marketing reps"],
-  ["Vendes pauta, websites, SEO o redes a PYMEs locales. Medellín Social es el producto natural.", "You sell ads, websites, SEO or social media to local SMEs. Medellín Social is the natural next product."],
-  ["Miembros de cámara de comercio", "Chamber of commerce members"],
-  ["Ya conoces la comunidad de negocios locales. Esto es la extensión obvia de tu red.", "You already know the local business community. This is the obvious extension of your network."],
-  ["Ex representantes de ventas", "Former sales reps"],
-  ["Periódicos locales, radio, correo directo. El mismo comprador — mejor producto.", "Local newspapers, radio, direct mail. The same buyer — a better product."],
-  ["Locales conectados", "Well-connected locals"],
-  ["Donde sea que tengas una red profunda y quieras monetizarla en tu propio horario.", "Wherever you have a deep network and want to monetize it on your own schedule."],
-  ["Listas de leads pre-calificadas", "Pre-qualified lead lists"],
-  ["Exportaciones de Google Places de cada negocio 5 estrellas en tu zona, desglosadas por categoría.", "Google Places exports of every 5-star business in your area, broken down by category."],
-  ["Acceso al CRM", "CRM access"],
-  ["Tu perfil en el CRM de la plataforma. Pipeline, ruteo de leads, contratos digitales y enlaces de pago.", "Your profile in the platform's CRM. Pipeline, lead routing, digital contracts and payment links."],
-  ["Campañas de outreach listas", "Ready-to-send outreach campaigns"],
-  ["Secuencias de email + WhatsApp personalizadas con tu nombre y tu comunidad. Activa y olvídate.", "Email + WhatsApp sequences personalized with your name and community. Turn on and forget."],
-  ["Scripts de ventas y objeciones", "Sales and objection-handling scripts"],
-  ["Script de llamada en vivo, preguntas de descubrimiento, presentación de precios, respuestas a objeciones.", "Live call script, discovery questions, pricing presentation, objection responses."],
-  ["Video explicativo y materiales", "Explainer video and materials"],
-  ["Video de 2–3 minutos, flyer de una página, deck de ventas completo. Úsalos tal cual.", "2–3 minute video, one-page flyer, full sales deck. Use them as-is."],
-  ["Ruteo de leads inbound", "Inbound lead routing"],
-  ["Los leads inbound de tu zona llegan a ti. Responde dentro de 1 día hábil y son tuyos.", "Inbound leads from your area come to you. Respond within 1 business day and they're yours."],
-  ["Prospectar", "Prospect"],
-  ["Saca una lista de tu categoría o comunidad. Agrégala al pipeline. O trabaja el inbound del landing.", "Pull a list from your category or community. Add it to the pipeline. Or work the landing page's inbound."],
-  ["Cadencia de outreach", "Outreach cadence"],
-  ["Email → WhatsApp → llamada. El sistema lo corre. Tú entras cuando un prospecto se engancha.", "Email → WhatsApp → call. The system runs it. You step in when a prospect engages."],
-  ["Llamada de descubrimiento", "Discovery call"],
-  ["15 minutos. Confirma categoría, presenta el precio, responde objeciones. Elige el plan.", "15 minutes. Confirm category, present pricing, handle objections. Pick the plan."],
-  ["Cierre", "Close"],
-  ["Envía el contrato digital y enlace de pago desde el CRM. El trato se cierra. Recibes tu comisión.", "Send the digital contract and payment link from the CRM. The deal closes. You get paid."],
-  ["Entrega", "Handoff"],
-  ["La cuenta pasa al Embajador para el onboarding. Tú mantienes la relación para upgrades futuros.", "The account passes to the Ambassador for onboarding. You keep the relationship for future upgrades."],
-  ["¿Tengo que trabajar exclusivamente para Medellín Social?", "Do I have to work exclusively for Medellín Social?"],
-  ["No. Es una relación de contratista independiente. La mayoría de afiliados tienen otro trabajo o negocio y corren el programa en paralelo.", "No. It's an independent contractor relationship. Most affiliates have another job or business and run the program in parallel."],
-  ["¿Hay una cuota mínima?", "Is there a minimum quota?"],
-  ["Sin cuota mínima. El modelo recurrente premia la consistencia. La mayoría de afiliados activos cierran 1–3 tratos por mes después de los primeros 30 días.", "No minimum quota. The recurring model rewards consistency. Most active affiliates close 1–3 deals per month after the first 30 days."],
-  ["¿Qué pasa si mi cliente cancela?", "What happens if my client cancels?"],
-  ["La comisión recurrente continúa mientras el cliente pague. Si cancela, la línea recurrente se detiene. No hay contracargo después de los primeros 30 días.", "The recurring commission continues as long as the client pays. If they cancel, the recurring line stops. There's no chargeback after the first 30 days."],
-  ["¿La comisión recurrente dura para siempre?", "Does the recurring commission last forever?"],
-  ["No — 5% los primeros 24 meses de esa cuenta, luego 2.5% mientras siga activa. El tope aplica por cuenta, no por afiliado: sigues sumando cuentas nuevas sin límite.", "No — 5% for the first 24 months of that account, then 2.5% for as long as it stays active. The cap applies per account, not per affiliate: you keep stacking new accounts with no limit."],
-  ["¿Puedo especializarme por industria?", "Can I specialize by industry?"],
-  ["Sí — la mayoría lo hacen. Especializaciones comunes: gastronomía, ecosistema inmobiliario, salud y bienestar, servicios profesionales.", "Yes — most do. Common specializations: food & drink, the real estate ecosystem, health & wellness, professional services."],
-  ["¿Qué pasa si un prospecto pregunta algo que no puedo responder?", "What if a prospect asks something I can't answer?"],
-  ["Incluye al Embajador de tu zona o al equipo de Medellín Social. Te respaldamos en tiempo real.", "Loop in your area's Ambassador or the Medellín Social team. We've got your back in real time."],
-  ["¿Cuánto tiempo toma cerrar un trato?", "How long does it take to close a deal?"],
-  ["Hotspot/Oferta: 7–14 días desde el primer contacto. Featured Business: 14–30 días. La cadencia automatizada acelera el ciclo.", "Hotspot/Offer: 7–14 days from first contact. Featured Business: 14–30 days. The automated cadence speeds up the cycle."],
-  ["Programa de ventas externo · Medellín Social", "External sales program · Medellín Social"],
-  ["Vende un producto que los negocios de Medellín", "Sell a product Medellín businesses"],
-  ["realmente quieren.", "actually want."],
-  ["Los Afiliados de Medellín Social son socios independientes — representantes de ventas externos — que presentan negocios locales a una plataforma que les da exclusividad de categoría, autoridad real y leads inbound. Tú aportas las relaciones. Nosotros aportamos el producto, los leads, el CRM y los scripts.", "Medellín Social Affiliates are independent partners — outside sales reps — who introduce local businesses to a platform that gives them category exclusivity, real authority and inbound leads. You bring the relationships. We bring the product, the leads, the CRM and the scripts."],
-  ["Aplicar como Afiliado →", "Apply as an Affiliate →"],
-  ["Ver la propuesta", "See the pitch"],
-  ["15% primer mes + 5% recurrente (24 meses, luego 2.5%)", "15% first month + 5% recurring (24 months, then 2.5%)"],
-  ["Sin cuota mínima · Especialízate donde está tu red", "No minimum quota · Specialize where your network is"],
-  ["Tu potencial de ingresos Año 1", "Your Year 1 income potential"],
-  ["Mes 12 con 2 cuentas/semana · $32M COP acumulados Año 1 · $4.2M COP/mes de cartera recurrente pura al final del Año 1", "Month 12 with 2 accounts/week · $32M COP accumulated in Year 1 · $4.2M COP/month of pure recurring portfolio by end of Year 1"],
-  ["Mes 1 — 8.67 clientes nuevos", "Month 1 — 8.67 new clients"],
-  ["Mes 3 — 8.67 nuevas + 17 recurrentes", "Month 3 — 8.67 new + 17 recurring"],
-  ["Mes 6 — 8.67 nuevas + 43 recurrentes", "Month 6 — 8.67 new + 43 recurring"],
-  ["Mes 9 — 8.67 nuevas + 69 recurrentes", "Month 9 — 8.67 new + 69 recurring"],
-  ["Mes 12 — 8.67 nuevas + 95 recurrentes", "Month 12 — 8.67 new + 95 recurring"],
-  ["$1.07M primer mes + $700K recurrente", "$1.07M first month + $700K recurring"],
-  ["$1.07M primer mes + $1.77M recurrente", "$1.07M first month + $1.77M recurring"],
-  ["$1.07M primer mes + $2.8M recurrente", "$1.07M first month + $2.8M recurring"],
-  ["$1.07M primer mes + $3.9M recurrente", "$1.07M first month + $3.9M recurring"],
-  ["Basado en Featured Business", "Based on Featured Business"],
-  ["15% primer mes + 5% recurrente", "15% first month + 5% recurring"],
-  ["24 meses, luego 2.5%", "24 months, then 2.5%"],
-  ["2 / SEMANA", "2 / WEEK"],
-  ["Por qué este producto se vende", "Why this product sells"],
-  ["Si has vendido publicidad local antes, conoces las objeciones. Medellín Social elimina la mayoría.", "If you've sold local advertising before, you know the objections. Medellín Social eliminates most of them."],
-  ["Cómo te pagamos", "How we pay you"],
-  ["Transparente, recurrente, sin contracargos si el cliente sigue activo.", "Transparent, recurring, no chargebacks as long as the client stays active."],
-  ["La cuenta, simplificada", "The math, simplified"],
-  ["Cómo se ve tu mes 12 en estado estable con 2 cuentas nuevas/semana.", "What your steady-state month 12 looks like at 2 new accounts/week."],
-  ["Para quién está hecho esto", "Who this is for"],
-  ["Si ya tienes redes de dueños de negocios locales, ya estás calificado.", "If you already have networks of local business owners, you're already qualified."],
-  ["Lo que te entregamos el primer día", "What we hand you on day one"],
-  ["Un kit de ventas completo. No tienes que descifrar cómo posicionar el producto ni construir el embudo.", "A complete sales kit. You don't have to figure out how to position the product or build the funnel."],
-  ["Cómo avanza un trato", "How a deal moves forward"],
-  ["Del primer contacto al cierre: Hotspot en 7–14 días, Featured Business en 14–30 días.", "From first contact to close: Hotspot in 7–14 days, Featured Business in 14–30 days."],
-  ["Preguntas comunes", "Common questions"],
-  ["Las que más escuchamos cuando los Afiliados se suman.", "The ones we hear most when Affiliates join."],
-  ["¡Solicitud recibida!", "Application received!"],
-  ["Revisamos cada aplicación personalmente. Los Afiliados aprobados se incorporan la misma semana.", "We review every application personally. Approved Affiliates onboard the same week."],
-  ["Aplica como Afiliado Comunitario", "Apply as a Community Affiliate"],
-  ["Cuéntanos sobre tu red y tu experiencia. Respondemos en 2 días hábiles.", "Tell us about your network and experience. We respond within 2 business days."],
-  ["Selecciona…", "Select…"],
-  ["Enviando…", "Sending…"],
-  ["Enviar solicitud →", "Submit application →"],
-  ["Error al enviar. Intenta de nuevo.", "Error sending. Please try again."],
-
-  // ── embajador.tsx ──────────────────────────────────────────────────────────
-  ["Curar y publicar contenido semanal", "Curate and publish weekly content"],
-  ["Historias locales, eventos, novedades del barrio. Usas el Motor de Contenido IA para redactar — tú aportas la voz editorial y el juicio local.", "Local stories, events, neighborhood news. You use the AI Content Engine to draft — you bring the editorial voice and local judgment."],
-  ["Gestionar el newsletter semanal", "Manage the weekly newsletter"],
-  ["Cada viernes a las 9 AM. Resumen de contenido, eventos, deals y novedades del barrio. Casi automatizado — tú haces la revisión final.", "Every Friday at 9 AM. Roundup of content, events, deals and neighborhood news. Almost automated — you do the final review."],
-  ["Conectar negocios con la plataforma", "Connect businesses with the platform"],
-  ["Incorporas nuevos Featured Businesses, revisas su contenido, apruebas antes de publicar y envías reportes. Eres el gestor de relaciones.", "You onboard new Featured Businesses, review their content, approve before publishing and send reports. You're the relationship manager."],
-  ["Distribuir en redes sociales", "Distribute on social media"],
-  ["Instagram y Facebook como principales. El planificador social hace la programación — tú escribes los captions y eliges los ángulos.", "Instagram and Facebook as the main channels. The social planner handles scheduling — you write the captions and pick the angles."],
-  ["Crecer la base de suscriptores", "Grow the subscriber base"],
-  ["Visible en eventos locales, cámaras de comercio, grupos de Facebook. Trabajo comunitario real apoyado por herramientas digitales.", "Visible at local events, chambers of commerce, Facebook groups. Real community work backed by digital tools."],
-  ["Ser el referente local de Medellín Social", "Be the local face of Medellín Social"],
-  ["Tu cara, tu voz, tu barrio en el mapa digital. Conectas Colaboradores entre sí y eres el conector que tu comunidad necesitaba.", "Your face, your voice, your neighborhood on the digital map. You connect Collaborators with each other and you're the connector your community needed."],
-  ["Motor de Contenido IA", "AI Content Engine"],
-  ["Un formulario genera artículo completo + post social. Tú editas, apruebas y publicas.", "A form generates a full article + social post. You edit, approve and publish."],
-  ["CRM de Embajadores", "Ambassador CRM"],
-  ["Pipeline de suscriptores, portal de negocios, planificador social, automatización de email y WhatsApp.", "Subscriber pipeline, business portal, social planner, email and WhatsApp automation."],
-  ["Avatar IA en Vivo", "Live AI Avatar"],
-  ["Conserje digital de tu comunidad que atiende preguntas de vecinos en tiempo real.", "Your community's digital concierge, answering neighbors' questions in real time."],
-  ["EVVNT & Google Places", "EVVNT & Google Places"],
-  ["Eventos del barrio se agregan automáticamente. El directorio se llena solo. Tú curas, no capturas datos.", "Neighborhood events get added automatically. The directory fills itself. You curate, you don't do data entry."],
-  ["Newsletter automatizado", "Automated newsletter"],
-  ["RSS-driven semanal. Tú apruebas. Sale. Las tasas de apertura llegan a tu dashboard.", "Weekly RSS-driven. You approve. It goes out. Open rates land in your dashboard."],
-  ["App móvil del barrio", "Neighborhood mobile app"],
-  ["Tus suscriptores participan desde su cel. Notificaciones, contenido y deals en la palma.", "Your subscribers engage from their phone. Notifications, content and deals in the palm of their hand."],
-  ["Apoyo de ventas", "Sales support"],
-  ["El equipo central más los Afiliados manejan el outbound. Tú te enfocas en contenido y comunidad.", "The core team plus Affiliates handle outbound. You focus on content and community."],
-  ["Soporte operativo", "Operational support"],
-  ["Toda la configuración técnica, automatizaciones e integraciones las manejamos nosotros centralmente.", "We handle all technical setup, automations and integrations centrally."],
-  ["Comisión pagada — ~$270M COP el Año 1", "Commission paid — ~$270M COP in Year 1"],
-  ["50% primer mes + 15% recurrente (24 meses, luego 7.5%) sobre clientes que inscribas directo. 5% residual (24 meses, luego 2.5%) del resto de negocios en tu barrio — nunca se suman en la misma cuenta. Mes 12: ~$44M COP/mes.", "50% first month + 15% recurring (24 months, then 7.5%) on clients you sign up directly. 5% residual (24 months, then 2.5%) on the rest of the businesses in your neighborhood — never both on the same account. Month 12: ~$44M COP/month."],
-  ["Reconocimiento en tu comunidad", "Recognition in your community"],
-  ["Te conviertes en la voz reconocida de tu barrio. Los negocios, líderes cívicos y vecinos te conocen por nombre.", "You become the recognized voice of your neighborhood. Businesses, civic leaders and neighbors know you by name."],
-  ["Capacitación editorial real", "Real editorial training"],
-  ["Experiencia práctica con IA, SEO, AEO, MEO, distribución social y CRM. Habilidades que se acumulan.", "Hands-on experience with AI, SEO, AEO, MEO, social distribution and CRM. Skills that compound."],
-  ["Una red que puedes usar", "A network you can use"],
-  ["Relaciones directas con negocios Featured, cámaras, organizaciones y líderes cívicos — redes que pagan por años.", "Direct relationships with Featured businesses, chambers, organizations and civic leaders — networks that pay off for years."],
-  ["Un camino de crecimiento", "A growth path"],
-  ["Los mejores Embajadores ascienden a roles de Líder Comunitario supervisando varios barrios.", "The best Ambassadors move up to Community Lead roles overseeing multiple neighborhoods."],
-  ["Flexibilidad", "Flexibility"],
-  ["Mayormente remoto con presencia local en eventos. El newsletter del viernes y la cadencia social son los puntos fijos.", "Mostly remote with local presence at events. The Friday newsletter and the social cadence are the fixed points."],
-  ["Vives aquí", "You live here"],
-  ["O tienes vínculos profundos. Conoces los barrios, los negocios, las historias. Entras al restaurante local y alguien te saluda.", "Or you have deep ties. You know the neighborhoods, the businesses, the stories. You walk into the local restaurant and someone greets you."],
-  ["Sabes escribir con claridad", "You can write clearly"],
-  ["La IA hace el borrador. Tú aportas la voz local, el criterio editorial, la calidez humana.", "The AI drafts it. You bring the local voice, the editorial judgment, the human warmth."],
-  ["Te gusta la gente", "You like people"],
-  ["Este rol es muy relacional. Featured Businesses, líderes cívicos, organizadores de eventos. Si prefieres solo todo el día, no es para ti.", "This role is highly relational. Featured Businesses, civic leaders, event organizers. If you'd rather be alone all day, this isn't for you."],
-  ["Eres confiable", "You're reliable"],
-  ["El newsletter sale cada viernes. La revisión del contenido se hace a tiempo. No tienes que ser rápido — tienes que ser consistente.", "The newsletter goes out every Friday. Content review happens on time. You don't have to be fast — you have to be consistent."],
-  ["Ves la plataforma", "You see the vision"],
-  ["Esto no es un pasatiempo. Ves a Medellín Social convirtiéndose en la plaza digital de tu barrio y quieres liderar eso.", "This isn't a hobby. You see Medellín Social becoming your neighborhood's digital town square and you want to lead that."],
-  ["Bonus: experiencia relevante", "Bonus: relevant experience"],
-  ["Encaje fuerte si has trabajado en cámara de comercio, medios locales, inmuebles, organizaciones sin fines de lucro o asociaciones de barrio.", "Strong fit if you've worked at a chamber of commerce, local media, real estate, nonprofits or neighborhood associations."],
-  ["Planificación editorial", "Editorial planning"],
-  ["Revisa lo que llega de los negocios. Planea los artículos de la semana. Revisa el feed de eventos.", "Review what's coming in from businesses. Plan the week's articles. Check the events feed."],
-  ["Contenido + alcance", "Content + outreach"],
-  ["Redacta y aprueba artículos con el Motor de IA. Incorpora nuevos Featured. Haz seguimiento con uno o dos.", "Draft and approve articles with the AI Engine. Onboard new Featured businesses. Follow up with one or two."],
-  ["Redes + comunidad", "Social + community"],
-  ["Captions para el plan social de la semana. Moderación ligera. Quizás un evento o reunión de cámara.", "Captions for the week's social plan. Light moderation. Maybe an event or chamber meeting."],
-  ["Armar el newsletter", "Put together the newsletter"],
-  ["Revisión final del viernes. Curar las mejores historias, deals y eventos. Aprobar el envío.", "Friday's final review. Curate the best stories, deals and events. Approve the send."],
-  ["Sale el newsletter · 9 AM", "Newsletter goes out · 9 AM"],
-  ["Sale el boletín. Revisión rápida post-envío. Tarde tranquila. Bienvenido al fin de semana.", "The newsletter goes out. Quick post-send review. Quiet afternoon. Welcome to the weekend."],
-  ["Crecimiento suscriptores", "Subscriber growth"],
-  ["Apertura newsletter", "Newsletter open rate"],
-  ["meta 35%+", "35%+ target"],
-  ["Cadencia de contenido", "Content cadence"],
-  ["3–5 / semana", "3–5 / week"],
-  ["Retención de negocios", "Business retention"],
-  ["90%+ anual", "90%+ annual"],
-  ["Actividad de negocios", "Business activity"],
-  ["1+ pieza / mes", "1+ piece / month"],
-  ["Contratando ahora · 100% comisión · ~$270M COP Año 1", "Hiring now · 100% commission · ~$270M COP Year 1"],
-  ["Sé la", "Be the"],
-  ["voz", "voice"],
-  ["de tu barrio", "of your neighborhood"],
-  ["y construye una cartera que te paga por años.", "and build a portfolio that pays you for years."],
-  ["Los Embajadores de Medellín Social son los líderes editoriales y el motor de ventas local de su barrio. Tú inscribes negocios, cuidas las relaciones, envías el newsletter semanal y conviertes un sitio web en la plaza digital que tus vecinos realmente usan.", "Medellín Social Ambassadors are the editorial leaders and local sales engine of their neighborhood. You sign up businesses, tend the relationships, send the weekly newsletter and turn a website into the digital town square your neighbors actually use."],
-  ["Aplica ahora →", "Apply now →"],
-  ["Ver el rol", "See the role"],
-  ["100% comisión", "100% commission"],
-  ["50% + 15% recurrente", "50% + 15% recurring"],
-  ["sobre clientes directos ·", "on direct clients ·"],
-  ["5% residual", "5% residual"],
-  ["del resto de tu barrio — nunca ambos en la misma cuenta", "from the rest of your neighborhood — never both on the same account"],
-  ["Tu curva de ingresos Año 1", "Your Year 1 income curve"],
-  ["Basado en 2 negocios/semana + 1 afiliado/semana", "Based on 2 businesses/week + 1 affiliate/week"],
-  ["PROYECTADO", "PROJECTED"],
-  ["💰 Total Año 1: ~$270M COP", "💰 Total Year 1: ~$270M COP"],
-  ["Comisión pura · Sin base fija · Crece con tu cartera", "Pure commission · No fixed base · Grows with your portfolio"],
-  ["📈 Año 2: $44M+ COP/mes al madurar", "📈 Year 2: $44M+ COP/month once mature"],
-  ["Cartera recurrente de 100+ clientes directos × 15%", "Recurring portfolio of 100+ direct clients × 15%"],
-  ["🎯 Los mejores duplican la cadencia, duplican los ingresos", "🎯 The best double the cadence, double the income"],
-  ["2 negocios/semana es la meta base, no el techo", "2 businesses/week is the baseline goal, not the ceiling"],
-  ["Lo que realmente harás", "What you'll actually do"],
-  ["El Embajador es el enlace humano que convierte un sitio web en una comunidad real. Eres el editor, el conector y la cara de Medellín Social en el barrio.", "The Ambassador is the human link that turns a website into a real community. You're the editor, the connector and the face of Medellín Social in the neighborhood."],
-  ["Diseñado para hacerte lucir bien", "Built to make you look good"],
-  ["No te entregamos una página en blanco. Medellín Social te da el toolkit completo y el respaldo operativo.", "We don't hand you a blank page. Medellín Social gives you the full toolkit and operational backing."],
-  ["Lo que obtienes", "What you get"],
-  ["Un rol pagado real con verdadero potencial — no una caminadora de contenido.", "A real paid role with real upside — not a content treadmill."],
-  ["A quién buscamos", "Who we're looking for"],
-  ["No necesitas ser periodista ni tener título en marketing. Necesitas conocer tu comunidad, escribir con claridad y disfrutar hablar con la gente.", "You don't need to be a journalist or have a marketing degree. You need to know your community, write clearly and enjoy talking to people."],
-  ["Cómo se ve una semana típica", "What a typical week looks like"],
-  ["Cadencia real, dueño real. Aproximadamente 15–25 horas/semana para una comunidad establecida.", "Real cadence, real ownership. About 15–25 hours/week for an established community."],
-  ["Cómo medimos el éxito", "How we measure success"],
-  ["¡Recibimos tu aplicación!", "We received your application!"],
-  ["Revisamos cada aplicación personalmente. Te contactamos en 2 días hábiles.", "We review every application personally. We'll reach out within 2 business days."],
-  ["Aplica como Embajador de Barrio", "Apply as a Neighborhood Ambassador"],
-  ["Un embajador por barrio. Cupos limitados. Respondemos en 2 días hábiles.", "One ambassador per neighborhood. Limited spots. We respond within 2 business days."],
-  ["Selecciona tu barrio…", "Select your neighborhood…"],
-  ["¿Qué hace especial tu barrio? ¿Quién vive allí? ¿Cuál es la historia local con la que arrancarías el día uno?", "What makes your neighborhood special? Who lives there? What's the local story you'd start with on day one?"],
-  ["Escritura, medios, marketing, inmuebles, cívico, organizaciones, ventas, cámara de comercio — cualquier cosa relevante. URL de LinkedIn está bien.", "Writing, media, marketing, real estate, civic work, nonprofits, sales, chamber of commerce — anything relevant. A LinkedIn URL is fine."],
-  ["Sabrás de nosotros en 2 días hábiles.", "You'll hear from us within 2 business days."],
-
-  // ── suscribirse.tsx ───────────────────────────────────────────────────────
-  ["Gratis para siempre · Sin spam · Cancela cuando quieras", "Always free · No spam · Cancel anytime"],
-  ["30 segundos · Sin tarjeta · Sin spam", "30 seconds · No card · No spam"],
-  ["Gratis para siempre · Sin spam", "Always free · No spam"],
-  ["Suscribirme gratis →", "Subscribe free →"],
-  ["Suscribirme gratis", "Subscribe free"],
-  ["Selecciona tu barrio…", "Select your neighborhood…"],
-  ["Todo en un lugar.", "All in one place."],
-  ["¡Estás dentro!", "You're in!"],
-  ["¿Qué te interesa más?", "What interests you most?"],
-  ["Elige una opción…", "Choose an option…"],
-  ["Correo electrónico", "Email address"],
-  ["Registrando…", "Signing up…"],
-  ["Suscribirme →", "Subscribe →"],
-  ["Ver beneficios", "See benefits"],
-  ["Apellido", "Last name"],
-  ["Tu barrio", "Your neighborhood"],
-  ["Deals y ofertas locales", "Local deals and offers"],
-  ["Eventos y planes", "Events and things to do"],
-  ["Inmuebles / inversión", "Real estate / investment"],
-  ["Negocios y servicios", "Businesses and services"],
-  ["Publicar mis historias", "Publish my stories"],
-  ["Deals exclusivos", "Exclusive deals"],
-  ["Ofertas flash de los mejores negocios de tu barrio — solo para suscriptores", "Flash offers from the best businesses in your neighborhood — subscribers only"],
-  ["Eventos curados", "Curated events"],
-  ["Los mejores planes de Medellín filtrados por tu barrio e intereses", "The best things to do in Medellín, filtered by your neighborhood and interests"],
-  ["Newsletter semanal", "Weekly newsletter"],
-  ["Cada viernes: lo que pasó, lo que viene y lo que no te puedes perder", "Every Friday: what happened, what's coming and what you can't miss"],
-  ["Historia de barrio", "Neighborhood stories"],
-  ["Las historias que nadie más cuenta — desde adentro del barrio", "The stories nobody else tells — from inside the neighborhood"],
-  ["Inmuebles & FSBO", "Real Estate & FSBO"],
-  ["Propiedades en venta y arriendo directas, sin intermediarios", "Properties for sale and rent directly, no middlemen"],
-  ["Restaurantes locales", "Local restaurants"],
-  ["Los mejores lugares para comer, con reseñas reales de vecinos", "The best places to eat, with real reviews from neighbors"],
-  ["Redes sociales", "Social media"],
-  ["Contenido del barrio en Instagram, Facebook y TikTok", "Neighborhood content on Instagram, Facebook and TikTok"],
-  ["Publica tu historia", "Publish your story"],
-  ["¿Tienes algo que contar? Aplica para publicar en el blog de tu barrio", "Got something to share? Apply to publish on your neighborhood's blog"],
-  ["Crea tu cuenta gratis", "Create your free account"],
-  ["Nombre, email y el barrio que más te importa. 30 segundos.", "Name, email and the neighborhood you care about most. 30 seconds."],
-  ["Elige tus intereses", "Choose your interests"],
-  ["Deals, eventos, inmuebles, negocios. Personalizamos tu feed.", "Deals, events, real estate, businesses. We personalize your feed."],
-  ["Recibe el newsletter", "Get the newsletter"],
-  ["Cada viernes a las 9 AM: lo mejor de tu barrio en tu bandeja.", "Every Friday at 9 AM: the best of your neighborhood in your inbox."],
-  ["Conéctate con la comunidad", "Connect with the community"],
-  ["Accede a deals exclusivos, publica tu historia y mucho más.", "Access exclusive deals, publish your story and much more."],
-  ["Restaurantes y cafés", "Restaurants and cafés"],
-  ["Bares y vida nocturna", "Bars and nightlife"],
-  ["Spas y bienestar", "Spas and wellness"],
-  ["Negocios locales", "Local businesses"],
-  ["Rumba en Parque Lleras · Este sábado", "Party at Parque Lleras · This Saturday"],
-  ["Apto en El Poblado — directo, sin comisión", "Apartment in El Poblado — direct, no commission"],
-  ["Pizza Night especial · El Barril", "Pizza Night special · El Barril"],
-  ["Vacante: Community Manager · Envigado", "Opening: Community Manager · Envigado"],
-  ["Tu ciudad. Tu barrio.", "Your city. Your neighborhood."],
-  ["Únete gratis a Medellín Social. Deals exclusivos, eventos curados, negocios verificados y las historias de tu barrio — directo a tu bandeja, cada viernes.", "Join Medellín Social for free. Exclusive deals, curated events, verified businesses and your neighborhood's stories — straight to your inbox, every Friday."],
-  ["+1,200 vecinos", "+1,200 neighbors"],
-  ["ya reciben el newsletter · Sin tarjeta de crédito · Cancela cuando quieras", "already get the newsletter · No credit card · Cancel anytime"],
-  ["Newsletter del Barrio · Viernes 9 AM", "Neighborhood Newsletter · Friday 9 AM"],
-  ["SEMANAL", "WEEKLY"],
-  ["🔥 Deal Flash · Solo hoy", "🔥 Deal Flash · Today only"],
-  ["Café Pergamino — 2×1 en lattes", "Café Pergamino — 2×1 on lattes"],
-  ["El Poblado · Válido hasta las 6 PM", "El Poblado · Valid until 6 PM"],
-  ["Y mucho más en tu próxima edición →", "And much more in your next edition →"],
-  ["Todo lo que obtienes, gratis", "Everything you get, free"],
-  ["Medellín Social es la plaza digital de tu barrio. Aquí vive todo lo que importa — en un solo lugar.", "Medellín Social is your neighborhood's digital town square. Everything that matters lives here — in one place."],
-  ["Para negocios locales", "For local businesses"],
-  ["¿Tienes un negocio en Medellín?", "Do you have a business in Medellín?"],
-  ["Llega a miles de vecinos de tu barrio. Un solo negocio por categoría — cuando tus vecinos buscan el mejor restaurante, spa o servicio,", "Reach thousands of neighbors in your area. One business per category — when your neighbors search for the best restaurant, spa or service,"],
-  ["tú eres la respuesta.", "you're the answer."],
-  ["Lista tu negocio →", "List your business →"],
-  ["Cómo funciona", "How it works"],
-  ["Cuatro pasos y ya estás dentro de la comunidad digital de tu barrio.", "Four steps and you're inside your neighborhood's digital community."],
-  ["Bienvenido a Medellín Social. Revisa tu correo — cada viernes recibirás lo mejor de tu barrio.", "Welcome to Medellín Social. Check your email — every Friday you'll get the best of your neighborhood."],
-  ["Ir al inicio →", "Go to home →"],
-  ["Algo salió mal. Intenta de nuevo.", "Something went wrong. Please try again."],
-
-  // ── negocios/unirse.tsx ───────────────────────────────────────────────────
-  ["Nombre del negocio", "Business name"],
-  ["Plan que te interesa", "Plan you're interested in"],
-  ["Selecciona…", "Select…"],
-  ["Restaurante / Cena", "Restaurant / Dinner"],
-  ["Comida rápida", "Fast food"],
-  ["Spa & Masajes", "Spa & Massage"],
-  ["Gym / Fitness", "Gym / Fitness"],
-  ["Peluquería / Estética", "Hair Salon / Beauty"],
-  ["Médicos / Clínica", "Doctors / Clinic"],
-  ["Dentistas", "Dentists"],
-  ["Abogados", "Lawyers"],
-  ["Contadores", "Accountants"],
-  ["Inmuebles", "Real Estate"],
-  ["Un solo restaurante, un solo dentista, un solo gym por barrio. No compites — eres el referente.", "One restaurant, one dentist, one gym per neighborhood. You're not competing — you're the go-to."],
-  ["Es presencia orgánica: SEO, AEO, mapa local y contenido que crece contigo cada mes.", "It's organic presence: SEO, AEO, local map and content that compounds with you every month."],
-  ["Lleva inbound a tu negocio", "Drives inbound to your business"],
-  ["Tus vecinos te encuentran cuando buscan en Google, ChatGPT o Google Maps. Leads que vienen solos.", "Your neighbors find you when they search on Google, ChatGPT or Google Maps. Leads that come on their own."],
-  ["El Embajador del Barrio te incorpora y el equipo de contenido IA maneja las publicaciones.", "The Neighborhood Ambassador onboards you and the AI content team handles the posts."],
-  ["Búsqueda en Google", "Google Search"],
-  ["Apareces cuando alguien busca \"mejor café en El Poblado\" o \"spa en Laureles\". Posicionamiento orgánico real.", "You show up when someone searches \"best coffee in El Poblado\" or \"spa in Laureles\". Real organic ranking."],
-  ["IA: ChatGPT & Perplexity", "AI: ChatGPT & Perplexity"],
-  ["Tu negocio aparece en las respuestas de IA cuando alguien pregunta por el mejor de tu categoría en Medellín.", "Your business shows up in AI answers when someone asks for the best in your category in Medellín."],
-  ["Mapa local: Google & Apple", "Local map: Google & Apple"],
-  ["Dominas Google Maps y Apple Maps en tu barrio y categoría. El mapa es donde tus vecinos deciden.", "You dominate Google Maps and Apple Maps in your neighborhood and category. The map is where your neighbors decide."],
-  ["Característica", "Feature"],
-  ["Precio", "Price"],
-  ["desde $29 USD", "from $29 USD"],
-  ["desde $29", "from $29"],
-  ["USD por placement", "USD per placement"],
-  ["$199 USD lanzamiento", "$199 USD launch"],
-  ["Listado básico en directorio", "Basic directory listing"],
-  ["Deal / Oferta flash", "Deal / Flash offer"],
-  ["Newsletter semanal del barrio", "Weekly neighborhood newsletter"],
-  ["Publicación en redes", "Social media posting"],
-  ["Badge \"Featured\" en portada", "\"Featured\" badge on the homepage"],
-  ["Perfil dedicado con fotos y bio", "Dedicated profile with photos and bio"],
-  ["Artículo IA al inicio", "AI article at launch"],
-  ["SEO + AEO + MEO", "SEO + AEO + MEO"],
-  ["Gastronomía", "Food & Drink"],
-  ["Restaurantes, bares, cafés, panaderías, comida rápida", "Restaurants, bars, cafés, bakeries, fast food"],
-  ["Salud & Bienestar", "Health & Wellness"],
-  ["Médicos, gym, yoga, spa, nutrición", "Doctors, gym, yoga, spa, nutrition"],
-  ["Estética & Moda", "Beauty & Fashion"],
-  ["Peluquerías, estéticas, boutiques, barbería", "Hair salons, beauty shops, boutiques, barbershops"],
-  ["Servicios Profesionales", "Professional Services"],
-  ["Abogados, contadores, consultores", "Lawyers, accountants, consultants"],
-  ["Inmuebles & Hogar", "Real Estate & Home"],
-  ["Constructoras, decoración, ferretería", "Builders, home decor, hardware stores"],
-  ["Educación & Cultura", "Education & Culture"],
-  ["Colegios, academias, talleres, arte", "Schools, academies, workshops, art"],
-  ["Aplica aquí", "Apply here"],
-  ["Completa el formulario en 3 minutos con los datos de tu negocio.", "Fill out the form in 3 minutes with your business details."],
-  ["Llamada de 15 min", "15-min call"],
-  ["El Embajador del Barrio te llama para confirmar categoría y detalles del plan.", "The Neighborhood Ambassador calls you to confirm your category and plan details."],
-  ["Perfil activo en 48 h", "Live profile in 48h"],
-  ["Publicamos tu perfil, deal de bienvenida y artículo IA en el barrio.", "We publish your profile, welcome deal and AI article in the neighborhood."],
-  ["Crecemos juntos", "We grow together"],
-  ["Reportes mensuales de vistas, contactos y posicionamiento.", "Monthly reports on views, contacts and ranking."],
-  ["Plataforma para negocios locales de Medellín", "Platform for local Medellín businesses"],
-  ["Sé el negocio de referencia", "Be the go-to business"],
-  ["en tu barrio", "in your neighborhood"],
-  ["Un solo negocio por categoría en cada barrio. Cuando tus vecinos buscan el mejor restaurante, spa o servicio en Google, ChatGPT o el mapa —", "One business per category in every neighborhood. When your neighbors search for the best restaurant, spa or service on Google, ChatGPT or the map —"],
-  ["Ver planes →", "See plans →"],
-  ["Empieza aquí", "Start here"],
-  ["USD por placement", "USD per placement"],
-  ["Aparece en Hotspots & Deals del home", "Appears in the homepage's Hotspots & Deals"],
-  ["Incluido en newsletter semanal del barrio", "Included in the weekly neighborhood newsletter"],
-  ["Publicado en redes de Medellín Social", "Posted on Medellín Social's social media"],
-  ["Sin compromiso mensual", "No monthly commitment"],
-  ["Ideal para restaurantes, bares, spas", "Ideal for restaurants, bars, spas"],
-  ["Publicar una oferta →", "Publish an offer →"],
-  ["★ Mejor valor · Exclusivo", "★ Best value · Exclusive"],
-  ["lanzamiento", "launch"],
-  ["+ $200 USD/mes Featured · cancelable", "+ $200 USD/month Featured · cancel anytime"],
-  ["Exclusividad de categoría en tu barrio", "Category exclusivity in your neighborhood"],
-  ["Badge \"Featured\" permanente en el home", "Permanent \"Featured\" badge on the homepage"],
-  ["Perfil dedicado con bio, fotos y horarios", "Dedicated profile with bio, photos and hours"],
-  ["Artículo IA publicado al inicio", "AI article published at launch"],
-  ["Newsletter + redes + blog + RSS", "Newsletter + social + blog + RSS"],
-  ["SEO + AEO + MEO del mapa local", "SEO + AEO + MEO of the local map"],
-  ["Reservar mi categoría →", "Reserve my category →"],
-  ["Elige tu camino", "Choose your path"],
-  ["Dos formas de llegar a tus vecinos. Empieza con una oferta o reserva tu categoría exclusiva.", "Two ways to reach your neighbors. Start with an offer or reserve your exclusive category."],
-  ["Si has invertido en publicidad local antes, sabes las objeciones. Medellín Social las elimina.", "If you've invested in local advertising before, you know the objections. Medellín Social eliminates them."],
-  ["Autoridad local real", "Real local authority"],
-  ["No es pauta — es posicionamiento orgánico que se acumula. Tu presencia digital crece cada mes sin que gastes más.", "It's not ads — it's organic ranking that compounds. Your digital presence grows every month without you spending more."],
-  ["¿Qué incluye cada plan?", "What's included in each plan?"],
-  ["Categorías disponibles", "Available categories"],
-  ["Un solo cupo por categoría en cada barrio. Cuando el cupo de tu categoría se llena, cierra.", "Only one spot per category in each neighborhood. Once your category's spot fills, it closes."],
-  ["Cómo funciona el proceso", "How the process works"],
-  ["Del formulario a publicado en 48 horas. Sin burocracia.", "From form to published in 48 hours. No red tape."],
-  ["Te contactamos en menos de 24 horas para coordinar los detalles de tu presencia en Medellín Social.", "We'll contact you within 24 hours to coordinate the details of your presence on Medellín Social."],
-  ["Reservar mi categoría", "Reserve my category"],
-  ["Publicar una oferta", "Publish an offer"],
-  ["Plan seleccionado:", "Selected plan:"],
-  ["Tu nombre", "Your name"],
-  ["Nombre y apellido", "First and last name"],
-  ["Categoría…", "Category…"],
-  ["Featured Business — $199 USD lanzamiento (recomendado)", "Featured Business — $199 USD launch (recommended)"],
-  ["Hotspot / Oferta especial — desde $29 USD", "Hotspot / Special offer — from $29 USD"],
-  ["¿Qué ofreces? ¿Qué hace especial a tu negocio? ¿Alguna pregunta?", "What do you offer? What makes your business special? Any questions?"],
-  ["Enviar aplicación →", "Submit application →"],
-  ["Revisamos cada aplicación personalmente y respondemos en menos de 24 horas.", "We review every application personally and respond within 24 hours."],
-
-  // ── real-estate.tsx ───────────────────────────────────────────────────────
-  ["Las mejores ofertas del mercado, actualizadas diariamente.", "The best market deals, updated daily."],
-  ["54,000+ propiedades. Datos reales.", "54,000+ properties. Real data."],
-  ["🗺️ Ver mapa de propiedades →", "🗺️ View property map →"],
-  ["Ver todos los agentes →", "View all agents →"],
-  ["Propiedades destacadas", "Featured properties"],
-  ["Ver propiedades →", "View properties →"],
-  ["El mercado inmobiliario", "The real estate market"],
-  ["Nuestra historia", "Our story"],
-  ["Ver todas →", "View all →"],
-  ["listings activos", "active listings"],
-  ["barrios mapeados", "neighborhoods mapped"],
-  ["negocios locales", "local businesses"],
-  ["datos verificados", "verified data"],
-  ["/mes", "/month"],
-
-  // ── suscripcion/exito.tsx ─────────────────────────────────────────────────
-  ["¡Bienvenido a ", "Welcome to "],
-  ["Tu suscripción está activa. Ahora tienes acceso completo al análisis profesional del mercado.", "Your subscription is active. You now have full access to professional market analysis."],
-  ["Recibirás un email de confirmación en los próximos minutos.", "You'll receive a confirmation email in the next few minutes."],
-  ["Publicar mi primera propiedad", "Publish my first property"],
-  ["Ver detalles de mi plan", "View my plan details"],
-  ["Ir al MLS Pro →", "Go to MLS Pro →"],
-  ["Activando plan…", "Activating plan…"],
-
-  // ── suscripcion/cancelada.tsx ─────────────────────────────────────────────
-  ["Cancelaste el proceso de pago. Tu plan actual no cambió.", "You cancelled the payment process. Your current plan didn't change."],
-  ["Puedes intentarlo de nuevo cuando quieras.", "You can try again whenever you want."],
-  ["No se realizó ningún cargo", "No charge was made"],
-  ["Volver a los planes →", "Back to plans →"],
-
-  // ── planes.tsx feature lists ──────────────────────────────────────────────
-  ["Filtros de búsqueda (precio, tipo, área, habitaciones, baños, antigüedad)", "Search filters (price, type, area, bedrooms, bathrooms, age)"],
-  ["Publicar tu propiedad en el portal (3% comisión solo si se cierra la venta)", "List your property on the portal (3% commission only if the sale closes)"],
-  ["Mapa interactivo con 54,000+ propiedades", "Interactive map with 54,000+ properties"],
-  ["Comunas y barrios del Valle de Aburrá", "Districts and neighborhoods of the Aburrá Valley"],
-  ["Eventos y negocios locales", "Events and local businesses"],
-  ["Ver propiedades en venta y arriendo", "View properties for sale and rent"],
-  ["Análisis de precio por barrio", "Neighborhood price analysis"],
-  ["Recomendaciones por perfil", "Profile-based recommendations"],
-  ["Historial de precios", "Price history"],
-
-  // ── vender.tsx ────────────────────────────────────────────────────────────
-  ["Encontrá el precio justo y el comprador correcto para tu propiedad", "Find the right price and the right buyer for your property"],
-  ["Maximizá tu retorno mensual con el perfil de arrendatario ideal", "Maximize your monthly return with the ideal tenant profile"],
-  ["Tiempo estimado venta", "Est. time to sell"],
-  ["Yield bruto estimado", "Est. gross yield"],
-  ["Precio prom. venta", "Avg. sale price"],
-  ["Canon promedio (p50)", "Avg. rent (p50)"],
-  ["Ocupación Airbnb", "Airbnb occupancy"],
-  ["Metros cuadrados", "Square meters"],
-  ["Quiero arrendar", "I want to rent"],
-  ["Quiero vender", "I want to sell"],
-
-  // ── Popups de listing (Popup1 + Popup2/drawer) — 2026-07 ──────────────────
-  // Popup1
-  ["Ver detalle del inmueble", "View property details"],
-  ["días en el mercado", "days on market"],
-  ["Publicado hoy", "Published today"],
-  // Entorno (walk/transit/colegios)
-  ["Entorno", "Surroundings"],
-  ["Caminabilidad", "Walkability"],
-  ["Transporte público", "Public transport"],
-  ["Colegios", "Schools"],
-  ["Muy caminable", "Very walkable"],
-  ["Algo caminable", "Somewhat walkable"],
-  ["Requiere carro", "Car needed"],
-  ["Metro a pasos", "Metro nearby"],
-  ["Metro cercano", "Metro close by"],
-  ["Metro lejos", "Metro far"],
-  ["a 1 km", "within 1 km"],
-  // Tráfico — variantes largas ANTES de la palabra suelta (el motor reemplaza substrings)
-  ["Tráfico moderado", "Moderate traffic"],
-  ["Tráfico pesado", "Heavy traffic"],
-  ["Vías fluidas", "Free-flowing"],
-  ["Tráfico", "Traffic"],
-  ["Qué tiene", "Amenities"],
-  // Historial de precio
-  ["Historial de precio", "Price history"],
-  ["Publicado en venta", "Listed for sale"],
-  ["Aún no hay cambios de precio registrados para este inmueble. Registramos cada variación desde su publicación.",
-    "No price changes recorded for this property yet. We track every change since it was listed."],
-  ["Subió de precio", "Price increased"],
-  ["Bajó de precio", "Price decreased"],
-  ["Hace 1 día", "1 day ago"],
-  // Valor estimado / catastro
-  ["Valor estimado de mercado", "Estimated market value"],
-  ["Valor estimado", "Estimated value"],
-  ["Valor de mercado", "Market value"],
-  ["Renta estimada", "Estimated rent"],
-  ["Avalúo catastral", "Cadastral value"],
-  ["Predial estimado", "Estimated property tax"],
-  ["Rango estimado de venta:", "Estimated sale range:"],
-  ["Precio de venta probable, estimado con el precio/m² típico de ",
-    "Likely sale price, estimated from the typical price/m² of "],
-  [" multiplicado por los ", " multiplied by the "],
-  ["m² de este inmueble.", "m² of this property."],
-  ["Canon de arriendo mensual típico para inmuebles similares en ",
-    "Typical monthly rent for similar properties in "],
-  ["Valor fiscal del predio según el catastro de Medellín (estimado con el avalúo/m² de la comuna). Es la base sobre la que se cobran los impuestos y casi siempre es menor al precio de mercado — aquí, cerca de ",
-    "Property's tax value per Medellín's cadastre (estimated from the commune's cadastral value/m²). It's the base used to charge taxes and is almost always lower than the market price — here, about "],
-  ["× por debajo.", "× below."],
-  ["Impuesto predial anual aproximado: avalúo catastral × tarifa del municipio (~",
-    "Approximate annual property tax: cadastral value × municipal rate (~"],
-  [" por mil para estrato ", " per thousand for stratum "],
-  [" en Medellín). La tarifa exacta la fija la Alcaldía según estrato y uso.",
-    " in Medellín). The exact rate is set by the city by stratum and use."],
-  // Tarjetas de realtor + agendar visita
-  ["Agente de la comuna", "Commune agent"],
-  ["Agente de la zona", "Zone agent"],
-  [", agente del barrio", ", neighborhood agent"],
-  ["También: ", "Also: "],
-  ["Agendar visita", "Schedule a visit"],
-  ["Agendar una visita", "Schedule a visit"],
-  ["Solicitar visita", "Request visit"],
-  ["Elige un día", "Choose a day"],
-  ["Elige una hora", "Choose a time"],
-  ["Selecciona una hora", "Select a time"],
-  ["Contactar", "Contact"],
-  ["Equipo Medellín Social", "Medellín Social team"],
-  ["Abriendo WhatsApp para confirmar tu visita", "Opening WhatsApp to confirm your visit"],
-  // CTAs secundarios del drawer
-  ["Simular esta propiedad", "Simulate this property"],
-  ["Alertarme cuando baje de precio", "Alert me when the price drops"],
-  ["Comparar", "Compare"],
-  ["Ver fuente original →", "View original source →"],
-  ["Copiar link", "Copy link"],
-  ["Información publicada por fuentes externas y propietarios. Medellín Social no garantiza la exactitud de precios, disponibilidad ni detalles — verifica con el agente antes de decidir.",
-   "Information published by external sources and owners. Medellín Social does not guarantee the accuracy of prices, availability, or details — verify with the agent before deciding."],
-  ["Score de inversión", "Investment score"],
-  ["Score zona", "Zone score"],
-  ["Desbloquea el análisis completo con MLS Pro", "Unlock the full analysis with MLS Pro"],
-  ["se vende más rápido que", "sells faster than"],
-  ["de la zona", "of the area"],
-  ["guardados", "saves"],
-  ["vistas", "views"],
-  // Lista / panel
-  ["Cargando inmuebles…", "Loading properties…"],
-  ["Datos y características", "Facts & features"],
-  // ── Uso de suelo POT + Mercado real (Fase 1/2) — 2026-08-26 ────────────────
-  // Entradas completas (más largas que "Área"/"Valor"/"Mes"/"Venta" ya
-  // existentes) para que el longest-match-first las capture antes que esos
-  // fragmentos cortos las corten a medias — ver test src/__tests__/i18n-pot-mercado.test.ts.
-  ["Áreas y corredores de alta mixtura", "High mixed-use areas and corridors"],
-  ["Áreas y corredores de media mixtura", "Medium mixed-use areas and corridors"],
-  ["Áreas de baja mixtura", "Low mixed-use areas"],
-  ["Uso Dotacional", "Institutional use"],
-  ["Espacio Público Existente", "Existing public space"],
-  ["Espacio Público Proyectado", "Planned public space"],
-  ["Uso de suelo (POT)", "Land use (POT)"],
-  ["Plan de Ordenamiento Territorial de Medellín — solo disponible dentro del municipio", "Medellín Land Use Plan — only available within the municipality"],
-  ["Ventas cerradas", "Closed sales"],
-  ["Valor mediana cierre", "Median closing value"],
-  ["Variación anual", "Annual change"],
-  ["Meses de inventario", "Months of inventory"],
-  ["Mercado de vendedor", "Seller's market"],
-  ["Mercado de comprador", "Buyer's market"],
-  ["Mercado balanceado", "Balanced market"],
-  ["Cierra en", "Closes at"],
-  ["del precio pedido", "of asking price"],
-  ["Fuente: registro notarial SNR/ORIPS, nivel municipio (no barrio)", "Source: SNR/ORIPS notary registry, municipality level (not neighborhood)"],
-  ["transacciones reales de", "real transactions in"],
-  ["Índice DANE nacional del mismo año:", "National DANE index for the same year:"],
-  ["(referencia, no aplicado como ajuste).", "(reference only, not applied as an adjustment)."],
-  ["Valor absoluto, no controla mezcla de tipo/tamaño de inmueble.", "Absolute value, does not control for property type/size mix."],
-
-  // ---- Pasantías EAFIT ----
-  ["Haz tu práctica en una empresa internacional sin salir de Medellín. IA, tecnología emergente y medios.",
-    "Do your internship at an international company without leaving Medellín. AI, emerging technology and media."],
-  ["Práctica EAFIT · IA y tecnología emergente · Medios", "EAFIT Internship · AI and emerging technology · Media"],
-  ["Empresa internacional", "International company"],
-  ["Stack de tecnología emergente", "Emerging-tech stack"],
-  ["Entorno bilingüe", "Bilingual environment"],
-  ["Haz tu práctica en una ", "Do your internship at an "],
-  ["empresa internacional", "international company"],
-  [", sin salir de Medellín.", ", without leaving Medellín."],
-  ["Medellín Social es la marca local de EASE, una empresa de Estados Unidos que construye plataformas de medios locales con inteligencia artificial. Abrimos prácticas para estudiantes de EAFIT que quieren experiencia práctica en inteligencia artificial, tecnología emergente y la industria de medios.",
-    "Medellín Social is the local brand of EASE, a U.S. company that builds local media platforms with artificial intelligence. We're opening internships for EAFIT students who want hands-on experience in artificial intelligence, emerging technology and the media industry."],
-  ["Aplica a una práctica →", "Apply for an internship →"],
-  ["Ver el programa", "View the program"],
-  ["Por qué esta práctica", "Why this internship"],
-  ["Una práctica oficial diseñada para encajar en las prácticas de EAFIT, construida alrededor de las habilidades que el futuro del trabajo recompensa.",
-    "An official internship designed to fit EAFIT's practicum requirements, built around the skills the future of work rewards."],
-  ["Una empresa internacional", "An international company"],
-  ["Trabajas directo con EASE, empresa de Estados Unidos que opera en Medellín como Medellín Social, con los mismos estándares en los dos países.",
-    "You work directly with EASE, a U.S. company that operates in Medellín as Medellín Social, with the same standards in both countries."],
-  ["IA y tecnología emergente", "AI and emerging technology"],
-  ["Motor de contenido, automatización, CRM y video, todos con inteligencia artificial. El kit de tecnología emergente, no teoría.",
-    "Content engine, automation, CRM and video, all powered by artificial intelligence. The emerging-tech toolkit, not theory."],
-  ["La industria de medios", "The media industry"],
-  ["Produces contenido para una plataforma de medios local en vivo, periodismo, redes y video con tu nombre.",
-    "You produce content for a live local media platform: journalism, social and video with your name on it."],
-  ["Portafolio y ventaja bilingüe", "Portfolio and bilingual edge"],
-  ["Te gradúas con trabajo publicado, resultados medibles y experiencia en inglés que los empleadores buscan.",
-    "You graduate with published work, measurable results and English-language experience employers look for."],
-  ["Rutas de práctica", "Internship tracks"],
-  ["Rutas", "Tracks"],
-  ["Elige la ruta que encaje con tu programa. Cada una es mentorizada, basada en proyectos y cuenta como práctica académica válida.",
-    "Choose the track that fits your program. Each one is mentored, project-based and counts as valid academic practice."],
-  ["Medios / Comunicación / Periodismo", "Media / Communication / Journalism"],
-  ["Creador de Medios y Contenido con IA", "AI Media & Content Creator"],
-  ["Escribir, grabar y publicar historias locales y un boletín semanal", "Write, film and publish local stories and a weekly newsletter"],
-  ["Usar avatares de video con IA y el motor de contenido para producir medios de calidad de estudio",
-    "Use AI video avatars and the content engine to produce studio-grade media"],
-  ["Hacer crecer audiencias en TikTok, Instagram, YouTube y Facebook", "Grow audiences on TikTok, Instagram, YouTube and Facebook"],
-  ["Narrativa", "Storytelling"],
-  ["Mercadeo / Negocios / Ingeniería", "Marketing / Business / Engineering"],
-  ["Crecimiento y Tecnología de Marketing con IA", "AI Growth & Marketing Technology"],
-  ["Construir automatizaciones y cadencias en un CRM de marca privada (GoHighLevel)",
-    "Build automations and cadences in a private-label CRM (GoHighLevel)"],
-  ["Ejecutar campañas y analizar el desempeño para negocios locales", "Run campaigns and analyze performance for local businesses"],
-  ["Trabajar con herramientas de IA y automatización no-code (Make.com)", "Work with AI tools and no-code automation (Make.com)"],
-  ["Automatización", "Automation"],
-  ["Analítica", "Analytics"],
-  ["Negocios / Negocios Internacionales", "Business / International Business"],
-  ["Comunidad y Desarrollo de Negocios", "Community & Business Development"],
-  ["Ayudar a negocios locales a ser encontrados en línea y unirse a la plataforma",
-    "Help local businesses get found online and join the platform"],
-  ["Hacer crecer la comunidad de suscriptores con eventos y programas", "Grow the subscriber community with events and programs"],
-  ["Practicar comunicación bilingüe de cara al cliente con un equipo global",
-    "Practice bilingual, client-facing communication with a global team"],
-  ["Ventas", "Sales"],
-  ["Lo que te llevarás", "What you'll walk away with"],
-  ["Portafolio publicado", "Published portfolio"],
-  ["Trabajo con tu firma y resultados medibles que puedes mostrar a cualquier empleador.",
-    "Work with your byline and measurable results you can show any employer."],
-  ["Habilidades en tecnología emergente", "Emerging-tech skills"],
-  ["Dominio práctico de herramientas de IA, automatización y producción de contenido moderna.",
-    "Practical command of AI tools, automation and modern content production."],
-  ["Referencia internacional", "International reference"],
-  ["Una recomendación y experiencia con una empresa de EE. UU. en tu hoja de vida.",
-    "A recommendation and experience with a U.S. company on your résumé."],
-  ["Cómo aplicar", "How to apply"],
-  ["Envía el formulario con tu programa de EAFIT, semestre y ruta de interés.",
-    "Submit the form with your EAFIT program, semester and track of interest."],
-  ["Entrevista", "Interview"],
-  ["Una breve conversación bilingüe sobre tus metas y fortalezas.", "A short bilingual conversation about your goals and strengths."],
-  ["Incorpórate", "Onboard"],
-  ["Certifícate en la plataforma y el kit de IA, alineado con los requisitos de tu práctica.",
-    "Get certified on the platform and the AI toolkit, aligned with your internship requirements."],
-  ["Construye y gradúate", "Build & graduate"],
-  ["Entrega proyectos, construye tu portafolio y termina con experiencia que se destaca.",
-    "Deliver projects, build your portfolio and finish with experience that stands out."],
-  ["¡Recibimos tu aplicación!", "We received your application!"],
-  ["Revisamos cada aplicación personalmente. Te contactamos en menos de 48 horas.",
-    "We review every application personally. We'll contact you within 48 hours."],
-  ["Aplica a una Práctica EAFIT", "Apply for an EAFIT Internship"],
-  ["Abierto a estudiantes de EAFIT listos para una experiencia internacional en inteligencia artificial y medios.",
-    "Open to EAFIT students ready for an international experience in artificial intelligence and media."],
-  ["Tu apellido", "Your last name"],
-  ["Programa EAFIT y semestre", "EAFIT program and semester"],
-  ["ej., Comunicación, 8º semestre", "e.g., Communication, 8th semester"],
-  ["Ruta de interés", "Track of interest"],
-  ["¿Por qué tú? (nivel de inglés, portafolio, intereses)", "Why you? (English level, portfolio, interests)"],
-  ["Cuéntanos sobre tus habilidades, nivel de inglés y qué te emociona",
-    "Tell us about your skills, English level and what excites you"],
-  ["Medellín Social es operada por EASE Association (EE. UU.). Las oportunidades siguen las directrices de práctica de cada programa.",
-    "Medellín Social is operated by EASE Association (USA). Opportunities follow each program's internship guidelines."],
-
-  // ---- Guía del mapa (MapTourModal) ----
-  ["Un recorrido rápido para que conozcas cada parte del mapa.", "A quick walkthrough of every part of the map."],
-  ["Así funciona el mapa", "How the map works"],
-  ["Mira: puedes hacer zoom en cualquier parte del mapa para ver el detalle por barrio, y alejarlo para volver a la vista general por comunas.",
-    "Watch: you can zoom into any part of the map to see neighborhood-level detail, and zoom out to return to the general comuna view."],
-  ["Comunas y barrios", "Comunas and neighborhoods"],
-  ["Seleccionamos ", "We selected "],
-  [" como ejemplo. Puedes hacer click en cualquier comuna del mapa para explorarla.",
-    " as an example. You can click any comuna on the map to explore it."],
-  ["una comuna", "a comuna"],
-  ["Elige una zona", "Choose a zone"],
-  ["Usa la barra de filtros para precio, habitaciones, tipo de inmueble y más.",
-    "Use the filter bar for price, bedrooms, property type and more."],
-  ["Filtra tu búsqueda", "Filter your search"],
-  ["Cambia entre estas dos pestañas según lo que estés buscando.", "Switch between these two tabs depending on what you're looking for."],
-  ["Comprar o arrendar", "Buy or rent"],
-  ["Aquí aparecen los inmuebles disponibles según los filtros que apliques.",
-    "Available properties show up here based on the filters you apply."],
-  ["Inmuebles en el mapa", "Properties on the map"],
-  ["Toca este botón para ver todos los inmuebles en una lista.", "Tap this button to see all the properties in a list."],
-  ["Ver la lista", "View the list"],
-  ["Aquí puedes ver todos los inmuebles disponibles. Se filtran igual que en el mapa.",
-    "Here you can see all the available properties. They're filtered the same way as the map."],
-  ["En esta lista ves todos los inmuebles disponibles — también se filtra igual que el mapa.",
-    "In this list you see all the available properties — it's also filtered the same way as the map."],
-  ["Lista de inmuebles", "Property list"],
-  ["Toca aquí para volver al mapa.", "Tap here to go back to the map."],
-  ["Al hacer zoom dentro de una comuna, aparecen los inmuebles individuales en el mapa.",
-    "When you zoom into a comuna, individual properties appear on the map."],
-  ["Acércate a un barrio", "Zoom into a neighborhood"],
-  ["Este recuadro muestra qué representa cada color. Dale click para ver el detalle.",
-    "This box shows what each color represents. Click it to see the detail."],
-  ["Colores por tipo de inmueble", "Colors by property type"],
-  ["Si te genera curiosidad un inmueble, dale click y verás un resumen con lo esencial.",
-    "If a property catches your eye, click it and you'll see a summary with the essentials."],
-  ["Resumen rápido", "Quick summary"],
-  ["Al expandir el resumen se abre esta ventana con todos los detalles del inmueble.",
-    "Expanding the summary opens this window with all the property's details."],
-  ["Toda la información", "All the information"],
-  ["Este botón, junto a la lista, te regresa a la vista general de comunas.",
-    "This button, next to the list, takes you back to the general comuna view."],
-  ["Volver a comunas", "Back to comunas"],
-  ["Si aplicas filtros sin elegir una zona antes, este botón busca en todo el Valle de Aburrá.",
-    "If you apply filters without picking a zone first, this button searches the whole Aburrá Valley."],
-  ["Buscar en todo el Valle", "Search the whole Valley"],
-  ["Puedes volver a ver esta guía cuando quieras con este botón.", "You can watch this guide again anytime with this button."],
-  ["¿Necesitas repasar esto?", "Need a refresher?"],
-  ["Saltar recorrido", "Skip tour"],
-  ["Entendido", "Got it"],
-  ["Ver guía del mapa", "View map guide"],
-  ["Cerrar guía", "Close guide"],
-
-  // ── Planes — páginas de detalle ──────────────────────────────────────────
-  // Listing Member
-  ["CRM + comunicaciones base para agentes que están arrancando en Medellín Social.",
-    "CRM + base communications for agents getting started on Medellín Social."],
-  ["Configuración inicial del teléfono dedicado, integración WhatsApp y conexión al CRM. Pago único — no se repite.",
-    "Initial dedicated phone setup, WhatsApp integration and CRM connection. One-time payment — not repeated."],
-  ["Sí, en cualquier momento. Solo se cobra la diferencia de setup ($49) al hacer el upgrade.",
-    "Yes, anytime. Only the setup difference ($49) is charged on upgrade."],
-  ["Es precio de lanzamiento por tiempo limitado. Al suscribirte ahora, mantienes ese precio mientras tu plan esté activo.",
-    "Time-limited launch price. Subscribe now and keep it as long as your plan stays active."],
-  ["¿Necesitas más? Featured Realtor incluye web site + AI + marketing.",
-    "Need more? Featured Realtor includes website + AI + marketing."],
-  ["Upgrade en cualquier momento desde $299/mo", "Upgrade anytime from $299/mo"],
-  ["¿Qué incluye el setup fee de $150?", "What does the $150 setup fee include?"],
-  ["¿Puedo subir a Featured Realtor después?", "Can I upgrade to Featured Realtor later?"],
-  ["¿Cuánto dura el precio especial $149?", "How long does the $149 special price last?"],
-  ["Comenzar como Listing Member →", "Get started as Listing Member →"],
-  // Featured Realtor
-  ["Marketing digital, AI agents y web site administrado. Todo para dominar tu zona en Medellín Social.",
-    "Digital marketing, AI agents and a managed website. Everything to dominate your zone on Medellín Social."],
-  ["Un sitio profesional configurado específicamente para realtors: galería de propiedades, formulario de contacto, integración con el CRM y tu perfil verificado en Medellín Social.",
-    "A professional site configured specifically for realtors: property gallery, contact form, CRM integration and your verified profile on Medellín Social."],
-  ["Responden consultas por WhatsApp, texto y chat 24/7 de forma automática. Califican leads y los enrutan al CRM sin intervención manual.",
-    "They answer inquiries via WhatsApp, text and chat 24/7 automatically. They qualify leads and route them to the CRM without manual intervention."],
-  ["Es precio de lanzamiento. Al suscribirte ahora lo mantienes mientras el plan esté activo.",
-    "Launch price. Subscribe now and keep it for as long as the plan is active."],
-  ["Sí. Hot Spot agrega comunidades, afiliados, membresías y forecasting. El upgrade es inmediato.",
-    "Yes. Hot Spot adds communities, affiliates, memberships and forecasting. Upgrade is immediate."],
-  ["¿Qué incluye el web site administrado?", "What does the managed website include?"],
-  ["¿Qué hacen los AI Agents?", "What do the AI Agents do?"],
-  ["¿Cuánto dura el precio especial $299?", "How long does the $299 special price last?"],
-  ["¿Puedo subir a Hot Spot después?", "Can I upgrade to Hot Spot later?"],
-  ["Solicitar Featured Realtor →", "Request Featured Realtor →"],
-  ["Base — Comunicación & CRM", "Base — Communication & CRM"],
-  ["Featured Realtor — exclusivo de este plan", "Featured Realtor — exclusive to this plan"],
-  // Hot Spot
-  ["Plataforma completa para agencias. Afiliados, comunidades, membresías, forecasting y posicionamiento exclusivo en el mapa.",
-    "Full platform for agencies. Affiliates, communities, memberships, forecasting and exclusive map placement."],
-  ["Posicionamiento destacado de tu agencia, propiedades o eventos a nivel barrio, comuna o ciudad dentro del mapa de Medellín Social. Cupo exclusivo por nivel.",
-    "Featured placement of your agency, properties or events at neighborhood, zone or city level within the Medellín Social map. One exclusive slot per level."],
-  ["Gestionar embajadores y afiliados que refieren clientes a tu agencia. Cada referido queda trackeado con su comisión automática en GHL.",
-    "Manage ambassadors and affiliates who refer clients to your agency. Each referral is tracked with automatic commission in GHL."],
-  ["Sí. Puedes patrocinar varios niveles (barrio + comuna, por ejemplo) y cada uno se gestiona por separado en el dashboard.",
-    "Yes. You can sponsor multiple levels (neighborhood + zone, for example) and each is managed separately in the dashboard."],
-  ["El precio especial de lanzamiento es $199/mo (precio regular $299/mo). El setup fee es $49 (precio regular $99). Cupo limitado.",
-    "The launch special price is $199/mo (regular $299/mo). Setup fee is $49 (regular $99). Limited slots."],
-  ["¿Qué significa 'Unlimited' en el precio especial?", "What does 'Unlimited' mean in the special price?"],
-  ["¿El Affiliate Manager qué permite?", "What does the Affiliate Manager allow?"],
-  ["¿Puedo tener múltiples Hot Spots?", "Can I have multiple Hot Spots?"],
-  ["Contactar para Hot Spot →", "Contact us for Hot Spot →"],
-  ["Exclusivo Hot Spot", "Hot Spot Exclusive"],
-  ["Marketing & Automatización — incluido", "Marketing & Automation — included"],
-  ["Comunicación & CRM — incluido", "Communication & CRM — included"],
-  ["Alcance de promociones", "Promotion coverage"],
-  ["Payment Processing (recurrente + descuentos)", "Payment Processing (recurring + discounts)"],
-  // Deal
-  ["Publica un beneficio especial para la comunidad de compradores e inversores que buscan propiedades en tu zona.",
-    "Publish a special benefit for the community of buyers and investors searching properties in your zone."],
-  ["Un convenio o beneficio especial que tu negocio ofrece a la comunidad de compradores, inversores y realtors del MLS. Puede ser un descuento, un servicio preferencial o una alianza comercial.",
-    "A special agreement or benefit your business offers to the community of buyers, investors and realtors on the MLS. Can be a discount, preferential service or commercial partnership."],
-  ["Cualquier negocio o tienda registrada en Medellín Social. Se requiere tener un perfil de negocio activo antes de publicar.",
-    "Any business or store registered on Medellín Social. An active business profile is required before publishing."],
-  ["El período lo defines tú al crear el deal. Puedes actualizarlo o cerrarlo en cualquier momento desde tu dashboard.",
-    "You define the period when creating the deal. You can update or close it anytime from your dashboard."],
-  ["Aparece en el mapa y en el panel de comunidad del barrio o zona que selecciones. Usuarios que están buscando propiedades en esa zona lo ven directamente.",
-    "It appears on the map and in the community panel of the neighborhood or zone you select. Users searching properties in that zone see it directly."],
-  ["Los planes de realtor incluyen herramientas de marketing y CRM completo.",
-    "Realtor plans include full marketing tools and CRM."],
-  ["Tu convenio publicado en el mapa de Medellín Social", "Your deal published on the Medellín Social map"],
-  ["Visible para compradores e inversores activos en la zona", "Visible to active buyers and investors in the area"],
-  ["Gestión del deal desde el dashboard de tu negocio", "Manage the deal from your business dashboard"],
-  ["Integración bidireccional con GHL (creación y actualización automática)", "Two-way GHL integration (automatic creation and updates)"],
-  ["Categorías: descuento, servicio especial, convenio profesional", "Categories: discount, special service, professional agreement"],
-  ["Alcance: barrio, comuna o ciudad", "Coverage: neighborhood, zone or city"],
-  ["Estadísticas de vistas e interacciones del deal", "View and interaction stats for the deal"],
-  ["¿Qué es un Deal en Medellín Social?", "What is a Deal on Medellín Social?"],
-  ["¿Quién puede publicar un Deal?", "Who can publish a Deal?"],
-  ["¿Cuánto dura el Deal activo?", "How long is the Deal active?"],
-  ["¿Cómo llega el deal a los usuarios?", "How do users discover the deal?"],
-  ["¿Eres agente o agencia?", "Are you an agent or agency?"],
-  ["Ver planes de agente →", "View agent plans →"],
-  ["Para negocios y tiendas", "For businesses and stores"],
-  ["Publicar mi Deal →", "Publish my Deal →"],
-  // Common across detail pages
-  ["Todo lo que incluye", "Everything included"],
-  ["CRM integrado", "Integrated CRM"],
-  ["precio especial · + $150 setup fee", "launch price · + $150 setup fee"],
-  ["precio especial · + $199 setup fee", "launch price · + $199 setup fee"],
-  ["¿Más preguntas?", "More questions?"],
-
-  // ── Planes / Productos ────────────────────────────────────────────────────
-  // Long phrases first to avoid partial matches
-  ["Planes y precios", "Plans and pricing"],
-  ["Aún no hay noticias. Vuelve pronto.", "No news yet. Check back soon."],
-  ["Productos distintos para agentes inmobiliarios y negocios locales en el Valle de Aburrá.",
-    "Distinct products for real estate agents and local businesses in the Aburrá Valley."],
-  ["CRM, comunicaciones y herramientas de marketing integradas con el MLS del Valle de Aburrá.",
-    "CRM, communications and marketing tools integrated with the Aburrá Valley MLS."],
-  ["Publica tus propiedades en el MLS con CRM integrado, calendario de citas y comunicación 2-vía por texto, email y WhatsApp.",
-    "Publish your listings on the MLS with integrated CRM, appointment calendar, and 2-way communication via text, email and WhatsApp."],
-  ["Sé el agente referente de tu zona. Web site administrado, AI agents que responden leads 24/7 y suite completa de marketing digital.",
-    "Be the go-to agent in your zone. Managed website, AI agents that handle leads 24/7 and a full digital marketing suite."],
-  ["Posiciona tu negocio como el referente de tu zona en el mapa. Stack completo: comunidades, membresías, affiliate manager y posicionamiento exclusivo barrio/comuna/ciudad.",
-    "Position your business as the go-to spot in your zone on the map. Full stack: communities, memberships, affiliate manager and exclusive placement at neighborhood/zone/city level."],
-  ["Publica una oferta especial en el mapa — descuento, convenio o promoción. Visible para compradores e inversores activos en tu zona. Sin compromisos adicionales.",
-    "Publish a special offer on the map — discount, deal or promotion. Visible to active buyers and investors in your zone. No additional commitments."],
-  ["¿Conoces negocios o agentes que deberían estar en Medellín Social? Refiere y recibe comisión automática por cada conversión.",
-    "Know businesses or agents who should be on Medellín Social? Refer them and earn automatic commission on every conversion."],
-  // FAQ planes
-  ["El precio especial es por tiempo limitado. Al suscribirte en este período, mantienes ese precio mientras tu plan esté activo.",
-    "The launch price is time-limited. Subscribe now and lock it in for as long as your plan stays active."],
-  ["Configuración de teléfono dedicado, integración con WhatsApp, agentes de AI y conexión al web site. Es pago único — no se repite mensualmente.",
-    "Dedicated phone setup, WhatsApp integration, AI agents and website connection. One-time fee — not charged monthly."],
-  ["No. Llamadas, SMS, emails y AI se cobran por consumo en todos los productos. Son costos de operador que se pasan directamente sin margen.",
-    "No. Calls, SMS, emails and AI are charged per use across all products. Carrier costs passed through at cost, no markup."],
-  ["Posicionamiento destacado de tu negocio en el mapa de Medellín Social — a nivel barrio, comuna o ciudad. Cupo único por nivel.",
-    "Featured placement of your business on the Medellín Social map — at neighborhood, zone or city level. One exclusive slot per level."],
-  ["No. Cualquier negocio puede publicar un Deal de forma independiente por $29/mo, sin necesidad de otros productos.",
-    "No. Any business can publish a Deal independently for $29/mo, no other products required."],
-  ["¿Cuánto dura el precio especial de lanzamiento?", "How long does the launch price last?"],
-  ["¿Qué incluye el setup fee?", "What does the setup fee include?"],
-  ["¿Los precios por uso vienen incluidos?", "Are usage-based prices included?"],
-  ["¿Qué son las Hot Spot Promotions?", "What are Hot Spot Promotions?"],
-  ["¿Un Deal requiere tener Hot Spot?", "Does a Deal require a Hot Spot?"],
-  // Labels
-  ["Para Agentes Inmobiliarios", "For Real Estate Agents"],
-  ["Para Negocios Locales", "For Local Businesses"],
-  ["Afiliados y Embajadores", "Affiliates & Ambassadors"],
-  ["Refiere y gana comisión", "Refer and earn commission"],
-  ["Posicionamiento exclusivo en mapa", "Exclusive map placement"],
-  ["Oferta visible en el mapa", "Offer visible on the map"],
-  ["Alcance barrio, comuna o ciudad", "Coverage: neighborhood, zone or city"],
-  ["Gestión desde tu dashboard", "Manage from your dashboard"],
-  ["Sin setup fee", "No setup fee"],
-  ["por deal activo", "per active deal"],
-  ["Web site administrado", "Managed website"],
-  ["Funnels y automatizaciones", "Funnels and automations"],
-  ["Más solicitado", "Most requested"],
-  ["Contáctanos →", "Contact us →"],
-  ["precio especial de lanzamiento", "launch special price"],
-  ["precio regular", "regular price"],
-  ["Ver Listing Member →", "View Listing Member →"],
-  ["Ver Featured Realtor →", "View Featured Realtor →"],
-  ["Ver Hot Spot →", "View Hot Spot →"],
-  ["Ver Deal →", "View Deal →"],
-  ["Preguntas frecuentes", "Frequently asked questions"],
-];
-
-/* Tokens that should never be translated (brand, neighborhood names, etc.) */
+// PHRASES lives in ./i18n-phrases and is loaded on demand (see loadDictionary).
+
+/* Tokens that should never be translated (brand, neighborhood names, etc.).
+ * NOTE: UI labels and API category values (MUY SEGURO, ALTA, BAJA, Seguridad...)
+ * are NOT protected any more: they have EN entries in PHRASES and must translate. */
 const PROTECT = new Set([
-  "Medellin Social", "Medellín", "Aburrá", "Airbnb", "Belén", "Estadio",
+  "Medellin Social", "Medellín Social", "Medellín", "Aburrá", "Airbnb", "Belén", "Estadio",
   "Laureles", "Robledo", "Aranjuez", "El Poblado", "El Rodeo",
   "Mapbox", "Fincaraíz", "Metrocuadrado", "PBN", "ADR", "CDT",
   "Google", "PSE", "Nequi",
-
-  // Panel section labels & API category values — always shown in Spanish
-  "Seguridad", "Salud financiera", "Índice verde", "Valorización",
-  "Actividad de Mercado", "Tiempo estimado", "Listings destacados",
-  "Simular inversión aquí",
-  "Renta media", "RENTA MEDIA", "Rendimiento estimado",
-  // Categoria values from the API (returned as Spanish strings from dbt)
-  "MUY SEGURO", "SEGURO", "POCO SEGURO", "PELIGROSO",
-  "MUY VERDE", "VERDE", "POCO VERDE",
-  "ALTA", "MEDIA", "BAJA", "MUY BAJA", "MÍNIMA",
-  "MUY SALUDABLE", "SALUDABLE", "PRECAUCIÓN", "ALERTA",
-  "Sin remates activos ✅",
-  "Fuente: avisos judiciales públicos",
 ]);
 
-// Sort once, longest phrases first so substrings don't pre-empt phrases.
-const SORTED_PHRASES = [...PHRASES].sort((a, b) => b[0].length - a[0].length);
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Word-boundary matching (Unicode-aware) — a plain substring match would
-// mangle proper nouns that happen to contain a short phrase, e.g. DB-cased
-// "BUENOS AIRES" contains "BUENO" → would become "GOODS AIRES".
-const PHRASE_REGEXES = SORTED_PHRASES
-  .filter(([es]) => !PROTECT.has(es))
-  .map(([es, en]) => [new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(es)}(?![\\p{L}\\p{N}])`, "gu"), en] as const);
+const hasLetters = (s: string) => (s.match(/\p{L}/gu) ?? []).length;
+const isAllUpper = (s: string) => hasLetters(s) > 1 && s === s.toUpperCase() && s !== s.toLowerCase();
+const capFirst = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+const lowerFirst = (s: string) =>
+  s.length > 1 && s.charAt(1) === s.charAt(1).toUpperCase() && s.charAt(1) !== s.charAt(1).toLowerCase()
+    ? s // acronym / proper noun ("WhatsApp", "ROI"): keep
+    : s.charAt(0).toLowerCase() + s.slice(1);
+const startsUpper = (s: string) => {
+  const m = s.match(/\p{L}/u);
+  return !!m && m[0] === m[0].toUpperCase() && m[0] !== m[0].toLowerCase();
+};
+
+/** Re-apply the casing of what was actually matched ("hasta" -> "up to", "DESDE" -> "FROM"). */
+function matchCase(matched: string, es: string, en: string): string {
+  if (matched === es) return en;
+  if (isAllUpper(matched)) return en.toUpperCase();
+  if (isAllUpper(es)) {
+    // all-caps label key matched only with exact casing (see regex build), defensive:
+    return en;
+  }
+  const mUp = startsUpper(matched);
+  const kUp = startsUpper(es);
+  if (mUp && !kUp) return capFirst(en);
+  if (!mUp && kUp) return lowerFirst(en);
+  return en;
+}
+
+// Unicode-aware boundaries on LETTERS only (so "3hab", "2baños", "100m²" match
+// while "BUENOS AIRES" still never becomes "GOODS AIRES"). Matching is
+// case-insensitive, except all-caps label keys (BAJA, ALTA, BAJO...) which only
+// match exactly: lowercase "bajo" is the preposition "under", not the label.
+let PHRASE_REGEXES: Array<{ re: RegExp; es: string; en: string }> = [];
+let dictReady = false;
+let dictPromise: Promise<void> | null = null;
+const dictListeners = new Set<() => void>();
+
+/** Lazy-load the ES->EN dictionary (own chunk). Spanish (default) never needs it. */
+export function loadDictionary(): Promise<void> {
+  if (dictReady) return Promise.resolve();
+  if (!dictPromise) {
+    dictPromise = import("./i18n-phrases").then(({ PHRASES }) => {
+      // Sort once, longest phrases first so substrings don't pre-empt phrases.
+      PHRASE_REGEXES = [...PHRASES]
+        .sort((a, b) => b[0].length - a[0].length)
+        .filter(([es]) => !PROTECT.has(es))
+        .map(([es, en]) => ({
+          re: new RegExp(`(?<!\\p{L})${escapeRegExp(es)}(?!\\p{L})`, isAllUpper(es) ? "gu" : "giu"),
+          es,
+          en,
+        }));
+      _tsCache.clear();
+      dictReady = true;
+      dictListeners.forEach((cb) => cb());
+    });
+    dictPromise.catch(() => { dictPromise = null; });
+  }
+  return dictPromise;
+}
+const subscribeDict = (cb: () => void) => {
+  dictListeners.add(cb);
+  return () => { dictListeners.delete(cb); };
+};
+
+// Numeric patterns that a static phrase table cannot express ("Hace 3 días").
+const REL_UNITS: Record<string, [string, string]> = {
+  minuto: ["minute", "minutes"], hora: ["hour", "hours"], día: ["day", "days"],
+  semana: ["week", "weeks"], mes: ["month", "months"], año: ["year", "years"],
+};
+const REL_TIME_RE = /(?<!\p{L})hace (\d+) (minutos?|horas?|días?|semanas?|meses|mes|años?)(?!\p{L})/giu;
+function relTime(_m: string, n: string, unit: string): string {
+  const key = Object.keys(REL_UNITS).find((k) => unit.toLowerCase().startsWith(k));
+  const pair = key ? REL_UNITS[key] : null;
+  return `${n} ${pair ? (Number(n) === 1 ? pair[0] : pair[1]) : unit} ago`;
+}
+
+const _tsCache = new Map<string, string>();
 
 export function translateString(input: string): string {
   if (!input) return input;
-  let out = input;
-  for (const [re, en] of PHRASE_REGEXES) {
-    out = out.replace(re, en);
+  const hit = _tsCache.get(input);
+  if (hit !== undefined) return hit;
+  let out = input.replace(REL_TIME_RE, relTime);
+  for (const { re, es, en } of PHRASE_REGEXES) {
+    re.lastIndex = 0;
+    out = out.replace(re, (m) => matchCase(m, es, en));
+  }
+  if (dictReady) {
+    if (_tsCache.size > 8000) _tsCache.clear();
+    _tsCache.set(input, out);
   }
   return out;
 }
@@ -2827,6 +134,25 @@ function skipFilter(node: Node): number {
 }
 function isSkipped(t: Text): boolean {
   return t.parentElement?.closest(`[${SKIP_ATTR}]`) != null;
+}
+
+type AttrCache = Element & Record<string, string | undefined>;
+
+// Same fresh-write guard as text nodes: if the attribute is not our own last
+// translation, React wrote a new Spanish source -> re-cache it, never reuse the
+// stale first-seen value.
+function translateAttrs(el: Element) {
+  const c = el as AttrCache;
+  for (const a of TRANSLATABLE_ATTRS) {
+    if (!el.hasAttribute(a)) continue;
+    const cur = el.getAttribute(a) ?? "";
+    const esKey = `__es_${a}`;
+    const tKey = `__t_${a}`;
+    if (c[tKey] !== cur) c[esKey] = cur;
+    const next = translateString(c[esKey] ?? cur);
+    if (next !== cur) el.setAttribute(a, next);
+    c[tKey] = next;
+  }
 }
 
 function translateNode(root: Node) {
@@ -2850,21 +176,12 @@ function translateNode(root: Node) {
       el.__t = next;
     } else if (node.nodeType === Node.ELEMENT_NODE) {
       const el = node as Element;
-      // Skip script/style
       const tag = el.tagName;
       if (tag === "SCRIPT" || tag === "STYLE") {
         node = walker.nextSibling();
         continue;
       }
-      for (const a of TRANSLATABLE_ATTRS) {
-        if (el.hasAttribute(a)) {
-          const key = `__es_${a}`;
-          const orig = (el as any)[key] ?? el.getAttribute(a) ?? "";
-          if (!(el as any)[key]) (el as any)[key] = orig;
-          const next = translateString(orig);
-          if (next !== el.getAttribute(a)) el.setAttribute(a, next);
-        }
-      }
+      translateAttrs(el);
     }
     node = walker.nextNode();
   }
@@ -2875,18 +192,93 @@ function restoreNode(root: Node) {
   let node: Node | null = walker.currentNode;
   while (node) {
     if (node.nodeType === Node.TEXT_NODE) {
-      const el = node as Text & { __es?: string };
-      if (el.__es != null && el.nodeValue !== el.__es) el.nodeValue = el.__es;
+      const el = node as Text & { __es?: string; __t?: string };
+      // Only undo OUR translation; a fresh React write already is Spanish source.
+      if (el.__es != null && el.__t === el.nodeValue && el.nodeValue !== el.__es) el.nodeValue = el.__es;
+      el.__t = undefined;
     } else if (node.nodeType === Node.ELEMENT_NODE) {
-      const el = node as Element;
+      const el = node as AttrCache;
       for (const a of TRANSLATABLE_ATTRS) {
-        const key = `__es_${a}`;
-        const orig = (el as any)[key];
-        if (orig != null && el.getAttribute(a) !== orig) el.setAttribute(a, orig);
+        const orig = el[`__es_${a}`];
+        if (orig != null && el.getAttribute(a) === el[`__t_${a}`] && el.getAttribute(a) !== orig) el.setAttribute(a, orig);
+        el[`__t_${a}`] = undefined;
       }
     }
     node = walker.nextNode();
   }
+}
+
+/* ---- Language store (cookie + localStorage, cross-tab, sync read) ---- */
+function parseLang(v: unknown): Lang | null {
+  return v === "es" || v === "en" ? v : null;
+}
+
+function readCookieLang(): Lang | null {
+  if (typeof document === "undefined") return null;
+  const m = document.cookie.match(new RegExp(`(?:^|; )${KEY.replace(/\./g, "\\.")}=([^;]*)`));
+  return m ? parseLang(decodeURIComponent(m[1])) : null;
+}
+
+export function readStoredLang(): Lang {
+  if (typeof window === "undefined") return "es";
+  try {
+    return parseLang(window.localStorage.getItem(KEY)) ?? readCookieLang() ?? "es";
+  } catch {
+    return readCookieLang() ?? "es";
+  }
+}
+
+let currentLang: Lang | null = null;
+const langListeners = new Set<() => void>();
+let storageBound = false;
+
+function getClientLang(): Lang {
+  if (currentLang === null) {
+    currentLang = readStoredLang();
+    setFormatLang(currentLang);
+    if (currentLang === "en") void loadDictionary();
+  }
+  return currentLang;
+}
+const getServerLang = (): Lang => "es";
+
+function publishLang(l: Lang) {
+  currentLang = l;
+  if (l === "en") void loadDictionary();
+  setFormatLang(l);
+  langListeners.forEach((cb) => cb());
+}
+
+function subscribeLang(cb: () => void): () => void {
+  langListeners.add(cb);
+  if (typeof window !== "undefined" && !storageBound) {
+    storageBound = true;
+    window.addEventListener("storage", (e) => {
+      if (e.key === KEY || e.key === null) {
+        const next = parseLang(e.newValue) ?? readStoredLang();
+        if (next !== currentLang) publishLang(next);
+      }
+    });
+  }
+  return () => {
+    langListeners.delete(cb);
+  };
+}
+
+export function persistLang(l: Lang): void {
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(KEY, l);
+    } catch {
+      /* storage blocked */
+    }
+    try {
+      document.cookie = `${KEY}=${l}; path=/; max-age=31536000; SameSite=Lax`;
+    } catch {
+      /* cookies blocked */
+    }
+  }
+  publishLang(l);
 }
 
 /* ---- Context ---- */
@@ -2894,30 +286,56 @@ type Ctx = { lang: Lang; setLang: (l: Lang) => void; toggle: () => void; t: (s: 
 const LangCtx = createContext<Ctx>({ lang: "es", setLang: () => {}, toggle: () => {}, t: (s) => s });
 
 let observer: MutationObserver | null = null;
+let titleObserver: MutationObserver | null = null;
+
+// useLayoutEffect on the client so the translation lands before first paint.
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+let titleEs: string | null = null;
+let titleT: string | null = null;
+function translateTitle() {
+  const cur = document.title;
+  if (titleT !== cur) titleEs = cur; // fresh write by a route/drawer
+  const next = translateString(titleEs ?? cur);
+  if (next !== document.title) document.title = next;
+  titleT = next;
+}
+function restoreTitle() {
+  if (titleEs != null && titleT === document.title) document.title = titleEs;
+  titleEs = null;
+  titleT = null;
+}
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const [lang, setLangState] = useState<Lang>("es");
-
-  // Load persisted lang on mount
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = (localStorage.getItem(KEY) as Lang | null) ?? "es";
-    setLangState(stored);
-  }, []);
+  // SSR + hydration render "es" (matches server HTML); the client snapshot is
+  // read synchronously right after hydration, before paint.
+  const lang = useSyncExternalStore(subscribeLang, getClientLang, getServerLang);
+  // Re-run the translation pass once the lazy dictionary chunk arrives.
+  const dictLoaded = useSyncExternalStore(subscribeDict, () => dictReady, () => false);
 
   // Apply translation when lang changes; observe DOM mutations while in EN.
-  useEffect(() => {
+  useIsoLayoutEffect(() => {
     if (typeof window === "undefined") return;
     document.documentElement.lang = lang;
 
-    // Stop any previous observer first.
+    // Stop any previous observers first.
     if (observer) {
       observer.disconnect();
       observer = null;
     }
+    if (titleObserver) {
+      titleObserver.disconnect();
+      titleObserver = null;
+    }
 
     if (lang === "en") {
       translateNode(document.body);
+      translateTitle();
+      const titleEl = document.querySelector("title");
+      if (titleEl) {
+        titleObserver = new MutationObserver(() => translateTitle());
+        titleObserver.observe(titleEl, { childList: true, characterData: true, subtree: true });
+      }
       observer = new MutationObserver((mutations) => {
         for (const m of mutations) {
           if (m.type === "childList") {
@@ -2932,8 +350,9 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
             if (next !== t.nodeValue) t.nodeValue = next;
             t.__t = next;
           } else if (m.type === "attributes" && m.attributeName) {
-            if (TRANSLATABLE_ATTRS.includes(m.attributeName)) {
-              translateNode(m.target);
+            if (TRANSLATABLE_ATTRS.includes(m.attributeName) && m.target.nodeType === Node.ELEMENT_NODE) {
+              const el = m.target as Element;
+              if (!el.closest(`[${SKIP_ATTR}]`)) translateAttrs(el);
             }
           }
         }
@@ -2947,6 +366,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       });
     } else {
       restoreNode(document.body);
+      restoreTitle();
     }
 
     return () => {
@@ -2954,25 +374,38 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
         observer.disconnect();
         observer = null;
       }
+      if (titleObserver) {
+        titleObserver.disconnect();
+        titleObserver = null;
+      }
     };
-  }, [lang]);
+  }, [lang, dictLoaded]);
 
-  const setLang = useCallback((l: Lang) => {
-    setLangState(l);
-    if (typeof window !== "undefined") {
-      localStorage.setItem(KEY, l);
-      // La unidad de área deriva del idioma en useUnit() (es→m², en→ft²), vía
-      // el contexto — ya no hay toggle manual ni evento que sincronizar.
-    }
-  }, []);
-  const toggle = useCallback(() => setLang(lang === "es" ? "en" : "es"), [lang, setLang]);
-  const t = useCallback((s: string) => (lang === "en" ? translateString(s) : s), [lang]);
+  const setLang = useCallback((l: Lang) => persistLang(l), []);
+  const toggle = useCallback(() => persistLang(lang === "es" ? "en" : "es"), [lang]);
+  const t = useCallback((s: string) => (lang === "en" ? translateString(s) : s), [lang, dictLoaded]);
 
   return <LangCtx.Provider value={{ lang, setLang, toggle, t }}>{children}</LangCtx.Provider>;
 }
 
+/** @internal exposed for tests only */
+export const __i18nInternals = { translateNode, restoreNode, readStoredLang, PROTECT };
+
 export function useLang() {
   return useContext(LangCtx);
+}
+
+/** Strings built in code (templates, aria-labels, toasts): pass both languages.
+ *
+ *  The app has one translation policy, applied per kind of text:
+ *   - static JSX copy: Spanish in source, English from PHRASES (DOM pass; enforced by
+ *     i18n.scan.test.ts, which fails on any untranslated literal);
+ *   - text assembled in code: useT()(es, en) — never concatenate dictionary fragments;
+ *   - names from the API: <Name> (never translated);
+ *   - API enum codes: lib/enumLabels.ts tables. */
+export function useT() {
+  const { lang } = useLang();
+  return useCallback((es: string, en: string) => (lang === "en" ? en : es), [lang]);
 }
 
 // ── Free on-device translation for free-text (listing descriptions) ──────────
@@ -3020,6 +453,12 @@ export function useAutoTranslate(text: string): string {
     return () => { alive = false; };
   }, [text, lang]);
   return out;
+}
+
+/** Proper names from the API (barrios, comunas, businesses, agents, buildings) must
+ *  never go through the phrase dictionary ("Casa Blanca" -> "House Blanca"). */
+export function Name({ children }: { children: ReactNode }) {
+  return <span data-i18n-skip>{children}</span>;
 }
 
 /** Inline free-text auto-translated (Chrome/Edge Translator API) when EN, else the
@@ -3075,6 +514,9 @@ export function LanguageToggle({ className = "" }: { className?: string }) {
           key={l}
           onClick={() => setLang(l)}
           title={l === "es" ? "Español (Colombia)" : "English (USA)"}
+          aria-label={l === "es" ? "Español" : "English"}
+          aria-pressed={lang === l}
+          data-testid={`lang-${l}`}
           className="rounded-full border transition"
           style={{
             border: `1.5px solid ${lang === l ? "rgba(29,158,117,0.8)" : "rgba(255,255,255,0.35)"}`,

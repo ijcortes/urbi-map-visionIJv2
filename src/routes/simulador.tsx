@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, redirect, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -28,7 +29,7 @@ import {
 } from "recharts";
 import { z } from "zod";
 import { MapNavbar } from "@/components/MapNavbar";
-import { formatCOP, formatPct } from "@/lib/format";
+import { formatCOP, formatPct, formatUSD } from "@/lib/format";
 import { auth } from "@/lib/auth";
 import { apiFetch } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
@@ -64,12 +65,7 @@ const searchSchema = z.object({
 });
 
 export const Route = createFileRoute("/simulador")({
-  head: () => ({
-    meta: [
-      { title: "Simulador de Inversión · Medellin Social" },
-      { name: "description", content: "Simula el retorno de tu inversión inmobiliaria en Medellín. Calcula yield real, flujo de caja y ROI a 20 años." },
-    ],
-  }),
+  head: () => seo({ title: "Simulador de inversión · Medellín Social", description: "Simula la rentabilidad de un inmueble en Medellín: renta corta, media y larga, con datos reales del barrio.", path: "/simulador" }),
   validateSearch: searchSchema,
   beforeLoad: () => {
     if (typeof window === "undefined") return;
@@ -165,7 +161,7 @@ function SimuladorPage() {
   const [cuotaInicial, setCuotaInicial] = useState(search.cuota_inicial ?? 30);
   const [tasaAnual, setTasaAnual] = useState(search.tasa ?? 13);
   const [plazoAnos, setPlazoAnos] = useState<10 | 15 | 20>((search.plazo as 10 | 15 | 20) ?? 15);
-  const usdRate = useTrm();
+  const { valor: usdRate } = useTrm();
 
   // Gastos
   const [showGastos, setShowGastos] = useState(false);
@@ -386,7 +382,7 @@ function SimuladorPage() {
                     {titleCase(listingData.barrio_nombre ?? "")}
                   </span>
                   {" · "}
-                  {formatCOP(listingData.precio)} COP
+                  {formatCOP(listingData.precio)}
                   {listingData.administracion ? ` · Admin: ${formatCOP(listingData.administracion)}/mes` : ""}
                 </span>
               ) : (
@@ -511,7 +507,7 @@ function SimuladorPage() {
                 />
                 <span className="text-xs text-[#5B5F5C]">M COP</span>
                 <span className="ml-auto text-xs text-[#5B5F5C]">
-                  ≈ ${((presupuesto * 1_000_000) / usdRate).toLocaleString("en-US", { maximumFractionDigits: 0 })} USD
+                  {usdRate ? `≈ ${formatUSD((presupuesto * 1_000_000) / usdRate, "en")}` : ""}
                 </span>
               </div>
               <input
@@ -1003,7 +999,7 @@ function ResultsPanel({
             if (typeof navigator !== "undefined" && navigator.share) {
               navigator.share({ title: "Simulación Medellin Social", url }).catch(() => {});
             } else if (typeof navigator !== "undefined") {
-              navigator.clipboard?.writeText(url);
+              void import("@/lib/clipboard").then((m) => m.copyText(url));
             }
           }}
           className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-border bg-background/40 py-2.5 text-xs font-semibold text-[#111418] transition hover:border-primary/40"
@@ -1280,7 +1276,7 @@ function AlternativasSection({
                 {titleCase(alt.tipo_inmueble ?? "Inmueble")} · {titleCase(alt.barrio_nombre)}
               </div>
               <div className="mt-0.5 text-xs text-[#5B5F5C]">
-                {formatCOP(alt.precio)} COP
+                {formatCOP(alt.precio)}
                 {alt.area_m2 != null && ` · ${alt.area_m2}m²`}
                 {alt.habitaciones != null && ` · ${alt.habitaciones} hab`}
               </div>

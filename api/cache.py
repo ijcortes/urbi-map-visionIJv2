@@ -116,14 +116,23 @@ ON CONFLICT (barrio_id) DO UPDATE SET
     refreshed_at      = EXCLUDED.refreshed_at
 """
 
-_REFRESH_STG_LISTINGS = """
+# Plausibility bounds for serving (DAT-01). Wide on purpose: they only drop rows
+# that are certainly wrong (typos, price in thousands, area in cm2, etc.).
+_PLAUSIBLE = {
+    "AREA_MIN": 8, "AREA_MAX": 20000, "AREA_MAX_LAND": 5000000,
+    "PPM2_VENTA_MIN": 300000, "PPM2_VENTA_MAX": 60000000,
+    "PPM2_ARRIENDO_MIN": 2000, "PPM2_ARRIENDO_MAX": 400000,
+    "STACK_MIN": 5,
+}
+
+_REFRESH_STG_LISTINGS_TMPL = """
 INSERT INTO staging.stg_listings_unificado
     (listing_uid, fuente, tier, tipo_operacion, tipo_inmueble,
      precio_cop, precio_usd, precio_min_cluster, precio_max_cluster, precio_variable,
      area_m2, precio_m2, habitaciones, banos, barrio_raw, barrio_id,
      direccion_raw, lat, lon, geom, url, fotos, fecha_scraping, n_duplicados, estrato_real,
-     amoblado, antiguedad, amenidades, administracion, nombre_edificio)
-WITH todas_fuentes AS (
+     amoblado, antiguedad, amenidades, administracion, nombre_edificio, geo_aproximada)
+WITH todas_fuentes_raw AS (
     SELECT id::text || '_mq'                       AS listing_uid,
            'metrocuadrado'                          AS fuente,
            'standard'                               AS tier,
@@ -162,7 +171,7 @@ WITH todas_fuentes AS (
              THEN (REGEXP_MATCH(descripcion, '(?i)edificio\\s+([^\\s,\\.!\\?;:\\(\\)]{3,25}(?:\\s+[^\\s,\\.!\\?;:\\(\\)]{3,25}){0,2})'))[1]
              ELSE NULL
            END), '') AS nombre_edificio
-    FROM raw.listings_fincaraiz WHERE activo = true AND url_activa IS NOT FALSE AND precio > 0 AND area_m2 > 0
+    FROM raw.listings_fincaraiz WHERE activo = true AND url_activa IS NOT FALSE AND duplicado_de IS NULL AND precio > 0 AND area_m2 > 0
     UNION ALL
     SELECT id::text || '_habi', 'habi', 'standard',
            tipo_operacion, tipo_inmueble,
@@ -207,7 +216,7 @@ WITH todas_fuentes AS (
            NULL::boolean,
            NULL::text AS antiguedad, amenidades, NULL::numeric AS administracion,
            NULL::text AS nombre_edificio
-    FROM raw.listings_premium WHERE precio_cop > 0 AND area_m2 > 0
+    FROM raw.listings_premium WHERE activo IS NOT FALSE AND precio_cop > 0 AND area_m2 > 0
     UNION ALL
     SELECT id::text || '_rm', fuente, 'renta_media', 'arriendo', 'apartamento', precio_mes_cop,
            NULL::bigint, area_m2, habitaciones, banos, barrio_raw, barrio_id, NULL::text,
@@ -218,7 +227,7 @@ WITH todas_fuentes AS (
            amoblado,
            NULL::text AS antiguedad, amenidades, NULL::numeric AS administracion,
            NULL::text AS nombre_edificio
-    FROM raw.listings_renta_media WHERE precio_mes_cop > 0
+    FROM raw.listings_renta_media WHERE activo IS NOT FALSE AND precio_mes_cop > 0
     UNION ALL
     -- Modelo unificado: publicaciones directas (owner/agente) en tabla listing.
     -- Entran al mapa en 'publicado' aunque verificado=false (publica primero).
@@ -253,22 +262,59 @@ WITH todas_fuentes AS (
     FROM listing l
     WHERE l.estado = 'publicado' AND l.precio > 0
 ),
+-- Normalisation + plausibility gate. Raw rows are never modified or deleted; rows
+-- outside these (deliberately wide) bounds are simply not served. Land types keep
+-- a huge area range and no price/m2 bound (value per m2 varies by orders of magnitude).
+todas_fuentes AS (
+    SELECT listing_uid, fuente, tier,
+           lower(trim(tipo_operacion)) AS tipo_operacion,
+           lower(trim(tipo_inmueble))  AS tipo_inmueble,
+           precio_cop, precio_usd, area_m2, habitaciones, banos, barrio_raw, barrio_id,
+           direccion_raw, lat, lon, geom, url, fotos, fecha_scraping, dedup_hash,
+           estrato_real, amoblado, antiguedad, amenidades, administracion, nombre_edificio
+    FROM todas_fuentes_raw
+    WHERE (fuente = 'propio' AND area_m2 = 0)          -- direct posts may omit the area
+       OR (
+           area_m2 >= {AREA_MIN}
+           AND area_m2 <= CASE WHEN lower(tipo_inmueble) ~ '^(lote|terreno|finca|bodega)'
+                               THEN {AREA_MAX_LAND} ELSE {AREA_MAX} END
+           AND (
+               lower(tipo_inmueble) ~ '^(lote|terreno|finca)'
+               OR (lower(tipo_operacion) LIKE 'venta%'
+                   AND precio_cop / area_m2 BETWEEN {PPM2_VENTA_MIN} AND {PPM2_VENTA_MAX})
+               OR (lower(tipo_operacion) LIKE 'arriendo%'
+                   AND precio_cop / area_m2 BETWEEN {PPM2_ARRIENDO_MIN} AND {PPM2_ARRIENDO_MAX})
+               OR (lower(tipo_operacion) NOT LIKE 'venta%' AND lower(tipo_operacion) NOT LIKE 'arriendo%')
+           )
+       )
+),
+-- Cross-portal duplicates: same physical attributes, within 40 m of each other and
+-- a price within ~5 % (log bucket). Replaces the fixed ~111 m grid, which merged
+-- different units of the same block and split true duplicates across cell edges.
+geo_cluster AS (
+    SELECT t.*,
+           FLOOR(LN(GREATEST(precio_cop, 1)::float8) / LN(1.05))::int AS precio_bucket,
+           ST_ClusterDBSCAN(ST_Transform(geom, 3857), eps := 40, minpoints := 1) OVER (
+               PARTITION BY tipo_operacion, tipo_inmueble, habitaciones,
+                            (ROUND(area_m2::numeric/5)*5),
+                            FLOOR(LN(GREATEST(precio_cop, 1)::float8) / LN(1.05))
+           ) AS geo_cid
+    FROM todas_fuentes t WHERE geom IS NOT NULL
+),
 con_geo AS (
     SELECT listing_uid, fuente, tier, tipo_operacion, tipo_inmueble, precio_cop, precio_usd,
            area_m2, habitaciones, banos, barrio_raw, barrio_id, direccion_raw, lat, lon, geom,
            url, fotos, fecha_scraping, estrato_real, amoblado, antiguedad, amenidades, administracion,
            nombre_edificio,
-           MIN(precio_cop) OVER (PARTITION BY ROUND(lat::numeric,3), ROUND(lon::numeric,3),
-               tipo_operacion, tipo_inmueble, habitaciones, (ROUND(area_m2::numeric/5)*5)) AS precio_min_cluster,
-           MAX(precio_cop) OVER (PARTITION BY ROUND(lat::numeric,3), ROUND(lon::numeric,3),
-               tipo_operacion, tipo_inmueble, habitaciones, (ROUND(area_m2::numeric/5)*5)) AS precio_max_cluster,
-           COUNT(*) OVER (PARTITION BY ROUND(lat::numeric,3), ROUND(lon::numeric,3),
-               tipo_operacion, tipo_inmueble, habitaciones, (ROUND(area_m2::numeric/5)*5)) AS n_duplicados,
-           ROW_NUMBER() OVER (PARTITION BY ROUND(lat::numeric,3), ROUND(lon::numeric,3),
-               tipo_operacion, tipo_inmueble, habitaciones, (ROUND(area_m2::numeric/5)*5)
+           MIN(precio_cop) OVER w AS precio_min_cluster,
+           MAX(precio_cop) OVER w AS precio_max_cluster,
+           COUNT(*)        OVER w AS n_duplicados,
+           ROW_NUMBER() OVER (w
                ORDER BY CASE tier WHEN 'agencia_premium' THEN 1 WHEN 'renta_media' THEN 2
                         WHEN 'standard' THEN 3 ELSE 4 END, fecha_scraping DESC NULLS LAST) AS _rn
-    FROM todas_fuentes WHERE geom IS NOT NULL
+    FROM geo_cluster
+    WINDOW w AS (PARTITION BY tipo_operacion, tipo_inmueble, habitaciones,
+                 (ROUND(area_m2::numeric/5)*5), precio_bucket, geo_cid)
 ),
 sin_geo AS (
     SELECT listing_uid, fuente, tier, tipo_operacion, tipo_inmueble, precio_cop, precio_usd,
@@ -287,7 +333,8 @@ sin_geo AS (
                ORDER BY CASE tier WHEN 'agencia_premium' THEN 1 WHEN 'renta_media' THEN 2
                         WHEN 'standard' THEN 3 ELSE 4 END, fecha_scraping DESC NULLS LAST) AS _rn
     FROM todas_fuentes WHERE geom IS NULL
-)
+),
+elegidos AS (
 SELECT listing_uid, fuente, tier, tipo_operacion, tipo_inmueble, precio_cop, precio_usd,
        precio_min_cluster, precio_max_cluster,
        CASE WHEN n_duplicados > 1 AND precio_min_cluster IS DISTINCT FROM precio_max_cluster
@@ -303,7 +350,34 @@ SELECT listing_uid, fuente, tier, tipo_operacion, tipo_inmueble, precio_cop, pre
        habitaciones, banos, barrio_raw, barrio_id, direccion_raw, lat, lon, geom,
        url, fotos, fecha_scraping, n_duplicados, estrato_real, amoblado, antiguedad, amenidades, administracion, nombre_edificio
 FROM sin_geo WHERE _rn = 1
+),
+-- Stacked coordinates (centroid geocoding: many listings on the exact same point).
+-- Spread them deterministically inside ~45 m so pins stop hiding each other and
+-- flag them as approximate; isolated points are left untouched.
+apilados AS (
+    SELECT e.*,
+           COUNT(*) OVER (PARTITION BY lat, lon) AS stack_n,
+           sqrt((abs(hashtext(listing_uid)) % 1000) / 1000.0) * 0.0004 AS jr,
+           2 * pi() * ((abs(hashtext(listing_uid || '#')) % 1000) / 1000.0) AS ja
+    FROM elegidos e
+)
+SELECT listing_uid, fuente, tier, tipo_operacion, tipo_inmueble, precio_cop, precio_usd,
+       precio_min_cluster, precio_max_cluster, precio_variable,
+       area_m2, precio_m2, habitaciones, banos, barrio_raw, barrio_id, direccion_raw,
+       CASE WHEN stack_n >= {STACK_MIN} THEN lat + jr * cos(ja) ELSE lat END AS lat,
+       CASE WHEN stack_n >= {STACK_MIN} THEN lon + jr * sin(ja) ELSE lon END AS lon,
+       CASE WHEN stack_n >= {STACK_MIN} AND lat IS NOT NULL
+            THEN ST_SetSRID(ST_MakePoint(lon + jr * sin(ja), lat + jr * cos(ja)), 4326)
+            ELSE geom END AS geom,
+       url, fotos, fecha_scraping, n_duplicados, estrato_real, amoblado, antiguedad, amenidades,
+       administracion, nombre_edificio,
+       (stack_n >= {STACK_MIN} AND lat IS NOT NULL) AS geo_aproximada
+FROM apilados
 """
+
+_REFRESH_STG_LISTINGS = _REFRESH_STG_LISTINGS_TMPL
+for _k, _v in _PLAUSIBLE.items():
+    _REFRESH_STG_LISTINGS = _REFRESH_STG_LISTINGS.replace("{" + _k + "}", str(_v))
 
 _INSERT_LISTINGS_GEOREF = """
 INSERT INTO analytics.listings_georef_new
@@ -341,7 +415,7 @@ LEFT JOIN LATERAL (
       AND ST_Contains(em.geometry, ST_SetSRID(ST_MakePoint(l.lon, l.lat), 4326))
     LIMIT 1
 ) em ON TRUE
-WHERE l.precio_cop >= 500000
+WHERE (l.precio_cop >= 500000 OR (l.tipo_operacion = 'arriendo' AND l.precio_cop >= 150000))
   AND NOT (l.tipo_operacion = 'arriendo' AND l.precio_cop > 50000000)
   AND NOT (l.tipo_operacion = 'venta'    AND l.precio_cop > 50000000000)
   AND l.lat IS NOT NULL AND l.lat != 0
@@ -352,6 +426,31 @@ WHERE l.precio_cop >= 500000
   )
 ORDER BY l.url
 """
+
+
+_NORMALIZE_STUDIO_SQL = """
+UPDATE {table}
+   SET tipo_inmueble = 'apartamento', habitaciones = 0
+ WHERE lower(tipo_inmueble) = 'apartaestudio'
+"""
+
+# Hot-path indexes of /listings and /listings/viewport. The staging table is rebuilt
+# (swap-table) every hour, so indexes created by alembic on the old table vanish —
+# they must be (re)created here, on the NEW table before the RENAME.
+_LISTING_FILTER_INDEXES = (
+    "CREATE INDEX ON {t} (tipo_operacion, lower(tipo_inmueble), precio_cop)",
+    "CREATE INDEX ON {t} (lat, lon)",
+)
+
+
+async def _create_listing_filter_indexes(conn: Any, table: str) -> None:
+    for tmpl in _LISTING_FILTER_INDEXES:
+        await conn.execute(tmpl.format(t=table))
+    # Trigram index for the `busqueda` ILIKE '%x%' address search — only when the
+    # extension is installed (alembic 0106 tries to create it; needs privileges).
+    has_trgm = await conn.fetchval("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname='pg_trgm')")
+    if has_trgm:
+        await conn.execute(f"CREATE INDEX ON {table} USING gin (direccion_raw gin_trgm_ops)")
 
 
 async def refresh_listings_cache(pool: Any) -> None:
@@ -388,6 +487,10 @@ async def refresh_listings_cache(pool: Any) -> None:
                     "ALTER TABLE staging.stg_listings_unificado "
                     "ADD COLUMN IF NOT EXISTS nombre_edificio TEXT"
                 )
+                await conn.execute(
+                    "ALTER TABLE staging.stg_listings_unificado "
+                    "ADD COLUMN IF NOT EXISTS geo_aproximada BOOLEAN DEFAULT FALSE"
+                )
                 # Swap-table (mismo patrón que listings_georef abajo). Antes: TRUNCATE+
                 # INSERT tomaba ACCESS EXCLUSIVE y dejaba /listings + /viewport sin
                 # responder durante TODO el rebuild (window fns + subquery espacial por
@@ -414,8 +517,11 @@ async def refresh_listings_cache(pool: Any) -> None:
                 # auto-nombra único: sin colisión ni bloat entre swaps). url para el
                 # JOIN de /viewport (g.url=l.url); barrio_id para el path de zona
                 # seleccionada (l.barrio_id = ANY($8)).
+                # apartaestudio ≡ apartamento con 0 habitaciones (un solo tipo en filtros).
+                await conn.execute(_NORMALIZE_STUDIO_SQL.format(table="staging.stg_listings_unificado_new"))
                 await conn.execute("CREATE INDEX ON staging.stg_listings_unificado_new (url)")
                 await conn.execute("CREATE INDEX ON staging.stg_listings_unificado_new (barrio_id)")
+                await _create_listing_filter_indexes(conn, "staging.stg_listings_unificado_new")
                 async with conn.transaction():
                     await conn.execute(
                         "ALTER TABLE staging.stg_listings_unificado RENAME TO stg_listings_unificado_old"
@@ -468,7 +574,7 @@ async def refresh_listings_cache(pool: Any) -> None:
             await send_email(
                 ADMIN_EMAIL,
                 "⚠️ Medellín Social — refresh_listings_cache falló",
-                f"<p>El refresh del cache de listings falló y el mapa puede estar desactualizado.</p><pre>{exc}</pre>",
+                f"<p>El refresh del cache de listings falló y el mapa puede estar desactualizado.</p><pre>{__import__('html').escape(str(exc))}</pre>",
             )
         except Exception:
             logger.error("[cache] no se pudo enviar alerta de fallo de cache", exc_info=True)
@@ -485,6 +591,11 @@ async def _cleanup_token_blacklist(pool: Any) -> None:
         logger.info("[cache] token_blacklist cleanup: %s", res)
     except Exception:
         logger.error("[cache] token_blacklist cleanup failed", exc_info=True)
+    try:
+        # throttle windows are <= 1h; keep a day for forensics
+        await pool.execute("DELETE FROM public.throttle_hits WHERE hit_at < NOW() - INTERVAL '1 day'")
+    except Exception:
+        logger.error("[cache] throttle_hits cleanup failed", exc_info=True)
 
 
 async def run_periodic_cache_refresh(pool: Any) -> None:

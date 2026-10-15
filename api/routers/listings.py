@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -11,13 +12,13 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
-from api.config import USD_TO_COP
 from api.db import get_pool
 from api.dependencies import get_current_user, get_optional_user, is_agente
-from api.limiter import limiter
+from api.limiter import _client_ip, limiter, view_throttle
 from api.services.asignador_service import asignar_intake
 from api.services.intake_service import get_or_create_owner
 from api.services.personalizacion import calcular_relevancia, get_match_label, PRESUPUESTO_MAX
+from api.services.trm_service import cop_from_moneda, get_usd_rate, usd_from_cop
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,75 @@ _INTAKE_TIPO = {
 
 router = APIRouter()
 
-_USD = USD_TO_COP
+# ── Segment / type normalisation ─────────────────────────────────────────────
+# `segmento` splits the flat tipo_inmueble list into residential vs commercial.
+# COMERCIAL is an explicit prefix list; RESIDENCIAL is its complement (so an
+# unknown/NULL type never silently disappears from residential searches).
+# ASSUMPTION: finca/lote/terreno are grouped with commercial (rural / land use).
+_COMERCIAL_PREFIXES = (
+    "local", "oficina", "bodega", "lote", "finca", "edificio", "consultorio",
+    "parqueadero", "galpon", "galpón", "hotel", "terreno", "predio", "industrial",
+)
+_COMERCIAL_RE = "^(" + "|".join(_COMERCIAL_PREFIXES) + ")"
+SEGMENTOS = ("residencial", "comercial", "todos")
+_RENT_SALE = ("arriendo", "venta")
+
+
+def _norm_tipo(t: Optional[str]) -> Optional[str]:
+    """Lower-case + apartaestudio -> apartamento (studios are apartments with 0 rooms)."""
+    if t is None:
+        return None
+    t = t.strip().lower()
+    return "apartamento" if t == "apartaestudio" else t
+
+
+def _norm_tipos(tipos: Optional[list[str]]) -> Optional[list[str]]:
+    out: list[str] = []
+    for t in tipos or []:
+        n = _norm_tipo(t)
+        if n and n not in out:
+            out.append(n)
+    return out or None
+
+
+def _effective_segmento(segmento: Optional[str], tipo_operacion: Optional[str],
+                        tipo_inmueble: Optional[list[str]]) -> Optional[str]:
+    """None = no segment filter. Default 'residencial' for rent/sale searches
+    unless the caller picked explicit property types or asked for 'todos'."""
+    if segmento == "todos":
+        return None
+    if segmento in ("residencial", "comercial"):
+        return segmento
+    if tipo_operacion in _RENT_SALE and not tipo_inmueble:
+        return "residencial"
+    return None
+
+
+def _finalize_row(d: dict, rate: float) -> dict:
+    """Query-time normalisation shared by every listings endpoint:
+    * precio_usd from the ONE shared TRM rate (rounded, not truncated);
+    * apartaestudio -> apartamento with habitaciones 0;
+    * url is the external source link; null for our own (fuente='propio')
+      listings, whose staging `url` is just the internal listing id;
+    * fav_key keeps that raw key so favorites work for every listing."""
+    if d.get("precio_cop") is not None:
+        d["precio_usd"] = usd_from_cop(d["precio_cop"], rate)
+    if (d.get("tipo_inmueble") or "").strip().lower() == "apartaestudio":
+        d["tipo_inmueble"] = "apartamento"
+        d["habitaciones"] = 0
+    # Stable favorites key (raw.favoritos_listings.url): the ORIGINAL staging url, which for
+    # our own listings is the internal listing id. Kept apart from `url` (external link).
+    d["fav_key"] = d.get("url") or None
+    if d.get("link_status") in _LINK_HIDDEN:     # dead/under-review portal link: never expose it
+        d["url"] = None
+    if d.get("fuente") == "propio":
+        d["url"] = None
+    elif not d.get("url"):
+        d["url"] = None
+    return d
+
+
+_FEATURED_TIERS_SQL = "'agente_premium', 'agencia_premium'"
 
 _AMENIDADES_VARIANTS: dict[str, list[str]] = {
     "piscina":                ["Piscina"],
@@ -53,7 +122,7 @@ _AMENIDADES_VARIANTS: dict[str, list[str]] = {
 }
 
 
-def _build_amenidades_sql(keys: list[str], base: int = 15) -> tuple[str, list]:
+def _build_amenidades_sql(keys: list[str], base: int = 17) -> tuple[str, list]:
     """Returns (WHERE clauses string, extra positional args). Each key adds one AND EXISTS pair."""
     clauses: list[str] = []
     extra: list = []
@@ -92,6 +161,7 @@ class ListingFull(BaseModel):
     banos: Optional[float] = None
     direccion_raw: Optional[str] = None
     url: Optional[str] = None
+    fav_key: Optional[str] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
     barrio_id: Optional[int] = None
@@ -107,6 +177,7 @@ class ListingFull(BaseModel):
     dias_en_mercado: Optional[int] = None
     fecha_publicacion: Optional[str] = None
     disponible_actualmente: Optional[bool] = None
+    link_status: str = "unknown"   # unknown|ok|redirected|pending_review|gone|error; `url` is null unless ok/unknown/redirected
     fecha_ultima_verificacion: Optional[datetime] = None
     estrato_real: Optional[int] = None
     uso_suelo_pot: Optional[str] = None
@@ -187,6 +258,28 @@ class ListingsAllResponse(BaseModel):
 # analytics.barrios_contexto  replaces: bctx CTE (6 analytics table JOINs)
 # analytics.barrios_cd        replaces: barrio_cd CTE (catastro JOIN)
 # analytics.listings_georef   replaces: 3 LEFT JOINs (lm/lf/lp) + COALESCE lat/lon filter
+
+# ── Link health (migration 0108) ─────────────────────────────────────────────
+# A listing is excluded from /listings and /listings/viewport only once a HUMAN retired it
+# (listing_link_health.url_status = 'gone'). 'pending_review' listings stay visible with the
+# original link hidden. Applies to every tier (premium / renta_media have no `activo` column).
+# `incluir_inactivos=true` (admin only) swaps the predicate for TRUE via _lk().
+_LINK_ALIVE_STG = ("NOT EXISTS (SELECT 1 FROM public.listing_link_health _h "
+                   "WHERE _h.url = staging.stg_listings_unificado.url AND _h.url_status = 'gone')")
+_LINK_ALIVE_L = ("NOT EXISTS (SELECT 1 FROM public.listing_link_health _h "
+                 "WHERE _h.url = l.url AND _h.url_status = 'gone')")
+_LINK_HIDDEN = ("gone", "pending_review", "error")
+
+
+def _lk(sql: str, incluir_inactivos: bool) -> str:
+    """Admin override: drop the retired-listing exclusion."""
+    return sql.replace(_LINK_ALIVE_STG, "TRUE").replace(_LINK_ALIVE_L, "TRUE") if incluir_inactivos else sql
+
+
+def _is_admin(user: Optional[dict]) -> bool:
+    adm = os.getenv("ADMIN_EMAIL")
+    return bool(user and adm and user.get("email") == adm)
+
 _LISTINGS_SQL_TMPL = """
 WITH lraw AS (
     SELECT ('x'||substr(md5(url),1,8))::bit(32)::int AS id,
@@ -207,8 +300,10 @@ WITH lraw AS (
            COALESCE(verificado, FALSE) AS verificado,
            nombre_edificio
     FROM staging.stg_listings_unificado
-    WHERE precio_cop >= 500000
+    WHERE (precio_cop >= 500000 OR (tipo_operacion = 'arriendo' AND precio_cop >= 150000))
       AND lat IS NOT NULL AND lat != 0 AND lon IS NOT NULL AND lon != 0
+      AND url IS NOT NULL  -- id is md5(url): a NULL url yields id NULL and a 500 on the whole response
+      AND __LINK_ALIVE__
       AND NOT (tipo_operacion = 'arriendo' AND precio_cop > 50000000)
       AND NOT (tipo_operacion = 'venta'    AND precio_cop > 50000000000)
 )
@@ -226,7 +321,7 @@ SELECT
     l.tipo_operacion,
     l.tipo_inmueble,
     l.precio::bigint            AS precio_cop,
-    (l.precio / {usd})::bigint  AS precio_usd,
+    NULL::bigint                AS precio_usd,  -- filled in Python from the shared TRM
     l.area_m2::float8,
     l.pm2                       AS precio_m2,
     l.habitaciones,
@@ -267,6 +362,7 @@ SELECT
     END AS pct_bajo_mediana,
     m.m2_mediana::int             AS precio_m2_mediana_barrio,
     g.url_activa                  AS disponible_actualmente,
+    CASE WHEN _llh.url_status IS NULL OR _llh.url_status = 'blocked' THEN 'unknown' ELSE _llh.url_status END AS link_status,
     (CURRENT_DATE - _lm.fecha_primera_vez::date)::int
                                   AS dias_en_mercado,
     NULL::timestamp               AS fecha_ultima_verificacion,
@@ -293,6 +389,7 @@ SELECT
 FROM lraw l
 LEFT JOIN raw.barrios b                ON b.id = l.barrio_id
 LEFT JOIN analytics.listings_georef g  ON g.url = l.url
+LEFT JOIN public.listing_link_health _llh ON _llh.url = l.url
 LEFT JOIN raw.listing_media_mirror mm ON mm.url = l.url AND mm.activa
 LEFT JOIN analytics.barrios_medianas m ON m.barrio_id = l.barrio_id
                AND m.tipo_inmueble IS NOT DISTINCT FROM l.tipo_inmueble
@@ -331,7 +428,11 @@ WHERE ($1::text    IS NULL OR UPPER(b.municipio) = UPPER($1))
         AND _lmc.raw_data::text LIKE '%tiempoConstruido:' || $14 || '%'
   ))
   AND ($15::boolean IS NULL OR l.amoblado = $15)
-  {{amenidades_filter}}
+  AND ($16::text   IS NULL OR ($16 = 'comercial') = (lower(coalesce(l.tipo_inmueble, '')) ~ '__COMERCIAL_RE__'))
+  AND ($17::boolean IS NOT TRUE OR NOT COALESCE(
+        l.tier IN ('agente_premium', 'agencia_premium')
+        OR (l.fuente = 'propio' AND _lp_owner.owner_plan IN ('pro', 'agente')), FALSE))
+  {amenidades_filter}
 ORDER BY
     CASE WHEN $9::boolean IS TRUE THEN 0
          WHEN l.barrio_id = ANY(COALESCE($2, ARRAY[]::int[])) THEN 1
@@ -346,7 +447,8 @@ ORDER BY
     -- Orden por PRECIO TOTAL, no precio/m²: un lote enorme (768k/m² pero 40B
     -- totales) no debe aparecer entre los "más baratos".
     l.precio ASC NULLS LAST
-""".format(usd=int(_USD))
+""".replace("__COMERCIAL_RE__", _COMERCIAL_RE)
+_LISTINGS_SQL_TMPL = _LISTINGS_SQL_TMPL.replace("__LINK_ALIVE__", _LINK_ALIVE_STG)
 _LISTINGS_SQL = _LISTINGS_SQL_TMPL.format(amenidades_filter="")
 
 # ── Fast path "toda la ciudad" ────────────────────────────────────────────────
@@ -372,6 +474,7 @@ _ALLCITY_CTE_REPLACEMENT = """      AND NOT (tipo_operacion = 'venta'    AND pre
       AND ($8::int     IS NULL OR (CASE WHEN $8 >= 4 THEN NULLIF(habitaciones, -1) >= $8 ELSE NULLIF(habitaciones, -1) = $8 END))
       AND ($11::float8 IS NULL OR (CASE WHEN $11 >= 4 THEN banos >= $11 ELSE banos = $11 END))
       AND ($15::boolean IS NULL OR amoblado = $15)
+      AND ($16::text   IS NULL OR ($16 = 'comercial') = (lower(coalesce(tipo_inmueble, '')) ~ '__COMERCIAL_RE__'))
     ORDER BY CASE WHEN tier IN ('agente_premium', 'agencia_premium') OR fuente = 'propio' THEN 0 ELSE 1 END,
              CASE WHEN fuente = 'medellinliving' THEN 0 ELSE 1 END,
              precio_cop ASC NULLS LAST
@@ -379,7 +482,8 @@ _ALLCITY_CTE_REPLACEMENT = """      AND NOT (tipo_operacion = 'venta'    AND pre
 )"""
 assert _ALLCITY_CTE_CLOSE in _LISTINGS_SQL_TMPL, "CTE close string drifted — revisar _LISTINGS_SQL_TMPL"
 _LISTINGS_ALLCITY_SQL = _LISTINGS_SQL_TMPL.replace(
-    _ALLCITY_CTE_CLOSE, _ALLCITY_CTE_REPLACEMENT, 1
+    _ALLCITY_CTE_CLOSE,
+    _ALLCITY_CTE_REPLACEMENT.replace("__COMERCIAL_RE__", _COMERCIAL_RE), 1
 ).format(amenidades_filter="")
 
 _COUNT_SQL_TMPL = """
@@ -387,10 +491,12 @@ WITH lraw AS (
     SELECT fuente, tipo_operacion, tipo_inmueble,
            precio_cop AS precio, area_m2,
            NULLIF(habitaciones, -1) AS habitaciones,
-           banos, barrio_id, url, amoblado
+           banos, barrio_id, url, amoblado, tier
     FROM staging.stg_listings_unificado
-    WHERE precio_cop >= 500000
+    WHERE (precio_cop >= 500000 OR (tipo_operacion = 'arriendo' AND precio_cop >= 150000))
       AND lat IS NOT NULL AND lat != 0 AND lon IS NOT NULL AND lon != 0
+      AND url IS NOT NULL  -- id is md5(url): a NULL url yields id NULL and a 500 on the whole response
+      AND __LINK_ALIVE__
       AND NOT (tipo_operacion = 'arriendo' AND precio_cop > 50000000)
       AND NOT (tipo_operacion = 'venta'    AND precio_cop > 50000000000)
 )
@@ -399,6 +505,12 @@ FROM lraw l
 LEFT JOIN raw.barrios b               ON b.id = l.barrio_id
 LEFT JOIN analytics.listings_georef g ON g.url = l.url
 LEFT JOIN analytics.barrios_cd bc ON bc.barrio_id = l.barrio_id
+LEFT JOIN (
+    SELECT lo.id::text AS lp_url, u.plan AS owner_plan
+    FROM public.listing lo
+    JOIN public.owner o ON o.id = lo.owner_id
+    JOIN public.usuarios u ON u.id = o.usuario_id
+) _lp_owner ON _lp_owner.lp_url = l.url AND l.fuente = 'propio'
 WHERE ($1::text   IS NULL OR UPPER(b.municipio) = UPPER($1))
   AND ($2::int[]  IS NULL OR l.barrio_id = ANY($2))
   AND ($3::text   IS NULL OR l.tipo_operacion = $3)
@@ -420,8 +532,13 @@ WHERE ($1::text   IS NULL OR UPPER(b.municipio) = UPPER($1))
         AND _lmc.raw_data::text LIKE '%tiempoConstruido:' || $14 || '%'
   ))
   AND ($15::boolean IS NULL OR l.amoblado = $15)
+  AND ($16::text   IS NULL OR ($16 = 'comercial') = (lower(coalesce(l.tipo_inmueble, '')) ~ '__COMERCIAL_RE__'))
+  AND ($17::boolean IS NOT TRUE OR NOT COALESCE(
+        l.tier IN ('agente_premium', 'agencia_premium')
+        OR (l.fuente = 'propio' AND _lp_owner.owner_plan IN ('pro', 'agente')), FALSE))
   {amenidades_filter}
-"""
+""".replace("__COMERCIAL_RE__", _COMERCIAL_RE)
+_COUNT_SQL_TMPL = _COUNT_SQL_TMPL.replace("__LINK_ALIVE__", _LINK_ALIVE_STG)
 _COUNT_SQL = _COUNT_SQL_TMPL.format(amenidades_filter="")
 
 _BARRIO_CTX_KEYS = (
@@ -473,7 +590,7 @@ _NEARBY_BARRIOS_SQL = """
 _LISTINGS_COUNT_BY_IDS = """
     SELECT COUNT(*)::bigint
     FROM staging.stg_listings_unificado l
-    WHERE l.precio_cop >= 500000
+    WHERE (l.precio_cop >= 500000 OR (l.tipo_operacion = 'arriendo' AND l.precio_cop >= 150000))
       AND NOT (l.tipo_operacion = 'arriendo' AND l.precio_cop > 50000000)
       AND NOT (l.tipo_operacion = 'venta'    AND l.precio_cop > 50000000000)
       AND l.barrio_id = ANY($1::int[])
@@ -596,6 +713,10 @@ async def get_all_listings(
     antiguedad: Optional[str] = Query(default=None),
     amoblado: Optional[bool] = Query(default=None),
     amenidades: Optional[list[str]] = Query(default=None),
+    segmento: Optional[str] = Query(default=None, pattern="^(residencial|comercial|todos)$"),
+    ocultar_destacados: bool = Query(default=False),
+    incluir_inactivos: bool = Query(default=False, description="admin only: include listings retired for a dead link"),
+    moneda: str = Query(default="COP", pattern="^(COP|USD)$"),
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     current_user: Optional[dict] = Depends(get_optional_user),
@@ -604,6 +725,9 @@ async def get_all_listings(
         raise HTTPException(status_code=422, detail="estrato_real must be 1–6")
 
     pool = get_pool()
+    rate = await get_usd_rate()
+    precio_min = cop_from_moneda(precio_min, moneda, rate)
+    precio_max = cop_from_moneda(precio_max, moneda, rate)
 
     # Neighbor expansion when barrio_id is given
     barrio_ids: Optional[list[int]] = None
@@ -632,14 +756,17 @@ async def get_all_listings(
             pass
 
     am_clauses, am_extra = _build_amenidades_sql(amenidades or [])
-    _eff_count_sql    = _COUNT_SQL_TMPL.format(amenidades_filter=am_clauses)
-    _eff_listings_sql = _LISTINGS_SQL_TMPL.format(amenidades_filter=am_clauses)
-    tipo_inmueble_arg = tipo_inmueble if tipo_inmueble else None
+    _inc = incluir_inactivos and _is_admin(current_user)
+    _eff_count_sql    = _lk(_COUNT_SQL_TMPL.format(amenidades_filter=am_clauses), _inc)
+    _eff_listings_sql = _lk(_LISTINGS_SQL_TMPL.format(amenidades_filter=am_clauses), _inc)
+    tipo_inmueble_arg = _norm_tipos(tipo_inmueble)
 
     def _args(tipo_op: Optional[str]) -> tuple:
+        seg = _effective_segmento(segmento, tipo_op or tipo_operacion, tipo_inmueble_arg)
         return (municipio, barrio_ids, tipo_op, tipo_inmueble_arg,
                 precio_min, precio_max, area_min, habitaciones, only_premium,
-                area_max, banos, cd_comuna, estrato_real, antiguedad, amoblado) + tuple(am_extra)
+                area_max, banos, cd_comuna, estrato_real, antiguedad, amoblado,
+                seg, ocultar_destacados) + tuple(am_extra)
 
     # Unified venta+arriendo path: 2 parallel fetches → balanced results, 1 HTTP round-trip.
     # Only applies when: no tipo_operacion filter, barrio selected, no premium, no personalization, page 0.
@@ -668,8 +795,9 @@ async def get_all_listings(
             municipio is None and barrio_ids is None and cd_comuna is None
             and estrato_real is None and antiguedad is None and not amenidades
             and not only_premium and not perfil_dict and fetch_offset == 0
+            and not ocultar_destacados
         )
-        listings_sql = _LISTINGS_ALLCITY_SQL if allcity_fast else _eff_listings_sql
+        listings_sql = _lk(_LISTINGS_ALLCITY_SQL, _inc) if allcity_fast else _eff_listings_sql
         total, rows = await asyncio.gather(
             pool.fetchval(_eff_count_sql, *args),
             pool.fetch(listings_sql + f" LIMIT {fetch_limit} OFFSET {fetch_offset}", *args),
@@ -684,6 +812,7 @@ async def get_all_listings(
         # (comportamiento idéntico al actual para usuarios públicos).
         barrio_ctx = {k: row_d.get(k) for k in _BARRIO_CTX_KEYS} if perfil_dict else None
         _gate_market_fields(row_d, _is_agente)
+        _finalize_row(row_d, rate)
         if perfil_dict:
             score, razones = calcular_relevancia(row_d, barrio_ctx, perfil_dict)
 
@@ -769,7 +898,7 @@ SELECT
     l.tipo_operacion,
     l.tipo_inmueble,
     l.precio_cop::bigint,
-    (l.precio_cop / {usd})::bigint AS precio_usd,
+    NULL::bigint AS precio_usd,  -- filled in Python from the shared TRM
     l.area_m2::float8,
     l.pm2 AS precio_m2,
     l.habitaciones,
@@ -779,6 +908,7 @@ SELECT
     g.lat,
     g.lon,
     g.url_activa AS disponible_actualmente,
+    CASE WHEN _llh.url_status IS NULL OR _llh.url_status = 'blocked' THEN 'unknown' ELSE _llh.url_status END AS link_status,
     g.estrato_real,
     g.uso_suelo_pot,
     g.estrato_manzana,
@@ -858,6 +988,7 @@ SELECT
 FROM listing l
 JOIN raw.barrios b ON b.id = l.barrio_id
 JOIN analytics.listings_georef g ON g.url = l.url
+LEFT JOIN public.listing_link_health _llh ON _llh.url = l.url
 LEFT JOIN analytics.barrios_medianas m
     ON m.barrio_id = l.barrio_id
     AND m.tipo_inmueble IS NOT DISTINCT FROM l.tipo_inmueble
@@ -898,7 +1029,7 @@ LEFT JOIN (
 ) _lp_owner ON _lp_owner.lp_url = l.url AND l.fuente = 'propio'
 CROSS JOIN p_range pr
 LIMIT 1
-""".format(usd=int(_USD))
+"""
 
 
 _PRECIO_HISTORIA_SQL = """
@@ -941,20 +1072,36 @@ class ViewportListing(BaseModel):
     barrio_nombre: Optional[str] = None
     municipio: Optional[str] = None
     url: Optional[str] = None
+    link_status: str = "unknown"
+    fav_key: Optional[str] = None
     direccion_raw: Optional[str] = None
 
 
 class ViewportResponse(BaseModel):
     mode: str          # "clusters" | "points"
     zoom: int
+    thinned: bool = False   # True when points are grid-thinned (zoom < _VIEWPORT_FULL_POINTS_ZOOM)
     clusters: list[ViewportCluster] = []
     listings: list[ViewportListing] = []
 
 
-# Below this zoom we aggregate into a lat/lon grid; at/above it we return points.
-_VIEWPORT_CLUSTER_MAX_ZOOM = 13
+# Below this zoom we aggregate into comuna/municipio bubbles; at/above it we return
+# real points (lowered 13 -> 10 so pins show when zoomed out; the map's min zoom is ~11).
+_VIEWPORT_CLUSTER_MAX_ZOOM = 10
+# From this zoom up we return every point (up to the cap); between CLUSTER_MAX and
+# this value the points are grid-thinned (one per screen cell) to keep payload small.
+_VIEWPORT_FULL_POINTS_ZOOM = 13
 # Safety cap on individual points returned for one viewport.
 _VIEWPORT_POINTS_CAP = 3000
+# Cap on grid-thinned points (zoomed-out view).
+_VIEWPORT_THIN_CAP = 1500
+# Approx. screen size of one pin cell, in px, used to size the thinning grid.
+_VIEWPORT_THIN_CELL_PX = 28
+
+
+def _thin_cell_deg(zoom: int) -> float:
+    """Degrees covered by ~_VIEWPORT_THIN_CELL_PX pixels at `zoom` (512px world tiles)."""
+    return 360.0 * _VIEWPORT_THIN_CELL_PX / (512.0 * (2 ** zoom))
 # Cap on the panel list returned alongside clusters at low zoom (CAMBIO 4A).
 _VIEWPORT_PANEL_CAP = 200
 
@@ -965,8 +1112,9 @@ _VIEWPORT_PANEL_CAP = 200
 # $16 estrato int[], $17 tipo_inmueble text[] (substring, OR), $18 dias_mercado bucket,
 # $19 busqueda (ILIKE direccion), $20 amenidades ILIKE patterns text[] (OR match,
 # strict on NULL), $21 estado_inmueble ("Nuevo"|"Usado", metrocuadrado only),
-# $22 piso_min (>=, metrocuadrado only). Clusters group by comuna/municipio —
-# no extra param needed.
+# $22 piso_min (>=, metrocuadrado only), $23 segmento ('residencial'|'comercial'|NULL),
+# $24 ocultar_destacados. The thinned-points SQL adds $25 = grid cell size (deg).
+# Clusters group by comuna/municipio — no extra param needed.
 
 # dias_en_mercado only exists for metrocuadrado listings (fecha_primera_vez).
 # Dedupe on url first (url is not unique in the raw table) so the LEFT JOIN can't
@@ -975,6 +1123,20 @@ _VIEWPORT_DM_JOIN = (
     "LEFT JOIN (SELECT url, MIN(fecha_primera_vez) AS fecha_primera_vez\n"
     "           FROM raw.listings_metrocuadrado GROUP BY url) _dm\n"
     "       ON _dm.url = l.url AND l.fuente = 'metrocuadrado'"
+)
+
+# ONE definition of "featured" (hidden by ocultar_destacados) for clusters, points and
+# panel list: a premium tier, or an own listing whose owner is on a pro/agente plan.
+# Needs alias `l` for the listing and `_lp` for _VIEWPORT_OWNER_JOIN.
+_VIEWPORT_OWNER_JOIN = """LEFT JOIN (
+    SELECT lo.id::text AS lp_url, u.plan AS owner_plan
+    FROM public.listing lo
+    JOIN public.owner o ON o.id = lo.owner_id
+    JOIN public.usuarios u ON u.id = o.usuario_id
+) _lp ON _lp.lp_url = l.url AND l.fuente = 'propio'"""
+_VIEWPORT_FEATURED_PRED = (
+    "(l.tier IN ('agente_premium', 'agencia_premium') "
+    "OR (l.fuente = 'propio' AND _lp.owner_plan IN ('pro','agente')))"
 )
 
 # Shared $12-$19 filter block. NULLIF(habitaciones,-1) normalises the sentinel.
@@ -986,7 +1148,7 @@ _VIEWPORT_EXTRA_WHERE = """\
   AND ($15::float8 IS NULL OR l.area_m2 <= $15)
   AND ($16::int[]  IS NULL OR g.estrato_real = ANY($16))
   AND ($17::text[] IS NULL OR EXISTS (
-        SELECT 1 FROM unnest($17::text[]) _ti WHERE l.tipo_inmueble ILIKE '%' || _ti || '%'))
+        SELECT 1 FROM unnest($17::text[]) _ti WHERE lower(l.tipo_inmueble) LIKE _ti || '%'))
   AND ($18::text   IS NULL OR CASE $18
         WHEN 'nuevo'    THEN COALESCE((CURRENT_DATE - _dm.fecha_primera_vez::date), 999) < 7
         WHEN 'reciente' THEN COALESCE((CURRENT_DATE - _dm.fecha_primera_vez::date), 999) < 30
@@ -1004,7 +1166,9 @@ _VIEWPORT_EXTRA_WHERE = """\
         SELECT 1 FROM raw.listings_metrocuadrado _pi
         WHERE _pi.url = l.url AND _pi.raw_data->>'nroPiso' ~ '^\d+$'
           AND (_pi.raw_data->>'nroPiso')::int >= $22))
-"""
+  AND ($23::text   IS NULL OR ($23 = 'comercial') = (lower(coalesce(l.tipo_inmueble, '')) ~ '__COMERCIAL_RE__'))
+  AND ($24::boolean IS NOT TRUE OR NOT COALESCE((__FEATURED__), FALSE))
+""".replace("__COMERCIAL_RE__", _COMERCIAL_RE)
 
 # UI amenity key → substring patterns matched (ILIKE, OR) against the source
 # amenidades labels. Stems avoid accent/variant mismatches across fuentes
@@ -1062,9 +1226,11 @@ WITH per_barrio AS (
     JOIN raw.barrios b                ON b.id = l.barrio_id
     LEFT JOIN analytics.barrios_cd bc ON bc.barrio_id = l.barrio_id
     {dm_join}
-    WHERE l.precio_cop >= 500000
+    {owner_join}
+    WHERE (l.precio_cop >= 500000 OR (l.tipo_operacion = 'arriendo' AND l.precio_cop >= 150000))
       AND NOT (l.tipo_operacion = 'arriendo' AND l.precio_cop > 50000000)
       AND NOT (l.tipo_operacion = 'venta'    AND l.precio_cop > 50000000000)
+      AND {link_alive}
       AND ($1::float8 IS NULL OR g.lon >= $1)
       AND ($2::float8 IS NULL OR g.lat >= $2)
       AND ($3::float8 IS NULL OR g.lon <= $3)
@@ -1086,9 +1252,12 @@ SELECT
     ROUND(SUM(sum_precio)::numeric / SUM(n))::bigint  AS precio_promedio
 FROM per_barrio
 GROUP BY grp
-""".format(dm_join=_VIEWPORT_DM_JOIN, extra_where=_VIEWPORT_EXTRA_WHERE)
+""".format(dm_join=_VIEWPORT_DM_JOIN, owner_join=_VIEWPORT_OWNER_JOIN, link_alive=_LINK_ALIVE_L,
+           extra_where=_VIEWPORT_EXTRA_WHERE.replace("__FEATURED__", _VIEWPORT_FEATURED_PRED))
 
-_VIEWPORT_POINTS_SQL = """
+# Points: shared body (no ORDER BY) so the normal and the grid-thinned variants
+# select exactly the same columns/filters.
+_VIEWPORT_POINTS_BODY = """
 WITH lraw AS (
     SELECT ('x'||substr(md5(url),1,8))::bit(32)::int AS id,
            fuente, tier, tipo_operacion, tipo_inmueble,
@@ -1096,8 +1265,10 @@ WITH lraw AS (
            banos, direccion_raw, barrio_id, url, fecha_scraping, amoblado, amenidades, fotos[1] AS foto_principal,
            lat, lon
     FROM staging.stg_listings_unificado
-    WHERE precio_cop >= 500000
+    WHERE (precio_cop >= 500000 OR (tipo_operacion = 'arriendo' AND precio_cop >= 150000))
       AND lat IS NOT NULL AND lat != 0 AND lon IS NOT NULL AND lon != 0
+      AND url IS NOT NULL  -- id is md5(url): a NULL url yields id NULL and a 500 on the whole response
+      AND __LINK_ALIVE__
       AND NOT (tipo_operacion = 'arriendo' AND precio_cop > 50000000)
       AND NOT (tipo_operacion = 'venta'    AND precio_cop > 50000000000)
 )
@@ -1110,25 +1281,25 @@ SELECT
         ELSE l.fuente
     END                          AS fuente_display,
     l.tier, l.tipo_operacion, l.tipo_inmueble,
+    -- featured first; listings without any photo last (they stay listed, but a
+    -- capped / thinned map fills with pins that have something to show first)
+    CASE WHEN {featured} THEN 0 WHEN l.foto_principal IS NULL THEN 2 ELSE 1 END AS _prio,
     l.precio::bigint             AS precio_cop,
-    (l.precio / {usd})::bigint   AS precio_usd,
+    NULL::bigint                 AS precio_usd,  -- filled in Python from the shared TRM
     l.area_m2::float8, round(l.precio_m2)::bigint AS precio_m2, l.habitaciones, l.banos::float8,
     l.direccion_raw, l.url, l.foto_principal,
+    CASE WHEN _llh.url_status IS NULL OR _llh.url_status = 'blocked' THEN 'unknown' ELSE _llh.url_status END AS link_status,
     l.lat, l.lon, l.barrio_id,
     b.nombre                     AS barrio_nombre,
     b.municipio                  AS municipio,
     g.estrato_real
 FROM lraw l
 LEFT JOIN analytics.listings_georef g  ON g.url = l.url
+LEFT JOIN public.listing_link_health _llh ON _llh.url = l.url
 LEFT JOIN raw.barrios b                ON b.id = l.barrio_id
 LEFT JOIN analytics.barrios_cd bc ON bc.barrio_id = l.barrio_id
 {dm_join}
-LEFT JOIN (
-    SELECT lo.id::text AS lp_url, u.plan AS owner_plan
-    FROM public.listing lo
-    JOIN public.owner o ON o.id = lo.owner_id
-    JOIN public.usuarios u ON u.id = o.usuario_id
-) _lp ON _lp.lp_url = l.url AND l.fuente = 'propio'
+{owner_join}
 WHERE ($1::float8 IS NULL OR l.lon >= $1)
   AND ($2::float8 IS NULL OR l.lat >= $2)
   AND ($3::float8 IS NULL OR l.lon <= $3)
@@ -1141,11 +1312,16 @@ WHERE ($1::float8 IS NULL OR l.lon >= $1)
   AND ($10::text  IS NULL OR UPPER(b.municipio) = UPPER($10))
   AND ($11::boolean IS NULL OR l.amoblado = $11)
 {extra_where}
+""".format(dm_join=_VIEWPORT_DM_JOIN, owner_join=_VIEWPORT_OWNER_JOIN, featured=_VIEWPORT_FEATURED_PRED,
+           extra_where=_VIEWPORT_EXTRA_WHERE.replace("__FEATURED__", _VIEWPORT_FEATURED_PRED))
+
+_VIEWPORT_POINTS_BODY = _VIEWPORT_POINTS_BODY.replace("__LINK_ALIVE__", _LINK_ALIVE_STG)
+
+_VIEWPORT_POINTS_SQL = _VIEWPORT_POINTS_BODY + """
 ORDER BY
-    CASE WHEN l.tier IN ('agente_premium', 'agencia_premium')
-              OR (l.fuente = 'propio' AND _lp.owner_plan IN ('pro','agente'))
-         THEN 0 ELSE 1 END,
+    CASE WHEN """ + _VIEWPORT_FEATURED_PRED + """ THEN 0 ELSE 1 END,
     CASE WHEN l.fuente = 'casadolcecasa' THEN 0 ELSE 1 END,
+    CASE WHEN l.foto_principal IS NULL THEN 1 ELSE 0 END,
     -- Round-robin por tipo: el cap de 3000 llenaba con los más recientes y en comunas
     -- densas (Poblado) los apartamentos tienen el fecha_scraping más nuevo → el mapa
     -- solo mostraba aptos aunque hay miles de oficinas/casas/locales. Interleavear por
@@ -1154,7 +1330,21 @@ ORDER BY
     ROW_NUMBER() OVER (PARTITION BY lower(l.tipo_inmueble)
                        ORDER BY l.fecha_scraping DESC NULLS LAST, l.url),
     l.fecha_scraping DESC NULLS LAST, l.url
-""".format(usd=int(_USD), dm_join=_VIEWPORT_DM_JOIN, extra_where=_VIEWPORT_EXTRA_WHERE)
+"""
+
+# Zoomed-out variant: keep ONE point per grid cell (cell ~28px on screen), featured
+# first, then a deterministic hash order so a cap cuts evenly across the map instead
+# of eating one corner. Deterministic -> stable ETag/cache.
+_VIEWPORT_POINTS_THIN_SQL = """
+SELECT * FROM (
+    SELECT t.*, ROW_NUMBER() OVER (
+        PARTITION BY floor(t.lat / $25::float8), floor(t.lon / $25::float8)
+        ORDER BY t._prio, t.url) AS _cell_rn
+    FROM (""" + _VIEWPORT_POINTS_BODY + """) t
+) c
+WHERE c._cell_rn = 1
+ORDER BY c._prio, ('x' || substr(md5(c.url), 1, 8))::bit(32)::int, c.url
+"""
 
 
 @router.get("/viewport", response_model=ViewportResponse)
@@ -1184,53 +1374,82 @@ async def get_listings_viewport(
     amenidades: Optional[list[str]] = Query(default=None),
     estado_inmueble: Optional[str] = Query(default=None),
     piso_min: Optional[int] = Query(default=None),
+    segmento: Optional[str] = Query(default=None, pattern="^(residencial|comercial|todos)$"),
+    ocultar_destacados: bool = Query(default=False),
+    moneda: str = Query(default="COP", pattern="^(COP|USD)$"),
+    zona_completa: bool = Query(default=False),
+    compact: bool = Query(default=False),
+    incluir_inactivos: bool = Query(default=False, description="admin only"),
+    current_user: Optional[dict] = Depends(get_optional_user),
 ):
-    """Listings within the map viewport. Server-side clustering at low zoom
-    (mode=clusters), individual points at high zoom (mode=points, capped).
-    Geographic selection (barrio_id + neighbor expansion / cd_comuna / municipio)
-    overrides the bbox: with a zone active the whole zone is returned.
+    """Listings within the map viewport.
+    zoom >= 13: every point (cap 3000). 10 <= zoom < 13: real points, grid-thinned
+    (one per ~28px cell, cap 1500, `thinned=true`). zoom < 10: comuna/municipio
+    clusters (+ a 200-row panel list).
+    The viewport bbox and the zone filter (barrio_id / cd_comuna / municipio) are
+    INDEPENDENT: both apply. Pass zona_completa=true to explicitly drop the bbox and
+    get the whole zone. precio_min/max are interpreted in `moneda` (COP|USD, converted
+    with the shared TRM rate). compact=true drops only direccion_raw (cards/popups need photo/barrio/municipio).
 
     Response is identical for all users (no auth-gated fields) → cacheable public.
     """
     pool = get_pool()
+    _inc = incluir_inactivos and _is_admin(current_user)
+    rate = await get_usd_rate()
+    precio_min = cop_from_moneda(precio_min, moneda, rate)
+    precio_max = cop_from_moneda(precio_max, moneda, rate)
     barrio_ids: Optional[list[int]] = None
     if barrio_id is not None:
         barrio_ids, _, _ = await _expand_neighbors(pool, barrio_id)
     has_geo = barrio_ids is not None or cd_comuna is not None or municipio is not None
-    bbox = (None, None, None, None) if has_geo else (min_lng, min_lat, max_lng, max_lat)
+    bbox = (None, None, None, None) if (has_geo and zona_completa) else (min_lng, min_lat, max_lng, max_lat)
     # estrato [] → None so the ANY() guard short-circuits instead of matching nothing.
     estrato_arg = estrato if estrato else None
-    tipo_inmueble_arg = tipo_inmueble if tipo_inmueble else None
+    tipo_inmueble_arg = _norm_tipos(tipo_inmueble)
+    seg = _effective_segmento(segmento, tipo_operacion, tipo_inmueble_arg)
     args = (
         *bbox, tipo_operacion, precio_min, precio_max, barrio_ids, cd_comuna, municipio, amoblado,
         habitaciones, banos, area_min, area_max, estrato_arg, tipo_inmueble_arg,
         (dias_mercado or None), (busqueda.strip() if busqueda and busqueda.strip() else None),
         _amenidad_like_patterns(amenidades),
-        estado_inmueble, piso_min,
+        estado_inmueble, piso_min, seg, ocultar_destacados,
     )
 
-    if zoom >= _VIEWPORT_CLUSTER_MAX_ZOOM:
-        rows = await pool.fetch(_VIEWPORT_POINTS_SQL + f" LIMIT {_VIEWPORT_POINTS_CAP}", *args)
-        result = ViewportResponse(
-            mode="points", zoom=zoom,
-            listings=[ViewportListing(**dict(r)) for r in rows],
-        )
+    def _vl(r) -> ViewportListing:
+        d = _finalize_row(dict(r), rate)
+        d.pop("_prio", None)
+        d.pop("_cell_rn", None)
+        if compact:
+            # Only direccion_raw is safe to drop: cards/popups/MLSPanel/barrio filter all
+            # consume foto_principal, barrio_nombre and municipio.
+            d["direccion_raw"] = None
+        return ViewportListing(**d)
+
+    if zoom >= _VIEWPORT_FULL_POINTS_ZOOM:
+        rows = await pool.fetch(_lk(_VIEWPORT_POINTS_SQL, _inc) + f" LIMIT {_VIEWPORT_POINTS_CAP}", *args)
+        result = ViewportResponse(mode="points", zoom=zoom, listings=[_vl(r) for r in rows])
+    elif zoom >= _VIEWPORT_CLUSTER_MAX_ZOOM:
+        rows = await pool.fetch(
+            _lk(_VIEWPORT_POINTS_THIN_SQL, _inc) + f" LIMIT {_VIEWPORT_THIN_CAP}", *args, _thin_cell_deg(zoom))
+        result = ViewportResponse(mode="points", zoom=zoom, thinned=True, listings=[_vl(r) for r in rows])
     else:
         # CAMBIO 4A: also return a capped, premium-first panel list for the same bbox/zone.
         clusters, plist = await asyncio.gather(
-            pool.fetch(_VIEWPORT_CLUSTERS_SQL, *args),
-            pool.fetch(_VIEWPORT_POINTS_SQL + f" LIMIT {_VIEWPORT_PANEL_CAP}", *args),
+            pool.fetch(_lk(_VIEWPORT_CLUSTERS_SQL, _inc), *args),
+            pool.fetch(_lk(_VIEWPORT_POINTS_SQL, _inc) + f" LIMIT {_VIEWPORT_PANEL_CAP}", *args),
         )
         result = ViewportResponse(
             mode="clusters", zoom=zoom,
             clusters=[ViewportCluster(**dict(r)) for r in clusters],
-            listings=[ViewportListing(**dict(r)) for r in plist],
+            listings=[_vl(r) for r in plist],
         )
 
     # Public HTTP caching: ETag over the body + 5-min TTL (cache.py rebuilds hourly).
     body = result.model_dump_json()
     etag = 'W/"' + hashlib.md5(body.encode()).hexdigest() + '"'
-    headers = {"Cache-Control": "public, max-age=300", "ETag": etag}
+    # 60 s fresh + SWR: map data refreshes hourly server-side; 5 min max-age on top of
+    # the client cache made new/removed listings look 5-10 min late.
+    headers = {"Cache-Control": "private, no-store" if _inc else "public, max-age=60, stale-while-revalidate=240", "ETag": etag}
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
     # Send the already-serialized body directly — no json.loads + JSONResponse
@@ -1367,7 +1586,7 @@ class AgentePerfilListing(BaseModel):
 
 class AgentePerfilResena(BaseModel):
     calificacion: int
-    comentario: Optional[str] = None
+    comentario: Optional[str] = Field(default=None, max_length=2000)
     autor: str = "Usuario"
     created_at: Optional[datetime] = None
 
@@ -1487,7 +1706,7 @@ async def get_agente_perfil(request: Request, agent_id: str):
 
 class ResenaIn(BaseModel):
     calificacion: int = Field(ge=1, le=5)
-    comentario: Optional[str] = None
+    comentario: Optional[str] = Field(default=None, max_length=2000)
 
 
 @router.post("/agentes/{agent_id}/resenas", status_code=201)
@@ -1524,7 +1743,8 @@ async def get_listing_by_id(
     if not row:
         raise HTTPException(status_code=404, detail="Listing not found")
     row_d = dict(row)
-    historia = await pool.fetch(_PRECIO_HISTORIA_SQL, row_d.get("url") or "")
+    historia = await pool.fetch(_PRECIO_HISTORIA_SQL, row_d.get("url") or "")  # before url is nulled for 'propio'
+    _finalize_row(row_d, await get_usd_rate())
     row_d["precio_historia"] = [dict(h) for h in historia] if historia else []
     # Inteligencia de mercado/barrio — solo agentes; el front solo decide UI.
     _gate_market_fields(row_d, is_agente(current_user))
@@ -1789,10 +2009,21 @@ async def registrar_vista(
     listing_url: str = url_row["url"]
     usuario_id: Optional[int] = current_user["id"] if current_user else None
 
-    ip_raw = request.headers.get("X-Forwarded-For", request.client.host if request.client else "")
+    # Trusted-proxy-aware IP (api.limiter): a spoofed X-Forwarded-For can neither
+    # mint fresh "visitors" nor dodge the per-IP+listing de-duplication below.
+    ip_raw = _client_ip(request)
     ip_hash = hashlib.sha256(ip_raw.encode()).hexdigest()[:16] if ip_raw else None
 
     session_id = f"anon-{ip_hash or 'unknown'}"
+
+    # One counted view per (IP, listing) per 30 min.
+    if not view_throttle.allow(f"{ip_raw}|listing_view|listing|{listing_url}"):
+        vistas = await pool.fetchval(
+            """SELECT COUNT(*)::int FROM public.user_events
+               WHERE event_type = 'listing_view' AND entity_type = 'listing' AND entity_id = $1""",
+            listing_url,
+        )
+        return {"ok": True, "vistas": vistas or 0}
 
     try:
         await pool.execute(
@@ -1812,6 +2043,44 @@ async def registrar_vista(
         listing_url,
     )
     return {"ok": True, "vistas": vistas or 0}
+
+
+# ── Report a broken original link ────────────────────────────────────────────
+_REPORT_PRIORITY_BUMP = 3      # independent reports that raise a re-check from "soon" to "next in queue"
+
+
+def _health_source(fuente: Optional[str], tier: Optional[str]) -> str:
+    if fuente in ("metrocuadrado", "fincaraiz", "habi", "casadolcecasa"):
+        return fuente
+    return "renta_media" if tier == "renta_media" else "premium"
+
+
+@router.post("/{listing_id}/report-broken-link")
+@limiter.limit("5/hour")
+async def report_broken_link(request: Request, listing_id: int):
+    """Anonymous 'this original link is dead' report. IP-limited (5/hour) and deduplicated per
+    (listing, ip). Queues a priority re-check; 3 independent reports raise the priority. It never
+    hides or retires anything by itself: only the checker + a human review can."""
+    pool = get_pool()
+    row = await pool.fetchrow(
+        """SELECT url, fuente, tier FROM staging.stg_listings_unificado
+            WHERE ('x'||substr(md5(url),1,8))::bit(32)::int = $1 AND url IS NOT NULL LIMIT 1""", listing_id)
+    if not row or row["fuente"] == "propio":
+        raise HTTPException(status_code=404, detail="Listing not found")
+    ip_raw = _client_ip(request)          # same trusted-proxy logic as the rate limiter (not a raw header)
+    ip_hash = hashlib.sha256(f"link-report:{ip_raw}".encode()).hexdigest()[:32]
+    url = row["url"]
+    inserted = await pool.fetchval(
+        "INSERT INTO public.listing_link_reports (url, ip_hash) VALUES ($1,$2) ON CONFLICT DO NOTHING RETURNING 1",
+        url, ip_hash)
+    n = await pool.fetchval("SELECT COUNT(*)::int FROM public.listing_link_reports WHERE url = $1", url)
+    if inserted:
+        await pool.execute(
+            """INSERT INTO public.listing_link_health (url, fuente, priority, report_count)
+                    VALUES ($1,$2,$3,$4)
+               ON CONFLICT (url) DO UPDATE SET report_count = $4, priority = GREATEST(listing_link_health.priority, $3)""",
+            url, _health_source(row["fuente"], row["tier"]), 10 if n >= _REPORT_PRIORITY_BUMP else 1, n)
+    return {"status": "reported" if inserted else "already_reported", "reports": n}
 
 
 # ── Reclama tu inmueble (claim your home) ────────────────────────────────────

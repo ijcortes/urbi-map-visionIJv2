@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { apiFetch, clearToken, getToken, setToken } from "@/lib/apiClient";
+import { apiFetch, clearToken, getToken, setToken, authHeaders, authCredentials } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { auth } from "@/lib/auth";
 
@@ -43,17 +43,30 @@ function storeAuth(res: AuthResponse) {
   });
 }
 
+// /auth/register no longer returns a session: the account is unusable until the
+// emailed link is clicked, so there is no token/user to store here.
+export type RegisterResponse = { ok: boolean; verification_required: boolean; message: string };
+
 export function useRegister() {
   return useMutation({
     mutationFn: async (data: { email: string; password: string; nombre?: string; telefono?: string; origen?: string }) => {
-      const res = await apiFetch<AuthResponse>(API_ENDPOINTS.register, {
+      return apiFetch<RegisterResponse>(API_ENDPOINTS.register, {
         method: "POST",
         body: JSON.stringify(data),
         skipAuth: true,
       });
-      storeAuth(res);
-      return res;
     },
+  });
+}
+
+export function useResendVerification() {
+  return useMutation({
+    mutationFn: async (data: { email: string }) =>
+      apiFetch<{ message: string }>(API_ENDPOINTS.resendVerification, {
+        method: "POST",
+        body: JSON.stringify(data),
+        skipAuth: true,
+      }),
   });
 }
 
@@ -74,11 +87,15 @@ export function useLogin() {
 export function useGoogleLogin() {
   return useMutation({
     mutationFn: async (data: { id_token: string }) => {
-      const res = await apiFetch<AuthResponse>(API_ENDPOINTS.googleLogin, {
+      const res = await apiFetch<AuthResponse & { challenge?: string; message?: string }>(API_ENDPOINTS.googleLogin, {
         method: "POST",
         body: JSON.stringify(data),
         skipAuth: true,
       });
+      // 202: the Google address could not be trusted on its own; a sign-in link was e-mailed instead.
+      if (res.challenge || !res.token) {
+        throw new Error(res.message || "Te enviamos un enlace de acceso a tu correo.");
+      }
       storeAuth(res);
       return res;
     },
@@ -142,6 +159,7 @@ export function useUpdateAuthPerfil() {
 
 export async function logout() {
   const token = getToken();
+  const headers = authHeaders(); // before clearToken(): Bearer mode needs the token
   // Clear local session synchronously first — must not depend on the network.
   clearToken();
   auth.clear();
@@ -149,7 +167,8 @@ export async function logout() {
     try {
       await fetch(API_ENDPOINTS.logout, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers,
+        credentials: authCredentials,
       });
     } catch {
       // best-effort — local session already cleared above

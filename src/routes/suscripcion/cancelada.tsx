@@ -1,9 +1,11 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { K as TOKENS } from "@/design/tokens";
 
 const K = TOKENS;
 
 export const Route = createFileRoute("/suscripcion/cancelada")({
+  head: () => seo({ title: "Suscripción cancelada · Medellín Social", description: "Tu pago fue cancelado.", noindex: true }),
   validateSearch: (s: Record<string, unknown>) => ({
     plan: (s.plan as string) ?? "",
   }),

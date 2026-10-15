@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from airflow import DAG
+
+from _schedule import cron_or_none as _sched
 from airflow.operators.python import PythonOperator
 
 SCRIPTS_PATH = Path("/home/edwlearn/urbi/scripts")  # load_barrios.py vive en ~/urbi, no en urbi-map-vision
@@ -25,7 +27,7 @@ default_args = {
 with DAG(
     dag_id="ingest_barrios",
     description="Carga polígonos de barrios del Valle de Aburrá en raw.barrios",
-    schedule_interval="0 3 1 * *",  # 3am del día 1 de cada mes
+    schedule_interval=_sched("0 3 1 * *"),  # 3am del día 1 de cada mes
     start_date=datetime(2024, 1, 1),
     catchup=False,
     tags=["raw", "geoespacial", "barrios"],

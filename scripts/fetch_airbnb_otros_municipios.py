@@ -21,6 +21,10 @@ import psycopg2.extras
 import requests
 from dotenv import load_dotenv
 
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).parent.parent))
+from scraping.utils.cost_ledger import charge  # noqa: E402  (raises BudgetExceeded at the monthly cap)
+
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 DB_URL  = os.environ["DATABASE_URL"]
@@ -40,6 +44,7 @@ def norm(s: str) -> str:
 
 def search_municipality(session: requests.Session, municipio: str) -> list[dict]:
     """1 API call — returns all districts with n_listings."""
+    charge("airroi", "markets/search")
     resp = session.get(
         f"{BASE}/markets/search",
         params={"query": f"{municipio} Antioquia Colombia"},

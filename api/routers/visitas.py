@@ -32,7 +32,7 @@ def _send_visita_email(req: "VisitaRequest", fecha: Optional[datetime]) -> None:
     remitente = os.getenv("SMTP_FROM") or os.getenv("SMTP_USER") or "noreply@medellinsocial.com"
     cuando = fecha.strftime("%Y-%m-%d %H:%M") if fecha else "sin fecha propuesta"
     msg = EmailMessage()
-    msg["Subject"] = f"Nueva solicitud de visita — {req.listing_url}"
+    msg["Subject"] = " ".join(f"Nueva solicitud de visita — {req.listing_url}".split())  # no CR/LF
     msg["From"] = remitente
     msg["To"] = RENTAL_INQUIRIES_TO
     msg.set_content(
@@ -115,10 +115,7 @@ async def crear_visita(
     # Sin agente de zona → notificar al buzón interno (fuera del event loop; best-effort).
     if req.sin_agente:
         await asyncio.to_thread(_send_visita_email, req, fecha)
-    # Nueva visita → GHL (Appointment en el calendar del agente). Best-effort:
-    # hoy sync_visita levanta (stub sin contrato de Talal) → se loguea y sigue.
-    try:
-        await ghl_client.sync_visita(row["id"])
-    except Exception:
-        log.exception("sync_visita(%s) falló", row["id"])  # best-effort, no bloquea la solicitud
+    # GHL recibe las visitas por PULL (/api/v1/ghl/leads). El push a un
+    # Appointment (ghl_client.push_visita_to_ghl) sigue sin contrato de Talal;
+    # no se llama aquí para no loguear un stack trace por cada solicitud.
     return {"id": str(row["id"]), "estado": "pendiente"}

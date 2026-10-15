@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, redirect, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -27,12 +28,7 @@ const searchSchema = z.object({
 });
 
 export const Route = createFileRoute("/comparador")({
-  head: () => ({
-    meta: [
-      { title: "Comparador · Medellin Social" },
-      { name: "description", content: "Compara barrios o inmuebles específicos lado a lado." },
-    ],
-  }),
+  head: () => seo({ title: "Comparador · Medellin Social", description: "Compara barrios o inmuebles específicos lado a lado.", path: "/comparador" }),
   validateSearch: searchSchema,
   beforeLoad: () => {
     if (typeof window === "undefined") return;
@@ -340,6 +336,7 @@ function TabBarrios({
             {ids.length > 1 && (
               <button
                 onClick={() => setIds((prev) => prev.filter((_, idx) => idx !== i))}
+                aria-label="Quitar"
                 className="text-muted-foreground hover:text-danger"
               >
                 <X className="h-3 w-3" />

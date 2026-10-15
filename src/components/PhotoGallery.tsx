@@ -112,6 +112,7 @@ export function PhotoGallery({ fotos, titulo, height = 224 }: Props) {
           {/* Close */}
           <button
             onClick={() => setLightbox(false)}
+            aria-label="Cerrar"
             className="absolute top-4 right-4 grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
           >
             <X className="h-5 w-5" />
@@ -136,7 +137,7 @@ export function PhotoGallery({ fotos, titulo, height = 224 }: Props) {
           <img
             src={photos[idx]}
             alt={titulo ?? "Foto del inmueble"}
-            className="max-h-[88vh] max-w-[88vw] object-contain rounded-lg shadow-2xl"
+            className="max-h-[88dvh] max-w-[88vw] object-contain rounded-lg shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           />
 

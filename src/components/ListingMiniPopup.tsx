@@ -1,5 +1,9 @@
+import { Name } from "@/lib/i18n";
 import { X, ChevronRight, Bed, Bath, Maximize2, Clock, MapPin, Plus, Check } from "@/lib/icons";
-import { formatCOP } from "@/lib/format";
+import { isMobileWidth } from "@/lib/breakpoints";
+import { OriginalListingLink } from "@/components/OriginalListingLink";
+import { usePriceFormat } from "@/hooks/usePriceFormat";
+import { formatArea } from "@/hooks/useUnit";
 import type { ApiListing } from "@/lib/adapters";
 import { useComparadorStore } from "@/hooks/useComparadorStore";
 import { useIsAgente } from "@/components/LockedField";
@@ -48,11 +52,12 @@ type Props = {
 
 export function ListingMiniPopup({ listing, onClose, onViewMore }: Props) {
   const isAgente = useIsAgente();
+  const { formatPrice, formatSecondary, unit, lang } = usePriceFormat();
   const { addListing, removeListing, isSelected, canAdd } = useComparadorStore();
   const selected = isSelected(listing.id);
 
   // Always center over the visible map area (viewport minus right panel on desktop)
-  const panelWidth = window.innerWidth >= 768 ? 380 : 0;
+  const panelWidth = isMobileWidth(window.innerWidth) ? 0 : 380;
   const mapWidth = window.innerWidth - panelWidth;
   const left = Math.max(12, (mapWidth - POPUP_WIDTH) / 2);
   const top = Math.max(80, (window.innerHeight - POPUP_HEIGHT) / 2 - 40);
@@ -81,7 +86,8 @@ export function ListingMiniPopup({ listing, onClose, onViewMore }: Props) {
 
           <button
             onClick={onClose}
-            className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-black/50 text-white transition hover:bg-black/70"
+            aria-label="Cerrar"
+            className="absolute right-2 top-2 grid h-11 w-11 md:h-6 md:w-6 place-items-center rounded-full bg-black/50 text-white transition hover:bg-black/70"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -102,13 +108,16 @@ export function ListingMiniPopup({ listing, onClose, onViewMore }: Props) {
         {/* Info */}
         <div className="space-y-2 p-3">
           <div className="text-base font-bold leading-tight" style={{ color: "#111418" }}>
-            {listing.precio_cop ? formatCOP(listing.precio_cop) : "—"}
+            {formatPrice(listing.precio_cop)}
+            {formatSecondary(listing.precio_cop) && (
+              <span className="ml-2 text-[11px] font-normal" style={{ color: "#6E726E" }}>{formatSecondary(listing.precio_cop)}</span>
+            )}
           </div>
 
           <div className="flex items-center gap-3 text-xs" style={{ color: "#5B5F5C" }}>
             {listing.area_m2 != null && (
               <span className="flex items-center gap-0.5">
-                <Maximize2 className="h-3 w-3 shrink-0" />{listing.area_m2}m²
+                <Maximize2 className="h-3 w-3 shrink-0" />{formatArea(listing.area_m2, unit)}
               </span>
             )}
             {listing.habitaciones != null && (
@@ -125,7 +134,7 @@ export function ListingMiniPopup({ listing, onClose, onViewMore }: Props) {
 
           {listing.barrio_nombre && (
             <div className="flex items-center gap-1 text-[11px]" style={{ color: "#6E726E" }}>
-              <MapPin className="h-3 w-3 shrink-0" />{listing.barrio_nombre}
+              <MapPin className="h-3 w-3 shrink-0" /><Name>{listing.barrio_nombre}</Name>
             </div>
           )}
 
@@ -143,7 +152,7 @@ export function ListingMiniPopup({ listing, onClose, onViewMore }: Props) {
                 } else if (canAdd) {
                   addListing(listing);
                 } else {
-                  toast.info("Máximo 5 inmuebles en el comparador");
+                  toast.info(lang === "en" ? "Maximum 5 properties in the comparator" : "Máximo 5 inmuebles en el comparador");
                 }
               }}
               className="flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition"
@@ -158,6 +167,7 @@ export function ListingMiniPopup({ listing, onClose, onViewMore }: Props) {
               }
             </button>
           )}
+          <OriginalListingLink listing={listing} variant="compact" className="w-full" />
           <button
             onClick={() => onViewMore(listing.id)}
             className="flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold text-white transition hover:opacity-90"

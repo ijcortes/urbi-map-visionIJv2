@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback, useReducer } from "react";
 
 function norm(s: string): string {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -10,9 +10,15 @@ import {
   Shield, Camera, Trees, Baby, TrainFront, Sofa,
 } from "@/lib/icons";
 import { useIsPro } from "@/components/LockedField";
-import { useLang } from "@/lib/i18n";
-import { useTrm } from "@/hooks/useTrm";
+import { useLang, Name } from "@/lib/i18n";
+import { usePriceFormat } from "@/hooks/usePriceFormat";
+import { CurrencyToggle } from "@/components/CurrencyToggle";
+import { parsePriceInput } from "@/lib/format";
 import { useUnit } from "@/hooks/useUnit";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useBarrioSearch } from "@/hooks/useBarrioSearch";
+import { TIPOS_POR_SEGMENTO, type Segmento } from "@/lib/segmento";
+import type { SearchOption } from "@/lib/barrioSearch";
 import type { MapTab } from "./MapNavbar";
 import type { BarrioOption } from "@/lib/adapters";
 
@@ -35,6 +41,10 @@ export type SharedFilters = {
   soloPromium: boolean;
   estadoInmueble: "Nuevo" | "Usado" | null;
   pisoMin: number | null;
+  /** Residential vs commercial: chosen before results, default residencial, persisted. */
+  segmento: Segmento;
+  /** Hide featured/tier listings (sent as ocultar_destacados). */
+  ocultarDestacados: boolean;
 };
 
 export const EMPTY_SHARED_FILTERS: SharedFilters = {
@@ -55,6 +65,8 @@ export const EMPTY_SHARED_FILTERS: SharedFilters = {
   soloPromium: false,
   estadoInmueble: null,
   pisoMin: null,
+  segmento: "residencial",
+  ocultarDestacados: false,
 };
 
 export const TAB_TIPO_OP: Record<MapTab, "venta" | "arriendo" | "todos"> = {
@@ -218,15 +230,19 @@ const C = {
   surface:  "#F3F0E8",
 };
 
+// Studio is NOT a tipo: it is an apartamento with 0 bedrooms (see Habitaciones "Studio (0)").
 const TIPO_OPTIONS = [
   { value: "apartamento",   label: "Apartamento" },
   { value: "casa",          label: "Casa" },
-  { value: "apartaestudio", label: "Apartaestudio" },
   { value: "lote",          label: "Lote" },
   { value: "local",         label: "Local" },
   { value: "oficina",       label: "Oficina" },
   { value: "bodega",        label: "Bodega" },
 ];
+
+export function tipoOptionsFor(segmento: Segmento) {
+  return TIPO_OPTIONS.filter((o) => TIPOS_POR_SEGMENTO[segmento].includes(o.value));
+}
 
 type DropdownId = "precio" | "habBanos" | "tipo" | "filtros" | "amenidades";
 
@@ -234,6 +250,7 @@ function countActive(f: SharedFilters): number {
   let n = 0;
   if (f.precioMax !== null || f.precioMin !== null) n++;
   if (f.habitaciones !== null) n++;
+  if (f.ocultarDestacados) n++;
   if (f.banos !== null) n++;
   if (f.tipoInmueble !== null && f.tipoInmueble.length > 0) n++;
   if (f.areaMin !== null || f.areaMax !== null) n++;
@@ -255,14 +272,16 @@ function FilterPill({
   label: string;
   active: boolean;
   onClear?: () => void;
-  onClick: (anchor: DOMRect) => void;
+  onClick: (anchor: HTMLElement) => void;
   isOpen: boolean;
   computedLabel?: boolean; // true if label text is lang-computed (e.g. COP/USD) rather than dict-translated
 }) {
   return (
     <button
-      onClick={(e) => onClick(e.currentTarget.getBoundingClientRect())}
+      onClick={(e) => onClick(e.currentTarget)}
       className="map-filter-pill"
+      aria-expanded={isOpen}
+      aria-haspopup="true"
       {...(active ? { "data-active": "1" } : {})}
       style={{
         display: "flex", alignItems: "center", gap: 4,
@@ -270,7 +289,7 @@ function FilterPill({
         color: active ? "#fff" : C.ink,
         border: `1px solid ${active ? C.teal : C.border}`,
         borderRadius: 8, padding: "0 10px",
-        height: 32, fontSize: 12, fontWeight: 600,
+        height: 32, minWidth: 44, fontSize: 12, fontWeight: 600,
         cursor: "pointer", whiteSpace: "nowrap",
         outline: isOpen && !active ? `2px solid ${C.teal}` : "none",
         outlineOffset: 1,
@@ -282,8 +301,11 @@ function FilterPill({
       {active && onClear ? (
         <span
           role="button"
+          tabIndex={0}
+          aria-label="Quitar filtro"
           onClick={(e) => { e.stopPropagation(); onClear(); }}
-          style={{ marginLeft: 2, display: "flex", alignItems: "center", opacity: 0.85 }}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onClear(); } }}
+          style={{ marginLeft: 2, display: "flex", alignItems: "center", opacity: 0.85, padding: 4, margin: -4 }}
         >
           <X size={11} />
         </span>
@@ -303,47 +325,28 @@ function FilterPill({
 
 // ─── Label helpers ────────────────────────────────────────────────────────────
 
-// ARRIENDO: por valor — < $1M en K (700K), >= $1M en millones (1.5M).
-function fmtCOPRent(v: number): string {
-  if (v < 1_000_000) return `$${Math.round(v / 1_000)}K`;
-  return `$${(v / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-}
+// Etiquetas compactas (solo chips de slider): formatCompact de lib/format vía usePriceFormat.
+type PriceFmt = (cop: number) => string;
 
-// VENTA: siempre en millones. "B" no existe — en Colombia billón = 10^12.
-// ≥1,000M → "$1.500M" (punto de miles para legibilidad).
-function fmtCOPBuy(v: number): string {
-  const m = Math.round(v / 1_000_000);
-  if (v < 10_000_000) return `$${(v / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  return `$${m.toLocaleString("es-CO")}M`;
-}
+const PRICE_LABELS = {
+  es: { rent: { COP: "Precio / mes (COP)", USD: "Precio / mes (USD)" }, sale: { COP: "Precio (COP)", USD: "Precio (USD)" } },
+  en: { rent: { COP: "Price / month (COP)", USD: "Price / month (USD)" }, sale: { COP: "Price (COP)", USD: "Price (USD)" } },
+} as const;
 
-// USD label (own thresholds): <$1k exact, <$1M in k, >=$1M in M.
-function fmtUSD(v: number): string {
-  if (v < 1_000) return `$${Math.round(v)}`;
-  if (v < 1_000_000) return `$${(v / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
-  return `$${(v / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-}
-
-// Values are always COP internally; EN convierte el LABEL a USD. ES usa el
-// formato según operación: venta → millones, arriendo → K/M por valor.
-function fmtPrice(cop: number, lang: string, trm: number, isRent: boolean): string {
-  if (lang === "en") return fmtUSD(cop / trm);
-  return isRent ? fmtCOPRent(cop) : fmtCOPBuy(cop);
-}
-
-function precioLabel(f: SharedFilters, isRent: boolean, lang: string, trm: number): string {
+function precioLabel(f: SharedFilters, isRent: boolean, lang: string, fmtPrice: PriceFmt): string {
   // Este label vive en un span data-i18n-skip (gotcha #1 cache-poisoning), así que
   // el diccionario DOM no lo toca — hay que devolver EN aquí mismo.
   const en = lang === "en";
   if (f.precioMin !== null && f.precioMax !== null)
-    return `${fmtPrice(f.precioMin, lang, trm, isRent)} – ${fmtPrice(f.precioMax, lang, trm, isRent)}`;
-  if (f.precioMax !== null) return `${en ? "Up to" : "Hasta"} ${fmtPrice(f.precioMax, lang, trm, isRent)}`;
-  if (f.precioMin !== null) return `${en ? "From" : "Desde"} ${fmtPrice(f.precioMin, lang, trm, isRent)}`;
+    return `${fmtPrice(f.precioMin)} – ${fmtPrice(f.precioMax)}`;
+  if (f.precioMax !== null) return `${en ? "Up to" : "Hasta"} ${fmtPrice(f.precioMax)}`;
+  if (f.precioMin !== null) return `${en ? "From" : "Desde"} ${fmtPrice(f.precioMin)}`;
   return en ? (isRent ? "Price/mo" : "Price") : (isRent ? "Precio/mes" : "Precio");
 }
 
 function habLabel(f: SharedFilters): string {
   if (f.habitaciones === null) return "Habitaciones";
+  if (f.habitaciones === 0) return "Studio (0)";
   if (f.habitaciones === 4) return "4+ hab.";
   return `${f.habitaciones} hab.`;
 }
@@ -402,46 +405,43 @@ function useAreaFieldText(
 }
 
 // precioMin/precioMax en SharedFilters siempre están en COP (canónico para la
-// API); en EN el usuario teclea USD → convertir en el borde (×trm). Mismo patrón
-// de texto-local que el área para que el número no se corra bajo el dedo al
-// teclear ni al cambiar de idioma. Sin esto, teclear "1200" en EN mandaba
-// precio=1200 COP (bajo el piso de 500K) → cero resultados.
-function copToDisplay(cop: number | null, lang: string, trm: number): number | null {
-  if (cop === null) return null;
-  return lang === "en" ? Math.round(cop / trm) : cop;
-}
-function displayToCop(v: number | null, lang: string, trm: number): number | null {
-  if (v === null) return null;
-  return lang === "en" ? Math.round(v * trm) : v;
-}
+// API). El usuario teclea en su moneda de visualización (COP|USD, independiente
+// del idioma) → se convierte a COP con la TRM única (usePriceFormat.toCop).
+// Texto libre ("2,500" / "2.500" / "2500"), commit con debounce y recalculo
+// cuando cambia la moneda/TRM (p.ej. al cargar la TRM).
+const PRICE_DEBOUNCE_MS = 350;
 function usePriceFieldText(
   copValue: number | null,
-  lang: string,
-  trm: number,
+  pf: { currency: string; toCop: (v: number) => number; toDisplay: (cop: number) => number },
   onCommit: (cop: number | null) => void,
 ) {
+  const show = (cop: number | null) => (cop === null ? "" : String(Math.round(pf.toDisplay(cop))));
   const lastCop = useRef(copValue);
-  const [text, setText] = useState<string>(() => copToDisplay(copValue, lang, trm)?.toString() ?? "");
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latest = useRef({ pf, onCommit });
+  latest.current = { pf, onCommit };
+  const [text, setText] = useState<string>(() => show(copValue));
 
+  // valor externo (reset, slider) o cambio de moneda/TRM → recalcular el texto
   useEffect(() => {
-    if (copValue !== lastCop.current) {
-      lastCop.current = copValue;
-      setText(copToDisplay(copValue, lang, trm)?.toString() ?? "");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [copValue]);
-
-  useEffect(() => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
     lastCop.current = copValue;
-    setText(copToDisplay(copValue, lang, trm)?.toString() ?? "");
+    setText(show(copValue));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lang]);
+  }, [copValue, pf.currency, pf.toCop]);
+
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const handleChange = (raw: string) => {
     setText(raw);
-    const cop = raw ? displayToCop(Number(raw), lang, trm) : null;
-    lastCop.current = cop;
-    onCommit(cop);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      const n = parsePriceInput(raw);
+      const cop = n === null ? null : latest.current.pf.toCop(n);
+      lastCop.current = cop;
+      latest.current.onCommit(cop);
+    }, PRICE_DEBOUNCE_MS);
   };
 
   return { text, handleChange };
@@ -455,7 +455,7 @@ function banosLabel(f: SharedFilters): string {
 
 function habBanosLabel(f: SharedFilters): string {
   const parts: string[] = [];
-  if (f.habitaciones !== null) parts.push(f.habitaciones === 4 ? "4+ hab." : `${f.habitaciones} hab.`);
+  if (f.habitaciones !== null) parts.push(f.habitaciones === 0 ? "Studio" : f.habitaciones === 4 ? "4+ hab." : `${f.habitaciones} hab.`);
   if (f.banos !== null) parts.push(f.banos === 4 ? "4+ baños" : `${f.banos} baños`);
   return parts.length > 0 ? parts.join(", ") : "Hab. y Baños";
 }
@@ -526,15 +526,20 @@ function NumInput({
   );
 }
 
+type PriceField = { text: string; handleChange: (raw: string) => void };
+
 function PrecioPanel({
-  filters, isRent, onChange, onClose, lang, trm,
+  filters, isRent, onChange, onClose, lang, fmtPrice, minField, maxField, currency,
 }: {
+  minField?: PriceField;
+  maxField?: PriceField;
+  currency?: string;
   filters: SharedFilters;
   isRent: boolean;
   onChange: (f: Partial<SharedFilters>) => void;
   onClose: () => void;
   lang: string;
-  trm: number;
+  fmtPrice: PriceFmt;
 }) {
   const TOTAL_MIN = 0;
   // Ranges scaled to where listings actually live, not the p99 outlier tail:
@@ -598,7 +603,7 @@ function PrecioPanel({
     // Range labels van en spans data-i18n-skip → traducir aquí.
     if (v <= TOTAL_MIN) return lang === "en" ? "Min" : "Mín";
     if (v >= TOTAL_MAX) return lang === "en" ? "Max" : "Máx";
-    return fmtPrice(v, lang, trm, isRent);
+    return fmtPrice(v);
   };
 
   const thumbStyle: React.CSSProperties = {
@@ -613,11 +618,29 @@ function PrecioPanel({
 
   return (
     <div style={{ ...panelBase, minWidth: 300, userSelect: "none" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}><CurrencyToggle compact /></div>
       {/* Range labels */}
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
         <span data-i18n-skip="true" style={{ fontSize: 13, fontWeight: 700, color: C.teal }}>{fmt(curMin)}</span>
         <span data-i18n-skip="true" style={{ fontSize: 13, fontWeight: 700, color: C.teal }}>{fmt(curMax)}</span>
       </div>
+
+      {/* Typed min/max (same parser + debounce as the mobile sheet); slider and inputs share filters */}
+      {minField && maxField && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          {([["Mínimo", "Precio mínimo", minField], ["Máximo", "Precio máximo", maxField]] as const).map(([ph, aria, f]) => (
+            <input
+              key={aria}
+              type="text" inputMode="numeric" autoComplete="off" data-i18n-skip="true"
+              placeholder={currency ? `${ph} (${currency})` : ph} aria-label={aria}
+              value={f.text}
+              onChange={(e) => f.handleChange(e.target.value)}
+              onPointerDown={(e) => e.stopPropagation()}
+              style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, padding: "7px 10px", fontSize: 13, outline: "none", color: C.ink, background: "#fff", userSelect: "text" }}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Histogram + dual slider */}
       <div ref={trackRef} style={{ position: "relative", height: 76, marginBottom: 4 }}>
@@ -707,8 +730,9 @@ function PrecioPanel({
 // ─── AreaPanel ────────────────────────────────────────────────────────────────
 
 function AreaPanel({
-  filters, onChange, onClose,
+  filters, onChange, onClose, unit,
 }: {
+  unit: "m2" | "sqft";
   filters: SharedFilters;
   onChange: (f: Partial<SharedFilters>) => void;
   onClose: () => void;
@@ -751,7 +775,7 @@ function AreaPanel({
   const fmt = (v: number) => {
     if (v <= TOTAL_MIN) return "0";
     if (v >= TOTAL_MAX) return "Sin límite";
-    return `${v} m²`;
+    return `${Math.round((unit === "sqft" ? v * M2_PER_FT2 : v)).toLocaleString(unit === "sqft" ? "en-US" : "es-CO")} ${unit === "sqft" ? "ft²" : "m²"}`;
   };
 
   const thumbStyle: React.CSSProperties = {
@@ -834,6 +858,14 @@ function HabBanosPanel({
   filters: SharedFilters;
   onChange: (f: Partial<SharedFilters>) => void;
 }) {
+  const HAB_OPTS = [
+    { value: null as number | null, label: "Cualquiera" },
+    { value: 0, label: "Studio (0)" },
+    { value: 1, label: "1" },
+    { value: 2, label: "2" },
+    { value: 3, label: "3" },
+    { value: 4, label: "4+" },
+  ];
   const OPTS = [
     { value: null as number | null, label: "Cualquiera" },
     { value: 1, label: "1" },
@@ -844,7 +876,7 @@ function HabBanosPanel({
   return (
     <div style={{ ...panelBase, minWidth: 240 }}>
       <span style={labelSm}>Habitaciones</span>
-      <BtnGroup options={OPTS} current={filters.habitaciones} onChange={(v) => onChange({ habitaciones: v })} />
+      <BtnGroup options={HAB_OPTS} current={filters.habitaciones} onChange={(v) => onChange({ habitaciones: v })} />
       <div style={{ marginTop: 14 }}>
         <span style={labelSm}>Baños</span>
         <BtnGroup options={OPTS} current={filters.banos} onChange={(v) => onChange({ banos: v })} />
@@ -880,7 +912,7 @@ function TipoPanel({
     <div style={{ ...panelBase, minWidth: 200, padding: "12px 8px" }}>
       <span style={{ ...labelSm, padding: "0 8px" }}>Tipo de inmueble</span>
       <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 8 }}>
-        {TIPO_OPTIONS.map((opt) => {
+        {tipoOptionsFor(filters.segmento).map((opt) => {
           const active = sel.includes(opt.value);
           return (
             <div
@@ -995,7 +1027,7 @@ function AmenidadesPanel({
   return (
     <div style={{ ...panelBase, width: 320, padding: 0, display: "flex", flexDirection: "column" }}>
       {/* Scrollable body */}
-      <div style={{ overflowY: "auto", maxHeight: "min(460px, 70vh)", padding: "12px 16px 4px" }}>
+      <div style={{ overflowY: "auto", maxHeight: "min(460px, 70dvh)", padding: "12px 16px 4px" }}>
         {AMENIDADES_GROUPS.map((group, gi) => (
           <div key={group.id}>
             <span style={{
@@ -1085,17 +1117,25 @@ export function MapFilterBar({
 }: MapFilterBarProps) {
   const isPro = useIsPro();
   const { lang } = useLang();
-  const trm = useTrm();
+  const pf = usePriceFormat();
   const { unit } = useUnit();
   const areaUnitLabel = unit === "sqft" ? "ft²" : "m²";
   const areaMinField = useAreaFieldText(filters.areaMin, unit, (m2) => onFiltersChange({ areaMin: m2 }));
   const areaMaxField = useAreaFieldText(filters.areaMax, unit, (m2) => onFiltersChange({ areaMax: m2 }));
-  const precioMinField = usePriceFieldText(filters.precioMin, lang, trm, (cop) => onFiltersChange({ precioMin: cop }));
-  const precioMaxField = usePriceFieldText(filters.precioMax, lang, trm, (cop) => onFiltersChange({ precioMax: cop }));
+  const precioMinField = usePriceFieldText(filters.precioMin, pf, (cop) => {
+    if (cop !== null && filters.precioMax !== null && cop > filters.precioMax) return;
+    onFiltersChange({ precioMin: cop });
+  });
+  const precioMaxField = usePriceFieldText(filters.precioMax, pf, (cop) => {
+    if (cop !== null && filters.precioMin !== null && cop < filters.precioMin) return;
+    onFiltersChange({ precioMax: cop });
+  });
   const [open, setOpen] = useState<DropdownId | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mobileMore, setMobileMore] = useState(false);
-  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const [, bumpLayout] = useReducer((n: number) => n + 1, 0);  // re-render to re-measure anchors on resize/scroll
+  const isMobile = useIsMobile();
   const barRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -1105,28 +1145,17 @@ export function MapFilterBar({
   const [searchSelected, setSearchSelected] = useState<BarrioOption | null>(null);
   const searchRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [searchRect, setSearchRect] = useState<DOMRect | null>(null);
 
   // Sync when busqueda cleared externally (Reset All)
   useEffect(() => {
     if (!filters.busqueda) { setSearchQ(""); setSearchSelected(null); }
   }, [filters.busqueda]);
 
-  const suggestions = useMemo<BarrioOption[]>(() => {
-    if (!searchQ.trim() || !allBarrios) return [];
-    const q = norm(searchQ);
-    return allBarrios
-      .filter(b =>
-        norm(b.nombre).includes(q) ||
-        norm(b.municipio).includes(q) ||
-        (b.comuna && norm(b.comuna).includes(q))
-      )
-      .slice(0, 8);
-  }, [searchQ, allBarrios]);
+  const suggestions = useBarrioSearch(searchQ, allBarrios);
 
-  const handleSearchSelect = useCallback((opt: BarrioOption) => {
+  const handleSearchSelect = useCallback((opt: SearchOption) => {
     setSearchSelected(opt);
-    setSearchQ(opt.nombre);
+    setSearchQ(opt.label);
     setSearchOpen(false);
     onFiltersChange({ busqueda: null });
     onBarrioNavigate?.(opt);
@@ -1140,11 +1169,31 @@ export function MapFilterBar({
     onBarrioClear?.();
   }, [onBarrioClear, onFiltersChange]);
 
-  const toggle = (id: DropdownId, a: DOMRect) => {
-    setAnchor(a);
+  const toggle = (id: DropdownId, a: HTMLElement) => {
+    setAnchorEl(a);
     setOpen((p) => (p === id ? null : id));
   };
   const close  = () => setOpen(null);
+
+  // Dropdown/suggestion positions are measured at render; re-render on resize, scroll,
+  // orientation and visual-viewport changes (keyboard) so they never drift or clip.
+  const needsTracking = open !== null || searchOpen;
+  useEffect(() => {
+    if (!needsTracking) return;
+    const on = () => bumpLayout();
+    window.addEventListener("resize", on);
+    window.addEventListener("orientationchange", on);
+    window.addEventListener("scroll", on, true);
+    window.visualViewport?.addEventListener("resize", on);
+    window.visualViewport?.addEventListener("scroll", on);
+    return () => {
+      window.removeEventListener("resize", on);
+      window.removeEventListener("orientationchange", on);
+      window.removeEventListener("scroll", on, true);
+      window.visualViewport?.removeEventListener("resize", on);
+      window.visualViewport?.removeEventListener("scroll", on);
+    };
+  }, [needsTracking]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -1184,7 +1233,7 @@ export function MapFilterBar({
         <option value="">Selecciona un barrio...</option>
         {allBarrios?.map((b) => (
           <option key={b.id} value={b.id}>
-            {b.nombre} – {b.municipio}
+            <Name>{b.nombre}</Name> – {b.municipio}
           </option>
         ))}
       </select>
@@ -1199,6 +1248,7 @@ export function MapFilterBar({
     filters.areaMin !== null || filters.areaMax !== null,
     filters.estadoInmueble !== null,
     filters.pisoMin !== null,
+    filters.ocultarDestacados,
   ].filter(Boolean).length;
   const amenCount = filters.amenidades?.length ?? 0;
 
@@ -1212,20 +1262,17 @@ export function MapFilterBar({
           ref={searchInputRef}
           type="text"
           placeholder="Buscar barrio o municipio..."
+          aria-label="Buscar barrio o municipio"
           value={searchQ}
           onChange={(e) => {
             const v = e.target.value;
             setSearchQ(v);
             setSearchSelected(null);
-            setSearchRect(searchInputRef.current?.getBoundingClientRect() ?? null);
             setSearchOpen(!!v.trim());
             onFiltersChange({ busqueda: v || null });
           }}
           onFocus={() => {
-            if (searchQ.trim()) {
-              setSearchRect(searchInputRef.current?.getBoundingClientRect() ?? null);
-              setSearchOpen(true);
-            }
+            if (searchQ.trim()) setSearchOpen(true);
           }}
           style={{
             height: 32, paddingLeft: 28, paddingRight: (searchQ || searchSelected) ? 26 : 10,
@@ -1237,7 +1284,8 @@ export function MapFilterBar({
         {(searchQ || searchSelected) && (
           <button
             onClick={handleSearchClear}
-            style={{ position: "absolute", right: 7, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.muted, display: "flex", padding: 0, zIndex: 1 }}
+            aria-label="Limpiar búsqueda"
+            style={{ position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.muted, display: "flex", padding: 9, zIndex: 1 }}
           >
             <X size={12} />
           </button>
@@ -1259,7 +1307,7 @@ export function MapFilterBar({
       {/* Precio */}
       <div style={{ position: "relative", flexShrink: 0 }}>
         <FilterPill
-          label={precioLabel(filters, isRent, lang, trm)}
+          label={precioLabel(filters, isRent, lang, pf.formatPriceCompact)}
           active={precioActive}
           onClear={() => onFiltersChange({ precioMin: null, precioMax: null })}
           onClick={(a) => toggle("precio", a)}
@@ -1295,7 +1343,7 @@ export function MapFilterBar({
         <FilterPill
           label={filtrosCount > 0 ? `Filtros (${filtrosCount})` : "Filtros"}
           active={filtrosCount > 0}
-          onClear={filtrosCount > 0 ? () => onFiltersChange({ antiguedad: null, estrato: null, diasMercado: null, soloPromium: false, areaMin: null, areaMax: null, estadoInmueble: null, pisoMin: null }) : undefined}
+          onClear={filtrosCount > 0 ? () => onFiltersChange({ antiguedad: null, estrato: null, diasMercado: null, soloPromium: false, areaMin: null, areaMax: null, estadoInmueble: null, pisoMin: null, ocultarDestacados: false }) : undefined}
           onClick={(a) => toggle("filtros", a)}
           isOpen={open === "filtros"}
         />
@@ -1328,6 +1376,30 @@ export function MapFilterBar({
     </div>
   );
 
+  const segBtn = (id: Segmento, label: string) => (
+    <button
+      key={id}
+      type="button"
+      data-testid={`segmento-${id}`}
+      aria-pressed={filters.segmento === id}
+      onClick={() => onFiltersChange({ segmento: id })}
+      style={{
+        border: "none", background: filters.segmento === id ? C.ink : "transparent",
+        color: filters.segmento === id ? "#fff" : C.muted, padding: "5px 12px",
+        minHeight: isMobile ? 44 : 30, flex: isMobile ? 1 : undefined,
+        fontSize: isMobile ? 14 : 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </button>
+  );
+  const segmentToggle = (
+    <div role="group" aria-label="Tipo de propiedad" style={{ display: "flex", border: `1px solid ${C.border}`, borderRadius: 999, overflow: "hidden", flexShrink: 0, width: isMobile ? "100%" : undefined }}>
+      {segBtn("residencial", "Residencial")}
+      {segBtn("comercial", "Comercial")}
+    </div>
+  );
+
   // ── Mobile bottom sheet ────────────────────────────────────────────────────
   const mobileSheet = mobileOpen && (
     <div
@@ -1342,15 +1414,21 @@ export function MapFilterBar({
         onClick={(e) => e.stopPropagation()}
         style={{
           background: "#fff", borderRadius: "16px 16px 0 0",
-          padding: "20px 20px 32px", maxHeight: "80vh", overflowY: "auto",
+          padding: "20px 20px calc(32px + env(safe-area-inset-bottom))", maxHeight: "80dvh", overflowY: "auto",
           width: "100%", maxWidth: "100%", boxSizing: "border-box", overflowX: "hidden",
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <span style={{ fontSize: 16, fontWeight: 700, color: C.ink }}>Filtros</span>
-          <button onClick={() => setMobileOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted }}>
+          <button onClick={() => setMobileOpen(false)} aria-label="Cerrar" style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <X size={20} />
           </button>
+        </div>
+
+        {/* Segmento */}
+        <div style={{ marginBottom: 20 }}>
+          <span style={labelSm}>Tipo de propiedad</span>
+          {segmentToggle}
         </div>
 
         {/* Zona: Toda la ciudad → comuna → barrio (selects nativos) */}
@@ -1375,7 +1453,7 @@ export function MapFilterBar({
                 if (c) onComunaSelect?.(c.cd as number, c.nombre);
                 setMobileOpen(false);
               }}
-              style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, color: C.ink, background: "#fff" }}
+              style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, minHeight: 44, padding: "8px 10px", fontSize: 16, color: C.ink, background: "#fff" }}
             >
               <option value="">Toda la ciudad</option>
               <optgroup label="Comunas Medellín">
@@ -1399,7 +1477,7 @@ export function MapFilterBar({
                     ?.barrios.find((x) => String(x.id) === e.target.value);
                   if (b) { onBarrioNavigate?.(b); setMobileOpen(false); }
                 }}
-                style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, color: C.ink, background: "#fff" }}
+                style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, minHeight: 44, padding: "8px 10px", fontSize: 16, color: C.ink, background: "#fff" }}
               >
                 <option value="">Toda la comuna</option>
                 {(groupComunas(allBarrios).find((g) => g.cd === activeComunaCd)?.barrios ?? [])
@@ -1412,17 +1490,19 @@ export function MapFilterBar({
 
         {/* Precio */}
         <div style={{ marginBottom: 20 }}>
-          <span style={labelSm}>{isRent ? "Precio / mes" : "Precio"} ({lang === "en" ? "USD" : "COP"})</span>
+          {/* one complete label per variant (no "Precio / mes" + "(COP)" concatenation for the dictionary to half-translate) */}
+          <span style={labelSm} data-i18n-skip>{PRICE_LABELS[lang === "en" ? "en" : "es"][isRent ? "rent" : "sale"][pf.currency === "USD" ? "USD" : "COP"]}</span>
+          <span style={{ marginLeft: 8 }}><CurrencyToggle compact /></span>
           <div style={{ display: "flex", gap: 8 }}>
             <input
-              type="number" placeholder="Mínimo" aria-label="Precio mínimo" value={precioMinField.text}
+              type="text" inputMode="numeric" autoComplete="off" placeholder="Mínimo" aria-label="Precio mínimo" value={precioMinField.text}
               onChange={(e) => precioMinField.handleChange(e.target.value)}
-              style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 13, outline: "none", color: C.ink, background: "#fff" }}
+              style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, minHeight: 44, padding: "8px 12px", fontSize: 16, outline: "none", color: C.ink, background: "#fff" }}
             />
             <input
-              type="number" placeholder="Máximo" aria-label="Precio máximo" value={precioMaxField.text}
+              type="text" inputMode="numeric" autoComplete="off" placeholder="Máximo" aria-label="Precio máximo" value={precioMaxField.text}
               onChange={(e) => precioMaxField.handleChange(e.target.value)}
-              style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 13, outline: "none", color: C.ink, background: "#fff" }}
+              style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, minHeight: 44, padding: "8px 12px", fontSize: 16, outline: "none", color: C.ink, background: "#fff" }}
             />
           </div>
         </div>
@@ -1431,19 +1511,19 @@ export function MapFilterBar({
         <div style={{ marginBottom: 20 }}>
           <span style={labelSm}>Habitaciones</span>
           <div style={{ display: "flex", gap: 6 }}>
-            {[null, 1, 2, 3, 4].map((h, i) => (
+            {[null, 0, 1, 2, 3, 4].map((h, i) => (
               <button
                 key={String(h)}
                 onClick={() => onFiltersChange({ habitaciones: h })}
                 style={{
-                  flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 12,
+                  flex: 1, minHeight: 44, padding: "8px 0", borderRadius: 8, fontSize: 12,
                   border: `1px solid ${filters.habitaciones === h ? C.teal : C.border}`,
                   background: filters.habitaciones === h ? C.teal : C.white,
                   color: filters.habitaciones === h ? "#fff" : C.ink,
                   cursor: "pointer",
                 }}
               >
-                {["Todas", "1", "2", "3", "4+"][i]}
+                {["Todas", "Studio (0)", "1", "2", "3", "4+"][i]}
               </button>
             ))}
           </div>
@@ -1453,7 +1533,7 @@ export function MapFilterBar({
         <div style={{ marginBottom: 20 }}>
           <span style={labelSm}>Tipo de inmueble</span>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {TIPO_OPTIONS.map((opt) => {
+            {tipoOptionsFor(filters.segmento).map((opt) => {
               const active = (filters.tipoInmueble ?? []).includes(opt.value);
               return (
                 <button
@@ -1464,7 +1544,7 @@ export function MapFilterBar({
                     onFiltersChange({ tipoInmueble: next.length === 0 ? null : next });
                   }}
                   style={{
-                    padding: "6px 12px", borderRadius: 8, fontSize: 12,
+                    minHeight: 44, padding: "6px 12px", borderRadius: 8, fontSize: 12,
                     border: `1px solid ${active ? C.teal : C.border}`,
                     background: active ? C.teal : C.white,
                     color: active ? "#fff" : C.ink,
@@ -1478,6 +1558,17 @@ export function MapFilterBar({
           </div>
         </div>
 
+        {/* Ocultar destacados */}
+        <label style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 44, marginBottom: 20, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={filters.ocultarDestacados}
+            onChange={(e) => onFiltersChange({ ocultarDestacados: e.target.checked })}
+            style={{ width: 22, height: 22 }}
+          />
+          <span style={{ fontSize: 14, color: C.ink }}>Ocultar destacados</span>
+        </label>
+
         {activeTab === "buy" && (
           <>
             {/* Baños */}
@@ -1489,7 +1580,7 @@ export function MapFilterBar({
                     key={String(b)}
                     onClick={() => onFiltersChange({ banos: b })}
                     style={{
-                      flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 12,
+                      flex: 1, minHeight: 44, padding: "8px 0", borderRadius: 8, fontSize: 12,
                       border: `1px solid ${filters.banos === b ? C.teal : C.border}`,
                       background: filters.banos === b ? C.teal : C.white,
                       color: filters.banos === b ? "#fff" : C.ink,
@@ -1513,7 +1604,7 @@ export function MapFilterBar({
                 key={String(opt.value)}
                 onClick={() => onFiltersChange({ estadoInmueble: opt.value as "Nuevo" | "Usado" | null })}
                 style={{
-                  flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 12,
+                  flex: 1, minHeight: 44, padding: "8px 0", borderRadius: 8, fontSize: 12,
                   border: `1px solid ${filters.estadoInmueble === opt.value ? C.teal : C.border}`,
                   background: filters.estadoInmueble === opt.value ? C.teal : C.white,
                   color: filters.estadoInmueble === opt.value ? "#fff" : C.ink,
@@ -1537,7 +1628,7 @@ export function MapFilterBar({
                   key={String(p)}
                   onClick={() => onFiltersChange({ pisoMin: p })}
                   style={{
-                    flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 12,
+                    flex: 1, minHeight: 44, padding: "8px 0", borderRadius: 8, fontSize: 12,
                     border: `1px solid ${active ? C.teal : C.border}`,
                     background: active ? C.teal : C.white,
                     color: active ? "#fff" : C.ink,
@@ -1573,12 +1664,12 @@ export function MapFilterBar({
                 <input
                   type="number" placeholder="Mínimo" aria-label="Área mínima" value={areaMinField.text}
                   onChange={(e) => areaMinField.handleChange(e.target.value)}
-                  style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 13, outline: "none", color: C.ink, background: "#fff" }}
+                  style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, minHeight: 44, padding: "8px 12px", fontSize: 16, outline: "none", color: C.ink, background: "#fff" }}
                 />
                 <input
                   type="number" placeholder="Máximo" aria-label="Área máxima" value={areaMaxField.text}
                   onChange={(e) => areaMaxField.handleChange(e.target.value)}
-                  style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 13, outline: "none", color: C.ink, background: "#fff" }}
+                  style={{ flex: 1, minWidth: 0, boxSizing: "border-box", border: `1px solid ${C.border}`, borderRadius: 8, minHeight: 44, padding: "8px 12px", fontSize: 16, outline: "none", color: C.ink, background: "#fff" }}
                 />
               </div>
             </div>
@@ -1624,7 +1715,7 @@ export function MapFilterBar({
                       key={opt.val}
                       onClick={() => onFiltersChange({ diasMercado: active ? null : opt.val })}
                       style={{
-                        flex: 1, padding: "8px 4px", borderRadius: 8, fontSize: 12,
+                        flex: 1, minHeight: 44, padding: "8px 4px", borderRadius: 8, fontSize: 12,
                         border: `1px solid ${active ? C.teal : C.border}`,
                         background: active ? C.teal : C.white, color: active ? "#fff" : C.ink, cursor: "pointer",
                       }}
@@ -1655,7 +1746,7 @@ export function MapFilterBar({
                             onFiltersChange({ amenidades: rest.length === 0 ? null : rest, amoblado: hasAmoblado ? true : null });
                           }}
                           style={{
-                            padding: "6px 12px", borderRadius: 8, fontSize: 12,
+                            minHeight: 44, padding: "6px 12px", borderRadius: 8, fontSize: 12,
                             border: `1px solid ${active ? C.teal : C.border}`,
                             background: active ? C.teal : C.white, color: active ? "#fff" : C.ink, cursor: "pointer",
                           }}
@@ -1674,13 +1765,13 @@ export function MapFilterBar({
         <div style={{ display: "flex", gap: 10, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
           <button
             onClick={() => { onResetAll?.(); setMobileOpen(false); }}
-            style={{ flex: 1, padding: "12px", borderRadius: 10, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 13, cursor: "pointer" }}
+            style={{ flex: 1, minHeight: 44, padding: "12px", borderRadius: 10, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 13, cursor: "pointer" }}
           >
             Limpiar todo
           </button>
           <button
             onClick={() => setMobileOpen(false)}
-            style={{ flex: 2, padding: "12px", borderRadius: 10, background: C.teal, color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+            style={{ flex: 2, minHeight: 44, padding: "12px", borderRadius: 10, background: C.teal, color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
           >
             Aplicar filtros
           </button>
@@ -1690,10 +1781,15 @@ export function MapFilterBar({
   );
 
   // ── Floating dropdown (fixed-positioned sibling to escape stacking context) ──
+  const anchor = anchorEl && anchorEl.isConnected ? anchorEl.getBoundingClientRect() : null;
+  const vw = typeof window !== "undefined" ? (window.visualViewport?.width ?? window.innerWidth) : 1024;
   const wrapStyle: React.CSSProperties | null = anchor ? {
     position: "fixed",
     top: anchor.bottom + 4,
-    left: Math.min(anchor.left, window.innerWidth - 284),
+    left: Math.max(8, Math.min(anchor.left, vw - 300)),
+    maxWidth: "calc(100vw - 16px)",
+    maxHeight: "calc(100dvh - 120px)",
+    overflowY: "auto",
     zIndex: 200,
   } : null;
 
@@ -1702,7 +1798,7 @@ export function MapFilterBar({
       case "precio":
         return (
           <div ref={dropdownRef} style={wrapStyle}>
-            <PrecioPanel filters={filters} isRent={isRent} onChange={onFiltersChange} onClose={close} lang={lang} trm={trm} />
+            <PrecioPanel filters={filters} isRent={isRent} onChange={onFiltersChange} onClose={close} lang={lang} fmtPrice={pf.formatPriceCompact} minField={precioMinField} maxField={precioMaxField} currency={pf.currency} />
           </div>
         );
       case "habBanos":
@@ -1877,6 +1973,18 @@ export function MapFilterBar({
                 })}
               </div>
 
+              {/* Ocultar destacados */}
+              <label style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 36, marginBottom: 16, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  data-testid="ocultar-destacados"
+                  checked={filters.ocultarDestacados}
+                  onChange={(e) => onFiltersChange({ ocultarDestacados: e.target.checked })}
+                  style={{ width: 18, height: 18 }}
+                />
+                <span style={{ fontSize: 13, color: C.ink }}>Ocultar destacados</span>
+              </label>
+
               {/* PRO teasers — solo para usuarios sin plan pro */}
               {!isPro && (
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
@@ -1908,7 +2016,7 @@ export function MapFilterBar({
               {/* Actions */}
               <div style={{ display: "flex", gap: 8, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
                 <button
-                  onClick={() => { onFiltersChange({ areaMin: null, areaMax: null, antiguedad: null, estrato: null, diasMercado: null, amoblado: null, estadoInmueble: null, pisoMin: null }); close(); }}
+                  onClick={() => { onFiltersChange({ areaMin: null, areaMax: null, antiguedad: null, estrato: null, diasMercado: null, amoblado: null, estadoInmueble: null, pisoMin: null, ocultarDestacados: false }); close(); }}
                   style={{ flex: 1, padding: "8px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 12, cursor: "pointer" }}
                 >
                   Limpiar
@@ -1940,6 +2048,7 @@ export function MapFilterBar({
           style={{
             border: "none", background: activeTab === id ? C.teal : "transparent",
             color: activeTab === id ? "#fff" : C.muted, padding: "5px 12px",
+            minHeight: isMobile ? 44 : 30,
             fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
           }}
         >
@@ -1972,6 +2081,7 @@ export function MapFilterBar({
         {/* Desktop */}
         <div className="hidden md:flex w-full items-center" style={{ gap: 10 }}>
           {opToggle}
+          {activeTab !== "sell" && segmentToggle}
           {activeTab === "sell" ? sellContent : desktopContent}
         </div>
 
@@ -1987,7 +2097,7 @@ export function MapFilterBar({
                   background: activeCount > 0 ? C.teal : C.white,
                   color: activeCount > 0 ? "#fff" : C.ink,
                   border: `1px solid ${activeCount > 0 ? C.teal : C.border}`,
-                  borderRadius: 8, padding: "0 14px", height: 34,
+                  borderRadius: 8, padding: "0 14px", height: 44,
                   fontSize: 12, fontWeight: 600, cursor: "pointer",
                 }}
               >
@@ -2006,7 +2116,7 @@ export function MapFilterBar({
               {activeCount > 0 && (
                 <button
                   onClick={onResetAll}
-                  style={{ background: "none", border: "none", color: C.teal, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                  style={{ background: "none", border: "none", color: C.teal, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 44, padding: "0 8px" }}
                 >
                   Limpiar
                 </button>
@@ -2017,13 +2127,14 @@ export function MapFilterBar({
       </div>
 
       {/* Search suggestions — position:fixed so it floats above map/WebGL */}
-      {searchOpen && suggestions.length > 0 && searchRect && (
+      {searchOpen && suggestions.length > 0 && searchInputRef.current && (
         <div
           ref={searchRef}
           style={{
             position: "fixed",
-            top: searchRect.bottom + 4,
-            left: searchRect.left,
+            top: searchInputRef.current.getBoundingClientRect().bottom + 4,
+            left: Math.max(8, Math.min(searchInputRef.current.getBoundingClientRect().left, vw - 248)),
+            maxWidth: "calc(100vw - 16px)",
             zIndex: 9999,
             background: C.white, border: `1px solid ${C.border}`,
             borderRadius: 10, boxShadow: "0 4px 20px rgba(0,0,0,0.16)",
@@ -2032,7 +2143,7 @@ export function MapFilterBar({
         >
           {suggestions.map((opt) => (
             <button
-              key={opt.id}
+              key={`${opt.id}-${opt.label}`}
               onMouseDown={(e) => { e.preventDefault(); handleSearchSelect(opt); }}
               style={{
                 display: "block", width: "100%", textAlign: "left",
@@ -2043,10 +2154,16 @@ export function MapFilterBar({
               onMouseEnter={(e) => (e.currentTarget.style.background = C.surface)}
               onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
             >
-              <span style={{ fontWeight: 600 }}>{opt.nombre}</span>
-              <span style={{ color: C.muted, fontSize: 11, marginLeft: 6 }}>{opt.municipio}</span>
-              {opt.comuna && (
-                <span style={{ color: C.muted, fontSize: 11, marginLeft: 4 }}>· {opt.comuna}</span>
+              <span data-i18n-skip style={{ fontWeight: 600 }}>{opt.label}</span>
+              {opt.hint ? (
+                <span data-i18n-skip style={{ color: C.muted, fontSize: 11, marginLeft: 6 }}>→ {opt.hint}</span>
+              ) : (
+                <>
+                  <span data-i18n-skip style={{ color: C.muted, fontSize: 11, marginLeft: 6 }}>{opt.municipio}</span>
+                  {opt.comuna && (
+                    <span data-i18n-skip style={{ color: C.muted, fontSize: 11, marginLeft: 4 }}>· {opt.comuna}</span>
+                  )}
+                </>
               )}
             </button>
           ))}

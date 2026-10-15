@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useMagicLinkVerify } from "@/hooks/useAuth";
@@ -5,9 +6,7 @@ import { CheckCircle, XCircle, Loader2, Mail } from "@/lib/icons";
 
 export const Route = createFileRoute("/login_/verificar")({
   component: MagicLinkVerifyPage,
-  head: () => ({
-    meta: [{ title: "Ingresando… · Medellín Social" }],
-  }),
+  head: () => seo({ title: "Ingresando… · Medellín Social", description: "Verificando tu enlace de acceso.", noindex: true }),
 });
 
 type Step = "loading" | "done" | "error";

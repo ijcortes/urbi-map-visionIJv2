@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional
 from api.services.agent_service import ESTADOS_ASIGNABLES
 from api.services.sponsorship_service import patrocinadores_vigentes
 from api.services.zona_service import resolver_zona
+from api.utils.pii import mask_email
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ async def _notificar_lead_asignado(agent_id: str, intake_id: str, pool: Any) -> 
     """Email al realtor: te llegó un lead nuevo. Best-effort — jamás tumba la
     asignación (el timeout de 48h es la red de seguridad si el aviso no llega)."""
     try:
-        from api.utils.email import send_email  # import tardío: evita ciclo utils↔services
+        from api.utils.email import esc, send_email  # import tardío: evita ciclo utils↔services
 
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -103,13 +104,13 @@ async def _notificar_lead_asignado(agent_id: str, intake_id: str, pool: Any) -> 
             f"Nuevo inmueble asignado en {row['barrio']} — acéptalo antes de {ASIGNADO_TIMEOUT_HORAS} h",
             f"""
             <h3 style="color:#1D9E75">Te llegó un inmueble nuevo</h3>
-            <p>Hola {row['nombre']}, un propietario publicó en tu zona patrocinada:</p>
-            <p><strong>{(row['tipo'] or '').capitalize()} en {row['operacion'] or ''}</strong> · {row['barrio']} · {precio}</p>
+            <p>Hola {esc(row['nombre'])}, un propietario publicó en tu zona patrocinada:</p>
+            <p><strong>{esc((row['tipo'] or '').capitalize())} en {esc(row['operacion'] or '')}</strong> · {esc(row['barrio'])} · {precio}</p>
             <p>Tienes <strong>{ASIGNADO_TIMEOUT_HORAS} horas</strong> para aceptarlo; después vuelve al pool abierto.</p>
             <p><a href="{app_url}/realtor/dashboard" style="color:#085041;font-weight:600">Abrir mi inbox →</a></p>
             """,
         )
-        logger.info("Lead %s: notificación enviada a %s", intake_id, row["email"])
+        logger.info("Lead %s: notificación enviada a %s", intake_id, mask_email(row["email"]))
     except Exception:
         logger.exception("Lead %s: notificación al agente %s falló", intake_id, agent_id)
 

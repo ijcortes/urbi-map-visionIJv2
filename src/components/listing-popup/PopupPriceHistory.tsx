@@ -7,6 +7,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { usePriceFormat } from "@/hooks/usePriceFormat";
+import { formatDate } from "@/lib/format";
 
 type HistoriaItem = { precio: number; fecha: string; delta_pct?: number | null };
 
@@ -19,6 +21,7 @@ type Props = {
 /** Price history mini-chart. The API returns exact duplicates (same fecha+precio),
  *  so dedupe first; renders only with >1 real point, otherwise null. */
 export function PopupPriceHistory({ historia, precioActual }: Props) {
+  const { formatPrice, lang } = usePriceFormat();
   if (!historia || historia.length === 0) return null;
 
   const seen = new Set<string>();
@@ -34,14 +37,15 @@ export function PopupPriceHistory({ historia, precioActual }: Props) {
   if (puntos.length < 2) return null;
 
   const fmtFecha = (iso: string) =>
-    new Date(`${iso}T12:00:00`).toLocaleDateString("es-CO", { day: "2-digit", month: "short" });
+    formatDate(new Date(`${iso}T12:00:00`), lang, { day: "2-digit", month: "short" });
 
+  const todayLabel = lang === "en" ? "Today" : "Hoy";
   const chartData = puntos.map((h) => ({
     fecha: fmtFecha(h.fecha),
-    precio: +(h.precio / 1_000_000).toFixed(2),
+    precio: h.precio,
   }));
   if (precioActual) {
-    chartData.push({ fecha: "Hoy", precio: +(precioActual / 1_000_000).toFixed(2) });
+    chartData.push({ fecha: todayLabel, precio: precioActual });
   }
   const ultimo = chartData[chartData.length - 1];
 
@@ -55,7 +59,7 @@ export function PopupPriceHistory({ historia, precioActual }: Props) {
               <XAxis dataKey="fecha" tick={{ fontSize: 9, fill: "#6E726E" }} tickLine={false} axisLine={false} />
               <YAxis hide domain={["auto", "auto"]} />
               <RechartsTooltip
-                formatter={(val: unknown) => [`$${val}M COP`, "Precio"]}
+                formatter={(val: unknown) => [formatPrice(Number(val)), lang === "en" ? "Price" : "Precio"]}
                 contentStyle={{ background: "#111418", border: "none", borderRadius: 8, color: "#fff", fontSize: 11 }}
                 labelStyle={{ color: "rgba(255,255,255,0.7)", fontSize: 10 }}
               />
@@ -68,7 +72,7 @@ export function PopupPriceHistory({ historia, precioActual }: Props) {
                 activeDot={{ r: 4, fill: "#0F8A4F" }}
               />
               {precioActual ? (
-                <ReferenceDot x="Hoy" y={ultimo.precio} r={4} fill="#CE1126" stroke="#fff" strokeWidth={2} />
+                <ReferenceDot x={todayLabel} y={ultimo.precio} r={4} fill="#CE1126" stroke="#fff" strokeWidth={2} />
               ) : null}
             </LineChart>
           </ResponsiveContainer>

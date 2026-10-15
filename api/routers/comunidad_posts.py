@@ -28,8 +28,8 @@ class PostSubmitIn(BaseModel):
     autor_handle: Optional[str] = Field(default=None, max_length=120)
     titulo: str = Field(min_length=3, max_length=200)
     cuerpo: str = Field(min_length=10, max_length=8000)
-    imagen_url: Optional[str] = None
-    enlace_url: Optional[str] = None
+    imagen_url: Optional[str] = Field(default=None, max_length=1000)
+    enlace_url: Optional[str] = Field(default=None, max_length=1000)
     barrio_id: Optional[int] = None
     municipio: Optional[str] = Field(default=None, max_length=120)
     categoria: Optional[str] = Field(default=None, max_length=60)

@@ -14,7 +14,6 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@cloudflare/vite-plugin": "^1.25.5",
     "@phosphor-icons/react": "^2.1.10",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -35,9 +34,9 @@
     "@sentry/react": "^10.53.1",
     "@tailwindcss/vite": "^4.2.1",
     "@tanstack/react-query": "^5.83.0",
-    "@tanstack/react-router": "^1.168.0",
-    "@tanstack/react-start": "^1.167.14",
-    "@tanstack/router-plugin": "^1.167.10",
+    "@tanstack/react-router": "^1.170.42",
+    "@tanstack/react-start": "^1.168.61",
+    "@tanstack/router-plugin": "^1.168.42",
     "@turf/turf": "^7.3.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -59,11 +58,13 @@
   "devDependencies": {
     "@eslint/js": "^9.32.0",
     "@lovable.dev/vite-tanstack-config": "^1.4.0",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^22.16.5",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.4",
-    "@vitest/ui": "^2.1.9",
+    "@vitest/ui": "^5.0.4",
     "eslint": "^9.32.0",
     "eslint-config-prettier": "^10.1.1",
     "eslint-plugin-prettier": "^5.2.6",
@@ -75,6 +76,9 @@
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
     "vite": "^7.3.1",
-    "vitest": "^2.1.9"
+    "vitest": "^5.0.4"
+  },
+  "overrides": {
+    "seroval": "^1.6.9"
   }
 }

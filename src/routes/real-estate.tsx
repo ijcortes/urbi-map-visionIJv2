@@ -1,4 +1,6 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute } from '@tanstack/react-router'
+import { formatMoney } from "@/lib/format";
 import { useQuery } from '@tanstack/react-query'
 import { useState, useMemo } from 'react'
 import { apiFetch } from '@/lib/apiClient'
@@ -9,12 +11,7 @@ import { K as TOKENS } from "@/design/tokens";
 
 export const Route = createFileRoute('/real-estate')({
   component: RealEstateRoot,
-  head: () => ({
-    meta: [
-      { title: 'Mercado Inmobiliario · Valle de Aburrá · Medellín Social' },
-      { name: 'description', content: '54,000+ propiedades. Datos reales. Compra, arrienda e invierte en el Valle de Aburrá con los mejores agentes locales.' },
-    ],
-  }),
+  head: () => seo({ title: "Real estate en Medellín · Medellín Social", description: "Inteligencia inmobiliaria para invertir en Medellín y el Valle de Aburrá.", path: "/real-estate" }),
 })
 
 function RealEstateRoot() {
@@ -32,8 +29,7 @@ const K = TOKENS;
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function fmtCOP(n: number): string {
-  if (n >= 1_000_000) return `$${Math.round(n / 1_000_000).toLocaleString("es-CO")}M`
-  return `$${n.toLocaleString('es-CO')}`
+  return formatMoney(n, "COP", undefined, { suffix: false })
 }
 
 // ── Static data ───────────────────────────────────────

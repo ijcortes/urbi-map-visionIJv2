@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { API_BASE_URL } from '@/config/api'
@@ -8,12 +9,7 @@ import { K as TOKENS } from "@/design/tokens";
 
 export const Route = createFileRoute('/embajador')({
   component: EmbajadorPage,
-  head: () => ({
-    meta: [
-      { title: 'Sé Embajador de Barrio · Medellín Social' },
-      { name: 'description', content: 'Sé la voz de tu barrio en Medellín. Conecta negocios y gana comisión recurrente hasta 24 meses.' },
-    ],
-  }),
+  head: () => seo({ title: "Sé Embajador de Barrio · Medellín Social", description: "Sé la voz de tu barrio en Medellín. Conecta negocios y gana comisión recurrente hasta 24 meses.", path: "/embajador" }),
 })
 
 const K = TOKENS;
@@ -439,7 +435,7 @@ function EmbajadorPage() {
                       <select required value={barrioId ?? ''} onChange={e => setBarrioId(e.target.value ? Number(e.target.value) : null)} style={{ ...inputStyle, cursor: 'pointer' }}>
                         <option value="">Selecciona tu barrio…</option>
                         {BARRIOS.filter(b => b.barrio_id !== null).map(b => (
-                          <option key={b.slug} value={b.barrio_id!}>{b.nombre}</option>
+                          <option data-i18n-skip key={b.slug} value={b.barrio_id!}>{b.nombre}</option>
                         ))}
                       </select>
                     </div>

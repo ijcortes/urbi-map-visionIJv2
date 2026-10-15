@@ -12,12 +12,16 @@ import time
 import asyncpg
 import pytest
 
+pytestmark = pytest.mark.require_db  # needs a live Postgres (conn refused in CI sandbox)
+
 from api.routers import listings as L
 
 ALL_NULL = (None, None, None, None, None, None, None, None, False,
-            None, None, None, None, None, None)
+            None, None, None, None, None, None,
+            None, False)  # + $16 segmento, $17 ocultar_destacados
 VENTA = (None, None, "venta", None, None, None, None, None, False,
-         None, None, None, None, None, None)
+         None, None, None, None, None, None,
+         None, False)
 
 
 async def _fetch(conn, sql, args, limit=500):

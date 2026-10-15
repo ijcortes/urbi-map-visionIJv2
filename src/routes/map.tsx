@@ -1,24 +1,26 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { RouteError, RoutePending } from "@/components/RouteStates";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { API_ENDPOINTS } from "@/config/api";
 import { useTarget, type Target } from "@/contexts/TargetContext";
 import { ProfileChipMobile } from "@/components/Navbar";
 import type { MapTab } from "@/components/MapNavbar";
 import { ComunidadNavbar } from "@/components/comunidad/ComunidadNavbar";
 import { BarrioProvider } from "@/components/comunidad/BarrioContext";
+import { SegmentGate } from "@/components/SegmentGate";
+import { getStoredSegmento, setStoredSegmento, pruneTiposForSegmento, mapTourReady, type Segmento } from "@/lib/segmento";
 import { MapFilterBar, EMPTY_SHARED_FILTERS, TAB_TIPO_OP, type SharedFilters } from "@/components/MapFilterBar";
 import { MapView } from "@/components/MapView";
-import { FloatingPanel } from "@/components/FloatingPanel";
 import { OpportunitiesPanel } from "@/components/OpportunitiesPanel";
-import { MLSPanel } from "@/components/MLSPanel";
 import type { Neighborhood } from "@/lib/adapters";
 import type { ApiListing } from "@/lib/adapters";
 import { auth } from "@/lib/auth";
 import { track } from "@/lib/tracking";
 import { useListings, useBarriosRaw, type ListingsApiFilters } from "@/hooks/useBarrios";
+import { geoSelectionForBarrio } from "@/lib/listingParams";
 import { barrioToNeighborhood, barrioToOption, type BarrioOption } from "@/lib/adapters";
 import { useMemo } from "react";
-import { ListingDrawer } from "@/components/ListingDrawer";
 import { ListingMiniPopup } from "@/components/ListingMiniPopup";
 import { ListingPopup } from "@/components/listing-popup/ListingPopup";
 import { ComparadorBadge } from "@/components/ComparadorBadge";
@@ -27,8 +29,16 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { List, Map as MapIcon } from "@/lib/icons";
 import { AnimatePresence } from "framer-motion";
 
+// Heavy panels load on demand (own chunks) instead of inside the map route chunk.
+const FloatingPanel = lazy(() => import("@/components/FloatingPanel").then((m) => ({ default: m.FloatingPanel })));
+const MLSPanel = lazy(() => import("@/components/MLSPanel").then((m) => ({ default: m.MLSPanel })));
+const ListingDrawer = lazy(() => import("@/components/ListingDrawer").then((m) => ({ default: m.ListingDrawer })));
+
 export const Route = createFileRoute("/map")({
+  head: () => seo({ title: "Mapa de inmuebles y barrios · Medellín Social", description: "Explora apartamentos, casas y locales en venta y arriendo en Medellín y el Valle de Aburrá, con precios por barrio, seguridad y rentabilidad.", path: "/map" }),
   component: MapPage,
+  errorComponent: RouteError,
+  pendingComponent: RoutePending,
 });
 
 // Zillow-style popup rollout flag — false restores the old ListingMiniPopup.
@@ -98,6 +108,18 @@ function MapPageInner() {
       : null;
     return { ...EMPTY_SHARED_FILTERS, tipoOp: op === "arriendo" ? "arriendo" : "venta" };
   });
+  // Segment gate: residential/commercial is chosen BEFORE any result. "pending" until the
+  // persisted choice is read on the client (no SSR flash), "open" = ask, "done" = chosen.
+  const [segmentoGate, setSegmentoGate] = useState<"pending" | "open" | "done">("pending");
+  useEffect(() => {
+    const stored = getStoredSegmento();
+    if (stored) {
+      setSharedFilters((f) => ({ ...f, segmento: stored, tipoInmueble: pruneTiposForSegmento(f.tipoInmueble, stored) }));
+      setSegmentoGate("done");
+    } else {
+      setSegmentoGate("open");
+    }
+  }, []);
   const [selected, setSelected] = useState<Neighborhood | null>(null);
   const [mostrarOportunidades, setMostrarOportunidades] = useState(
     () => auth.get()?.mostrarOportunidades ?? false
@@ -128,6 +150,10 @@ function MapPageInner() {
 
   // Listing detail modal
   const [listingDetailId, setListingDetailId] = useState<number | null>(null);
+  const [drawerMounted, setDrawerMounted] = useState(false);
+  useEffect(() => {
+    if (listingDetailId != null) setDrawerMounted(true);
+  }, [listingDetailId]);
 
   // Mini popup (single-click on card or map point)
   const [miniPopupData, setMiniPopupData] = useState<{ listing: ApiListing; x: number; y: number } | null>(null);
@@ -166,7 +192,9 @@ function MapPageInner() {
     precio_max:   sharedFilters.precioMax,
     habitaciones: sharedFilters.habitaciones,
     tipo_inmueble: sharedFilters.tipoInmueble,
-  }), [sharedFilters.areaMin, sharedFilters.areaMax, sharedFilters.banos, sharedFilters.antiguedad,
+    segmento:     sharedFilters.segmento,
+    ocultar_destacados: sharedFilters.ocultarDestacados,
+  }), [sharedFilters.segmento, sharedFilters.ocultarDestacados, sharedFilters.areaMin, sharedFilters.areaMax, sharedFilters.banos, sharedFilters.antiguedad,
        sharedFilters.amenidades, sharedFilters.amoblado, sharedFilters.precioMin, sharedFilters.precioMax,
        sharedFilters.habitaciones, sharedFilters.tipoInmueble]);
 
@@ -183,7 +211,9 @@ function MapPageInner() {
     amenidades:     sharedFilters.amenidades,
     estadoInmueble: sharedFilters.estadoInmueble,
     pisoMin:        sharedFilters.pisoMin,
-  }), [sharedFilters.habitaciones, sharedFilters.banos, sharedFilters.areaMin, sharedFilters.areaMax,
+    segmento:       sharedFilters.segmento,
+    ocultarDestacados: sharedFilters.ocultarDestacados,
+  }), [sharedFilters.segmento, sharedFilters.ocultarDestacados, sharedFilters.habitaciones, sharedFilters.banos, sharedFilters.areaMin, sharedFilters.areaMax,
        sharedFilters.estrato, sharedFilters.tipoInmueble, sharedFilters.diasMercado, sharedFilters.busqueda,
        sharedFilters.amenidades, sharedFilters.estadoInmueble, sharedFilters.pisoMin]);
 
@@ -425,18 +455,29 @@ function MapPageInner() {
   function handleTabChange(tab: MapTab) {
     setActiveTab(tab);
     const tipoOp = TAB_TIPO_OP[tab];
-    setSharedFilters({ ...EMPTY_SHARED_FILTERS, tipoOp });
+    setSharedFilters((f) => ({ ...EMPTY_SHARED_FILTERS, segmento: f.segmento, tipoOp }));
     const t = TAB_TO_TARGET[tab];
     if (t) setTarget(t);
     if (tab === "sell") { setMapView("zonas"); setMlsBarrio(null); setGlobalSearch(false); }
   }
 
   function handleFiltersChange(partial: Partial<SharedFilters>) {
+    if (partial.segmento) {
+      const seg = partial.segmento;
+      setStoredSegmento(seg);
+      setSharedFilters((f) => ({ ...f, ...partial, tipoInmueble: pruneTiposForSegmento(f.tipoInmueble, seg) }));
+      return;
+    }
     setSharedFilters((f) => ({ ...f, ...partial }));
   }
 
+  function handleChooseSegmento(seg: Segmento) {
+    handleFiltersChange({ segmento: seg });
+    setSegmentoGate("done");
+  }
+
   function handleResetFilters() {
-    setSharedFilters({ ...EMPTY_SHARED_FILTERS, tipoOp: TAB_TIPO_OP[activeTab] });
+    setSharedFilters((f) => ({ ...EMPTY_SHARED_FILTERS, segmento: f.segmento, tipoOp: TAB_TIPO_OP[activeTab] }));
   }
 
   // Called from barrio popup "Ver inversiones"
@@ -449,8 +490,17 @@ function MapPageInner() {
     setActiveBarrioInComune(null);
   }
 
+  // A barrio selection replaces the whole zone (no stale municipio/comuna).
+  function applyGeoSelection(g: ReturnType<typeof geoSelectionForBarrio>) {
+    setActiveComuna(g.activeComuna);
+    setActiveComunaCd(g.activeComunaCd);
+    setActiveMunicipio(g.activeMunicipio);
+    setViewLevel("barrios");
+  }
+
   // Called from MLSPanel all-barrios selector
   function handleBarrioNavigate(opt: BarrioOption) {
+    applyGeoSelection(geoSelectionForBarrio({ cd_comuna: opt.cd_comuna, comuna: opt.comuna, municipio: opt.municipio }));
     const apiBarrio = barriosRaw?.find((b) => b.barrio_id === opt.id);
     if (apiBarrio) {
       setMlsBarrio(barrioToNeighborhood(apiBarrio));
@@ -581,27 +631,21 @@ function MapPageInner() {
   }
 
 
-  // Camera auto-select (FIX 1c): barrio under map center at high zoom → scope panel+dots.
-  function handleAutoSelectBarrio(barrioId: number | null) {
-    // "Toda la ciudad" (globalSearch) manda: la cámara no re-scopea a un barrio.
-    if (globalSearch) return;
-    if (barrioId == null) { setMlsBarrio(null); return; }
+  // Explicit barrio click on the map polygon (the camera never selects a zone).
+  function handleMapBarrioClick(barrioId: number) {
     const b = (barriosRaw ?? []).find((x) => x.barrio_id === barrioId);
-    if (b) setMlsBarrio(barrioToNeighborhood(b));
-  }
-
-  // Camera-derived commune/municipio (zoom < TIER) → scope viewport + breadcrumb.
-  function handleAutoSelectComuna(cd: number | null, municipio: string | null, nombre: string | null) {
-    // Con "Toda la ciudad" activo, ignorar el scoping por cámara (persistir ciudad).
-    if (globalSearch) return;
-    setMlsBarrio(null);
-    setActiveComunaCd(cd);
-    setActiveMunicipio(municipio);
-    setActiveComuna(nombre);
+    if (!b) return;
+    setGlobalSearch(false);
+    const n = barrioToNeighborhood(b);
+    applyGeoSelection(geoSelectionForBarrio(n));
+    setMlsBarrio(n);
+    setMapView("listings");
+    setSelected(null);
+    setActiveBarrioInComune(null);
   }
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-background">
+    <div className="relative h-dvh w-full max-w-full overflow-hidden bg-background">
       <div className="absolute inset-0 z-0" data-tour="map-canvas">
         <MapView
           selectedId={selected?.id ?? null}
@@ -623,8 +667,8 @@ function MapPageInner() {
           mlsFilters={mlsFilters}
           onViewportListingsChange={setViewportListings}
           onViewportLoadingChange={setViewportLoading}
-          onAutoSelectBarrio={handleAutoSelectBarrio}
-          onAutoSelectComuna={handleAutoSelectComuna}
+          onBarrioClick={handleMapBarrioClick}
+          paused={segmentoGate !== "done"}
           onReady={() => setMapReady(true)}
           highlightedListingId={highlightedListingId}
           flyToListingRef={flyToListingRef}
@@ -642,7 +686,7 @@ function MapPageInner() {
       {viewLevel === "barrios" && mapView === "zonas" && (
         <button
           onClick={handleBack}
-          className="absolute left-4 top-[108px] z-20 flex items-center gap-2 rounded-lg border border-white/10 bg-background/80 px-3 py-2 text-sm font-medium text-foreground backdrop-blur-md transition hover:bg-background/95"
+          className="absolute left-4 top-[calc(var(--map-header-h,53px)+56px)] z-20 flex items-center gap-2 rounded-lg border border-white/10 bg-background/80 px-3 py-2 text-sm font-medium text-foreground backdrop-blur-md transition hover:bg-background/95"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0">
             <path d="M10 12L6 8l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -674,13 +718,15 @@ function MapPageInner() {
         onComunaSelect={handleComunaSelect}
       />
       <ProfileChipMobile />
+      {segmentoGate === "open" && <SegmentGate onChoose={handleChooseSegmento} />}
 
       {/* Buscar en el Valle — filtros activos pero sin barrio/zona seleccionada */}
       {activeFilterCount > 0 && !mlsBarrio && !globalSearch && activeTab !== "agent" && (
         <button
           onClick={() => { setGlobalSearch(true); setMapView("listings"); }}
           style={{
-            position: "absolute", top: "calc(var(--map-header-h, 53px) + 56px)", left: "50%", transform: "translateX(-50%)",
+            // Mobile: the "Tutorial de la página" pill sits on this row (right side) — go one row lower.
+            position: "absolute", top: isMobile ? "calc(var(--map-header-h, 53px) + 98px)" : "calc(var(--map-header-h, 53px) + 56px)", left: "50%", transform: "translateX(-50%)",
             zIndex: 24, background: "#1e3a5f", color: "#FAF8F3",
             borderRadius: 8, padding: "6px 16px", fontSize: 12, fontWeight: 600,
             border: "none", cursor: "pointer", whiteSpace: "nowrap",
@@ -694,7 +740,9 @@ function MapPageInner() {
       {/* Vista 1: paneles normales */}
       {mapView === "zonas" && (
         <>
-          <FloatingPanel selected={selected} onClear={() => setSelected(null)} onSelect={setSelected} onGoToMLS={handleGoToMLS} />
+          <Suspense fallback={null}>
+            <FloatingPanel selected={selected} onClear={() => setSelected(null)} onSelect={setSelected} onGoToMLS={handleGoToMLS} />
+          </Suspense>
           <OpportunitiesPanel onSelect={setSelected} perfil={perfil} mostrarOportunidades={mostrarOportunidades} />
         </>
       )}
@@ -705,8 +753,8 @@ function MapPageInner() {
           desmonta el panel entero antes de que su animación interna corra. */}
       <AnimatePresence>
         {mapView === "listings" && panelBarrio && (!isMobile || mobileView === "list") && (
+        <Suspense key="mls-panel" fallback={null}>
         <MLSPanel
-          key="mls-panel"
           barrio={panelBarrio}
           listings={mergedListings}
           total={realTotal}
@@ -726,12 +774,14 @@ function MapPageInner() {
           premiumBarriosIncluidos={premiumBarriosIncluidos}
           onPremiumExpand={setPremiumExpand}
           externalFilters={sharedFilters}
+          onClearFilters={handleResetFilters}
           activeComuna={activeComuna}
           activeMunicipio={activeMunicipio}
           comunaBarrios={comunaBarriosList}
           onBackToComuna={handleBackToCommune}
           onSelectBarrioInComune={handleSelectBarrioInComune}
         />
+        </Suspense>
         )}
       </AnimatePresence>
 
@@ -773,14 +823,19 @@ function MapPageInner() {
       ))}
 
       {/* Listing detail drawer — slide-in (desktop) / bottom sheet (mobile) */}
-      <ListingDrawer listingId={listingDetailId} onClose={closeListingDetail} />
+      {/* Mounted from the first open on (keeps its close animation afterwards). */}
+      {(listingDetailId != null || drawerMounted) && (
+        <Suspense fallback={null}>
+          <ListingDrawer listingId={listingDetailId} onClose={closeListingDetail} />
+        </Suspense>
+      )}
 
       {/* Comparador floating badge */}
       <ComparadorBadge />
 
       <MapTourModal
         isMobile={isMobile}
-        dataReady={allBarrioOptions.length > 0 && !isDeepLink}
+        dataReady={mapTourReady(segmentoGate, allBarrioOptions.length > 0, isDeepLink)}
         activeComunaName={activeComuna ? activeComuna.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) : null}
         onDemoZoom={() => {
           flyToListingRef.current?.(6.2442, -75.5812, 14.5);

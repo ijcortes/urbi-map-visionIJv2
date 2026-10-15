@@ -1,3 +1,4 @@
+import { formatAntiguedad } from "@/lib/antiguedad";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -22,33 +23,28 @@ import { API_ENDPOINTS } from "@/config/api";
 import { MAPBOX_TOKEN } from "@/lib/mapboxToken";
 import { formatCOP } from "@/lib/format";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useFavoritosListings } from "@/hooks/useFavoritosListings";
+import { favKey, useFavoritosListings } from "@/hooks/useFavoritosListings";
 import { auth } from "@/lib/auth";
 import { ReclamarListingModal } from "@/components/ReclamarListingModal";
 import { toast } from "sonner";
+import { copyText } from "@/lib/clipboard";
 import type { ApiListingDetail, ApiListingAgente, ApiListingAgentes, SimilarListing } from "@/lib/adapters";
 import { toEmbedSrc } from "@/lib/embed";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { useComparadorStore } from "@/hooks/useComparadorStore";
-import { useTrm } from "@/hooks/useTrm";
-import { useLang } from "@/lib/i18n";
+import { usePriceFormat } from "@/hooks/usePriceFormat";
+import { OriginalListingLink } from "@/components/OriginalListingLink";
+import { formatDate } from "@/lib/format";
+import { useLang, translateString, Name } from "@/lib/i18n";
 import { useUnit, formatArea } from "@/hooks/useUnit";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
-
-function fmtUSD(cop: number, trm: number): string {
-  const v = cop / trm;
-  if (v < 1_000) return `$${Math.round(v)}`;
-  if (v < 1_000_000) return `$${(v / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
-  return `$${(v / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-}
 
 const TIPO_INMUEBLE_COLOR: Record<string, string> = {
   apartamento:   "#0F8A4F",
   casa:          "#CE1126",
   casa_lote:     "#CE1126",
   finca:         "#CE1126",
-  apartaestudio: "#C2410C",
   lote:          "#8A6A00",
   local:         "#1F5BC6",
   oficina:       "#6D4AA8",
@@ -113,17 +109,6 @@ function cleanDescripcion(text: string): string {
     // Espacios al final de cada línea
     .replace(/[ \t]+\n/g, "\n")
     .trim();
-}
-
-function cleanAntiguedad(val: string | null | undefined): string | null | undefined {
-  if (!val) return val;
-  return val
-    .replace(/(\d+)\s*Byears?/gi, "$1 años")
-    .replace(/\bByears?\b/gi, "Antigüedad no especificada")
-    .replace(/\bStratum\s*(\d+)/gi, "Estrato $1")
-    .replace(/\bStratum\b/gi, "Estrato")
-    .replace(/\bSale\b/g, "Venta")
-    .replace(/[Ll]ong.?term\s+rental/gi, "Renta larga");
 }
 
 // ─── sub-components ────────────────────────────────────────────────────────────
@@ -431,7 +416,7 @@ function AlertModal({ listing, onClose }: { listing: ApiListingDetail; onClose: 
             <BellRing className="h-5 w-5 text-[#0F8A4F]" />
             <span className="font-semibold text-[#111418]">Alerta de precio</span>
           </div>
-          <button onClick={onClose} className="text-[#5B5F5C] hover:text-[#111418]"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="grid h-11 w-11 place-items-center text-[#5B5F5C] hover:text-[#111418]"><X className="h-4 w-4" /></button>
         </div>
         <p className="mb-4 text-sm text-[#5B5F5C]">
           Te avisamos si esta propiedad baja de precio o aparece algo similar en{" "}
@@ -703,7 +688,7 @@ function ScheduleVisitModal({
               ¡Visita solicitada!
             </h3>
             <p className="text-sm font-medium capitalize" style={{ color: "#111418" }}>{enviado}</p>
-            {agente && <p className="text-[13px]" style={{ color: "#5B5F5C" }}>Con {agente.nombre}</p>}
+            {agente && <p className="text-[13px]" style={{ color: "#5B5F5C" }}>Con <Name>{agente.nombre}</Name></p>}
             <p className="mt-1 text-[13px]" style={{ color: "#5B5F5C" }}>Te contactaremos pronto para confirmar.</p>
             <button
               onClick={onClose}
@@ -728,7 +713,7 @@ function ScheduleVisitModal({
             </button>
           </div>
           {agente && (
-            <p className="mt-1.5 text-[13px] text-white/85">Con {agente.nombre}</p>
+            <p className="mt-1.5 text-[13px] text-white/85">Con <Name>{agente.nombre}</Name></p>
           )}
         </div>
 
@@ -887,7 +872,7 @@ function RealtorPrimaryCard({
             : <User className="h-7 w-7" style={{ color: "#0F8A4F" }} />}
         </div>
         <div className="min-w-0">
-          <div className="truncate text-base font-bold" style={{ color: "#111418" }}>{agente.nombre}</div>
+          <div className="truncate text-base font-bold" style={{ color: "#111418" }}><Name>{agente.nombre}</Name></div>
           <div className="flex items-center gap-1 text-[11px] font-semibold" style={{ color: "#0A5C36" }}>
             <Shield className="h-3 w-3" /> Agente de la {esComuna ? "comuna" : "zona"}
           </div>
@@ -920,7 +905,7 @@ function RealtorPrimaryCard({
             style={{ color: "#6E726E" }}
           >
             <User className="h-3 w-3" />
-            <span className="truncate">También: {secondary.nombre}, agente del barrio</span>
+            <span className="truncate">También: <Name>{secondary.nombre}</Name>, agente del barrio</span>
           </a>
         )}
       </div>
@@ -986,7 +971,7 @@ type Props = {
 };
 
 export function ListingDrawer({ listingId, onClose }: Props) {
-  const trm = useTrm();
+  const { formatPrice, formatSecondary, formatPricePerArea } = usePriceFormat();
   const { lang } = useLang();
   const { unit } = useUnit();
   const isMobile = useIsMobile();
@@ -1046,29 +1031,42 @@ export function ListingDrawer({ listingId, onClose }: Props) {
   }, [onClose]);
 
   useEffect(() => {
-    if (isMobile && listingId) {
+    // Lock page scroll while the drawer is open at ANY breakpoint (a viewport flip while
+    // open can no longer leave overflow:hidden stuck or fail to lock).
+    if (listingId) {
+      const prev = document.body.style.overflow;
       document.body.style.overflow = "hidden";
-      return () => { document.body.style.overflow = ""; };
+      // iOS: the map canvas under the sheet kept receiving touches (pan/zoom behind the
+      // drawer). styles.css turns map pointer events off while this class is set.
+      document.body.classList.add("drawer-open");
+      return () => {
+        document.body.style.overflow = prev;
+        document.body.classList.remove("drawer-open");
+      };
     }
-  }, [isMobile, listingId]);
+  }, [listingId]);
 
   // Update meta tags while popup is open
   useEffect(() => {
     if (!listing) return;
     const prevTitle = document.title;
-    const price = listing.precio_cop ? formatCOP(listing.precio_cop) : "—";
+    const price = formatPrice(listing.precio_cop);
     const tipo  = (listing.tipo_inmueble ?? "Inmueble").replace(/_/g, " ");
     const barrio = listing.barrio_nombre ?? "Medellín";
     const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-    document.title = `${cap(tipo)} en ${barrio} | ${price} — Medellín Social`;
+    const en = lang === "en";
+    const tipoT = en ? translateString(cap(tipo)) : cap(tipo);
+    document.title = `${tipoT} ${en ? "in" : "en"} ${barrio} | ${price} — Medellín Social`;
     const metaEl = document.querySelector('meta[name="description"]');
     const prevDesc = metaEl?.getAttribute("content") ?? null;
-    metaEl?.setAttribute("content", `${cap(tipo)} en ${barrio} por ${price}. Ver fotos, análisis y contactar agente.`);
+    metaEl?.setAttribute("content", (en
+      ? `${tipoT} in ${barrio} for ${price}. See photos, analysis and contact the agent.`
+      : `${tipoT} en ${barrio} por ${price}. Ver fotos, análisis y contactar agente.`));
     return () => {
       document.title = prevTitle;
       if (metaEl && prevDesc) metaEl.setAttribute("content", prevDesc);
     };
-  }, [listing]);
+  }, [listing, lang, formatPrice]);
 
   if (!listingId) return null;
 
@@ -1083,13 +1081,13 @@ export function ListingDrawer({ listingId, onClose }: Props) {
       : null;
 
   const waText = encodeURIComponent(
-    `Hola, me interesa este inmueble en ${listing?.barrio_nombre ?? "Medellín"} por ${listing?.precio_cop ? formatCOP(listing.precio_cop) : "—"} COP. ID: ${listingId}`,
+    `Hola, me interesa este inmueble en ${listing?.barrio_nombre ?? "Medellín"} por ${formatPrice(listing?.precio_cop)}. ID: ${listingId}`,
   );
   const waUrl = `https://wa.me/+573122502394?text=${waText}`;
 
   function handleShare() {
     const url = `${window.location.origin}/map?listing=${listingId}`;
-    navigator.clipboard.writeText(url).then(() => toast.success("Link copiado ✅"));
+    void copyText(url).then((ok) => (ok ? toast.success("Link copiado ✅") : toast.error("No se pudo copiar el link")));
   }
 
   // ─── Reusable fragments ────────────────────────────────────────────────────
@@ -1157,19 +1155,18 @@ export function ListingDrawer({ listingId, onClose }: Props) {
   const specsInline = listing && (listing.area_m2 != null || listing.habitaciones != null || listing.banos != null) ? (
     <div className="flex items-center gap-2 text-sm font-medium" style={{ color: "#111418" }}>
       {listing.area_m2 != null && <span className="flex items-center gap-1"><Maximize2 className="h-3.5 w-3.5 text-[#5B5F5C]" />{formatArea(listing.area_m2, unit)}</span>}
-      {listing.habitaciones != null && <span className="flex items-center gap-1"><Bed className="h-3.5 w-3.5 text-[#5B5F5C]" />{listing.habitaciones} hab</span>}
+      {listing.habitaciones != null && <span className="flex items-center gap-1"><Bed className="h-3.5 w-3.5 text-[#5B5F5C]" />{listing.habitaciones === 0 ? "Studio" : `${listing.habitaciones} hab`}</span>}
       {listing.banos != null && <span className="flex items-center gap-1"><Bath className="h-3.5 w-3.5 text-[#5B5F5C]" />{listing.banos} baños</span>}
     </div>
   ) : null;
 
   // Tabla de datos estilo Zillow (2 columnas). Cada celda solo si hay dato.
-  const precioM2Label = (v: number) => unit === "sqft"
-    ? `$${Math.round(v / 10.7639 / 1000)}k/ft²`
-    : (v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M/m²` : `$${Math.round(v / 1000)}k/m²`);
+  const precioM2Label = (v: number) => formatPricePerArea(v);
   const facts: { icon: React.ReactNode; text: string }[] = [];
   if (listing?.tipo_inmueble) facts.push({ icon: <Home className="h-4 w-4" />, text: listing.tipo_inmueble.replace(/_/g, " ") });
   if (listing?.nombre_edificio) facts.push({ icon: <Building2 className="h-4 w-4" />, text: listing.nombre_edificio });
-  if (listing?.antiguedad) facts.push({ icon: <Clock className="h-4 w-4" />, text: cleanAntiguedad(listing.antiguedad) ?? "" });
+  const antiguedadTxt = formatAntiguedad(listing?.antiguedad, lang);
+  if (antiguedadTxt) facts.push({ icon: <Clock className="h-4 w-4" />, text: antiguedadTxt });
   if (listing?.tipo_operacion === "venta" && listing?.precio_m2) facts.push({ icon: <BarChart2 className="h-4 w-4" />, text: `${precioM2Label(listing.precio_m2)}` });
   if (listing?.parqueaderos != null && listing.parqueaderos > 0) facts.push({ icon: <Car className="h-4 w-4" />, text: `${listing.parqueaderos} parqueadero${listing.parqueaderos === 1 ? "" : "s"}` });
   if (listing?.estrato_real != null) facts.push({ icon: <Shield className="h-4 w-4" />, text: `Estrato ${listing.estrato_real}` });
@@ -1213,12 +1210,12 @@ export function ListingDrawer({ listingId, onClose }: Props) {
   // enterrado al fondo del drawer, en ctaButtons).
   const favButton = listing ? (
     <button
-      onClick={() => { if (!auth.get()) return; toggleFav(listing.url ?? "", listing.barrio_id); }}
-      title={isFav(listing.url ?? "") ? "Quitar de favoritos" : "Guardar"}
+      onClick={() => { if (!auth.get()) return; toggleFav(favKey(listing), listing.barrio_id); }}
+      title={isFav(favKey(listing)) ? "Quitar de favoritos" : "Guardar"}
       className="grid h-11 w-11 shrink-0 place-items-center rounded-full transition"
-      style={{ border: "0.5px solid #E5E0D5", background: isFav(listing.url ?? "") ? "#FCE8EA" : "#FFFFFF" }}
+      style={{ border: "0.5px solid #E5E0D5", background: isFav(favKey(listing)) ? "#FCE8EA" : "#FFFFFF" }}
     >
-      <Heart className="h-5 w-5" style={{ color: isFav(listing.url ?? "") ? "#CE1126" : "#5B5F5C" }} fill={isFav(listing.url ?? "") ? "#CE1126" : "none"} />
+      <Heart className="h-5 w-5" style={{ color: isFav(favKey(listing)) ? "#CE1126" : "#5B5F5C" }} fill={isFav(favKey(listing)) ? "#CE1126" : "none"} />
     </button>
   ) : null;
 
@@ -1255,18 +1252,6 @@ export function ListingDrawer({ listingId, onClose }: Props) {
         )}
       </div>
       <div className="flex gap-2">
-        {listing.url && (
-          <a
-            href={listing.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-medium text-[#5B5F5C] transition hover:text-[#111418]"
-            style={{ border: "0.5px solid #E5E0D5", background: "#FFFFFF" }}
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-            {SOURCE_LABEL[fuente] ?? "Ver fuente original →"}
-          </a>
-        )}
         <button
           onClick={handleShare}
           title="Copiar link"
@@ -1348,8 +1333,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
       {/* Historial de precio — todos los targets */}
       {(() => {
         const historia = listing.precio_historia ?? [];
-        const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
-        const fmtFecha = (d: Date) => `${d.getDate()} ${MESES[d.getMonth()]} ${d.getFullYear()}`;
+        const fmtFecha = (d: Date) => formatDate(d, lang);
 
         // Sin historial (≈97% de los inmuebles): mostramos precio actual + fecha/año
         // y avisamos que estamos recopilando el histórico completo.
@@ -1369,7 +1353,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                   {fechaListado && <div className="text-[11px]" style={{ color: "#6E726E" }}>{fmtFecha(fechaListado)}</div>}
                 </div>
                 <div className="text-[15px] font-semibold tabular-nums" style={{ color: "#111418" }}>
-                  {listing.precio_cop ? formatCOP(listing.precio_cop) : "—"}
+                  {formatPrice(listing.precio_cop)}
                 </div>
               </div>
               <p className="text-[11px] leading-relaxed" style={{ color: "#6E726E" }}>
@@ -1396,7 +1380,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                         <div className="text-[11px]" style={{ color: "#6E726E" }}>{cuandoLabel}</div>
                       </div>
                       <div className="text-right">
-                        <div className="text-[14px] font-semibold tabular-nums" style={{ color: "#111418" }}>{formatCOP(h.precio)}</div>
+                        <div className="text-[14px] font-semibold tabular-nums" style={{ color: "#111418" }}>{formatPrice(h.precio)}</div>
                         {h.delta_pct != null && (
                           <div className="text-[11px] font-medium tabular-nums" style={{ color }}>
                             {sube ? "+" : "−"}{Math.abs(h.delta_pct).toFixed(1)}%
@@ -1416,11 +1400,11 @@ export function ListingDrawer({ listingId, onClose }: Props) {
         const chartData = [
           ...sorted.map(h => ({
             fecha: h.fecha.slice(5, 10).replace("-", "/"), // MM/DD
-            precio: +(h.precio / 1_000_000).toFixed(2),
+            precio: h.precio,
           })),
-          { fecha: "Hoy", precio: +((listing.precio_cop ?? 0) / 1_000_000).toFixed(2) },
+          { fecha: lang === "en" ? "Today" : "Hoy", precio: listing.precio_cop ?? 0 },
         ];
-        const currentPrecioM = +((listing.precio_cop ?? 0) / 1_000_000).toFixed(2);
+        const currentPrecioM = listing.precio_cop ?? 0;
 
         return (
           <div className="space-y-3">
@@ -1437,7 +1421,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                   <XAxis dataKey="fecha" tick={{ fontSize: 10, fill: "#6E726E" }} tickLine={false} axisLine={false} dy={4} />
                   <YAxis hide domain={["auto", "auto"]} />
                   <RechartsTooltip
-                    formatter={(val: unknown) => [`$${val}M COP`, "Precio"]}
+                    formatter={(val: unknown) => [formatPrice(Number(val)), lang === "en" ? "Price" : "Precio"]}
                     contentStyle={{ background: "#111418", border: "none", borderRadius: 8, color: "#fff", fontSize: 11, padding: "6px 10px" }}
                     labelStyle={{ color: "rgba(255,255,255,0.6)", fontSize: 10 }}
                   />
@@ -1447,7 +1431,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                     dot={{ r: 2.5, fill: "#0F8A4F", strokeWidth: 0 }}
                     activeDot={{ r: 4, fill: "#0F8A4F" }}
                   />
-                  <ReferenceDot x="Hoy" y={currentPrecioM} r={4} fill="#111418" stroke="#fff" strokeWidth={2} />
+                  <ReferenceDot x={lang === "en" ? "Today" : "Hoy"} y={currentPrecioM} r={4} fill="#111418" stroke="#fff" strokeWidth={2} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -1494,10 +1478,10 @@ export function ListingDrawer({ listingId, onClose }: Props) {
         <div className="space-y-2">
           <h3 className="text-sm font-semibold text-[#111418]">Ubicación</h3>
           <div className="overflow-hidden rounded-xl" style={{ border: "0.5px solid #E5E0D5" }}>
-            <img src={heroMapUrl} alt={`Ubicación en ${listing.barrio_nombre}`} className="h-40 w-full object-cover" loading="lazy" />
+            <img src={heroMapUrl} alt={lang === "en" ? `Location in ${listing.barrio_nombre}` : `Ubicación en ${listing.barrio_nombre}`} className="h-40 w-full object-cover" loading="lazy" />
             <div className="flex items-center gap-1.5 px-3 py-2 text-xs text-[#5B5F5C]" style={{ borderTop: "0.5px solid #E5E0D5", background: "#FAFAFA" }}>
               <MapPin className="h-3 w-3 shrink-0" />
-              {listing.barrio_nombre && <span>{listing.barrio_nombre}</span>}
+              {listing.barrio_nombre && <span><Name>{listing.barrio_nombre}</Name></span>}
               {listing.estrato_real != null && <span>· Estrato {listing.estrato_real}</span>}
             </div>
           </div>
@@ -1540,7 +1524,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
               )}
             </div>
             <div className="space-y-0.5 p-2.5">
-              <div className="text-sm font-semibold" style={{ color: "#111418" }}>{s.precio_cop ? formatCOP(s.precio_cop) : "—"}</div>
+              <div className="text-sm font-semibold" style={{ color: "#111418" }}>{formatPrice(s.precio_cop)}</div>
               <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "#5B5F5C" }}>
                 {s.area_m2 != null && <span>{formatArea(s.area_m2, unit)}</span>}
                 {s.habitaciones != null && <span>· {s.habitaciones} hab</span>}
@@ -1549,7 +1533,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
               {s.barrio_nombre && (
                 <div className="flex items-center gap-1 text-[11px]" style={{ color: "#5B5F5C" }}>
                   <MapPin className="h-2.5 w-2.5 shrink-0" />
-                  {s.barrio_nombre}
+                  <Name>{s.barrio_nombre}</Name>
                 </div>
               )}
               {s.dias_en_mercado != null && <div className="text-[10px]" style={{ color: "#5B5F5C" }}>{diasLabel(s.dias_en_mercado, lang) ?? `${s.dias_en_mercado}d`}</div>}
@@ -1599,7 +1583,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                 dragElastic={{ top: 0, bottom: 0.4 }}
                 onDragEnd={(_, info) => { if (info.offset.y > 120 || info.velocity.y > 600) onClose(); }}
                 className="fixed inset-x-0 bottom-0 z-50 flex flex-col overflow-hidden rounded-t-2xl shadow-2xl"
-                style={{ height: "90vh", background: "#FAF8F3", ...modalStyle }}
+                style={{ height: "90dvh", background: "#FAF8F3", ...modalStyle }}
                 onClick={(e) => e.stopPropagation()}
               >
                 <div
@@ -1608,7 +1592,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                   style={{ touchAction: "none", cursor: "grab" }}
                 >
                   <div className="h-1 w-10 rounded-full bg-[#C9C4B8]" />
-                  <button onClick={onClose} onPointerDown={(e) => e.stopPropagation()} className="absolute right-4 grid h-7 w-7 place-items-center rounded-lg text-[#5B5F5C] transition hover:bg-[#F3F0E8]">
+                  <button onClick={onClose} onPointerDown={(e) => e.stopPropagation()} aria-label="Cerrar" className="absolute right-4 grid h-7 w-7 place-items-center rounded-lg text-[#5B5F5C] transition hover:bg-[#F3F0E8]">
                     <X className="h-4 w-4" />
                   </button>
                 </div>
@@ -1623,11 +1607,11 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                           <div className="flex items-start justify-between gap-3">
                             <div data-i18n-skip="true">
                               <div className="font-display text-2xl font-bold leading-tight" style={{ fontFamily: "'Fraunces', Georgia, serif", color: "#111418" }}>
-                                {listing.precio_cop ? (lang === "en" ? `${fmtUSD(listing.precio_cop, trm)} USD` : formatCOP(listing.precio_cop)) : "—"}
+                                {formatPrice(listing.precio_cop)}
                               </div>
                               {listing.precio_cop && (
                                 <div className="text-xs text-[#5B5F5C]">
-                                  {lang === "en" ? formatCOP(listing.precio_cop) : `~${fmtUSD(listing.precio_cop, trm)} USD`}
+                                  {formatSecondary(listing.precio_cop)}
                                 </div>
                               )}
                             </div>
@@ -1636,6 +1620,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                               {favButton}
                             </div>
                           </div>
+                          <OriginalListingLink listing={listing} className="w-full" />
                           {(listing.barrio_nombre || listing.municipio) && (
                             <div className="flex items-center gap-1 text-xs text-[#5B5F5C]">
                               <MapPin className="h-3 w-3 shrink-0" />
@@ -1699,11 +1684,11 @@ export function ListingDrawer({ listingId, onClose }: Props) {
             <div className="flex items-start justify-between gap-3">
               <div data-i18n-skip="true">
                 <div className="font-display text-3xl font-bold leading-tight" style={{ fontFamily: "'Fraunces', Georgia, serif", color: "#111418" }}>
-                  {listing.precio_cop ? (lang === "en" ? `${fmtUSD(listing.precio_cop, trm)} USD` : formatCOP(listing.precio_cop)) : "—"}
+                  {formatPrice(listing.precio_cop)}
                 </div>
                 {listing.precio_cop && (
                   <div className="text-xs text-[#5B5F5C]">
-                    {lang === "en" ? formatCOP(listing.precio_cop) : `~${fmtUSD(listing.precio_cop, trm)} USD`}
+                    {formatSecondary(listing.precio_cop)}
                   </div>
                 )}
               </div>
@@ -1712,6 +1697,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                 {favButton}
               </div>
             </div>
+            <OriginalListingLink listing={listing} className="mt-3 w-full" />
             <div className="mt-2 space-y-2">
               {badgesRow}
               {(listing.barrio_nombre || listing.municipio) && (
@@ -1764,7 +1750,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                 top: "50%",
                 left: "50%",
                 width: "min(1400px, 98vw)",
-                height: "90vh",
+                height: "90dvh",
                 background: "#FAF8F3",
                 border: "0.5px solid #E5E0D5",
                 boxShadow: "0 25px 60px rgba(0,0,0,0.3)",
@@ -1782,14 +1768,15 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                 </span>
                 <button
                   onClick={onClose}
-                  className="grid h-7 w-7 place-items-center rounded-lg text-[#5B5F5C] transition hover:bg-[#F3F0E8] hover:text-[#111418]"
+                  aria-label="Cerrar"
+                  className="grid h-11 w-11 place-items-center rounded-lg text-[#5B5F5C] transition hover:bg-[#F3F0E8] hover:text-[#111418]"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
 
               {/* Body: galería full-width arriba, luego 2 columnas (Zillow) */}
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
                 <PhotoGallery fotos={listing?.fotos} titulo={listing?.tipo_inmueble ?? undefined} height={420} />
                 <div className="flex items-start">
                   {/* Columna 1 — información */}

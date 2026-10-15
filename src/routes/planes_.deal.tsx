@@ -1,7 +1,8 @@
+import { seo } from "@/lib/seo";
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { auth } from "@/lib/auth";
-import { GHL, ghlRedirect } from "@/config/ghl";
+import { PlanCta } from "@/components/PlanCta";
 import { ComunidadLayout } from "@/components/comunidad/ComunidadLayout";
 import { K as TOKENS } from "@/design/tokens";
 
@@ -37,6 +38,7 @@ const FAQ = [
 ];
 
 export const Route = createFileRoute("/planes_/deal")({
+  head: () => seo({ title: "Deal · Medellín Social", description: "Promociona una oferta de tu negocio a vecinos y visitantes de tu barrio en Medellín.", path: "/planes/deal" }),
   component: DealPage,
 });
 
@@ -71,17 +73,7 @@ function DealPage() {
       <div style={{ background: K.paper }}>
         <div style={{ maxWidth: 680, margin: "0 auto", padding: "48px 20px 72px" }}>
 
-          <button
-            onClick={() => ghlRedirect(GHL.deal, email)}
-            style={{
-              display: "block", width: "100%", background: K.teal, color: "#fff",
-              border: "none", borderRadius: 10, padding: "14px 0",
-              fontWeight: 700, fontSize: 15, cursor: "pointer",
-              fontFamily: "inherit", marginBottom: 40,
-            }}
-          >
-            Publicar mi Deal →
-          </button>
+          <PlanCta plan="deal" planLabel="Deal" label="Publicar mi Deal →" params={email} />
 
           {/* Features */}
           <h2 style={{ fontFamily: K.serif, fontSize: "1.3rem", fontWeight: 800, color: K.ink, marginBottom: 20 }}>

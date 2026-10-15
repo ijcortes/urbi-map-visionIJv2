@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from api.db import get_pool
 from api.dependencies import get_current_user
-from api.limiter import limiter
+from api.limiter import client_ip, limiter
 from api.utils import ghl_client
 
 router = APIRouter()
@@ -18,9 +18,36 @@ if not ADMIN_EMAIL:
     raise RuntimeError("ADMIN_EMAIL env var requerida")
 
 
-def require_admin(user: dict = Depends(get_current_user)) -> dict:
-    if user["email"] != ADMIN_EMAIL:
+def _admin_allowed_ips() -> set[str]:
+    return {ip.strip() for ip in os.getenv("ADMIN_ALLOWED_IPS", "").split(",") if ip.strip()}
+
+
+async def require_admin(request: Request, user: dict = Depends(get_current_user)) -> dict:
+    """Admin = the seeded ADMIN_EMAIL account AND its email proven (email_verificado).
+
+    Fails closed: ADMIN_EMAIL is mandatory at import, the row must already exist
+    (get_current_user needs a real usuarios row), and /auth/register refuses
+    ADMIN_EMAIL, so the row can only be created by proving inbox ownership
+    (Google sign-in or magic link), which also sets email_verificado.
+    """
+    admin_email = (ADMIN_EMAIL or "").strip().lower()
+    if (
+        not admin_email
+        or (user.get("email") or "").strip().lower() != admin_email
+        or user.get("email_verificado") is not True
+    ):
         raise HTTPException(status_code=403, detail="No autorizado")
+    # Optional extra layers (off unless configured):
+    #   ADMIN_ALLOWED_IPS=1.2.3.4,5.6.7.8  -> admin API only from these client IPs
+    #   ADMIN_REQUIRE_DB_ROLE=1            -> usuarios.rol must be 'admin' too
+    #                                         (migration 0111 seeds it for ADMIN_EMAIL)
+    allowed = _admin_allowed_ips()
+    if allowed and client_ip(request) not in allowed:
+        raise HTTPException(status_code=403, detail="No autorizado")
+    if os.getenv("ADMIN_REQUIRE_DB_ROLE", "").strip().lower() in ("1", "true", "yes"):
+        rol = await get_pool().fetchval("SELECT rol FROM public.usuarios WHERE id = $1", user["id"])
+        if rol != "admin":
+            raise HTTPException(status_code=403, detail="No autorizado")
     return user
 
 
@@ -39,7 +66,7 @@ async def _audit(pool, admin: dict, accion: str, entidad: str, entidad_id: str |
                VALUES ($1, $2, $3, $4, $5, $6)""",
             admin["email"], accion, entidad, entidad_id,
             json.dumps(detalle) if detalle is not None else None,
-            request.client.host if request.client else None,
+            client_ip(request),
         )
     except Exception:
         pass  # el audit log nunca debe tumbar la acción que audita
@@ -53,7 +80,14 @@ async def _verify_admin_password(pool, admin: dict, password: str) -> None:
     convertiría un typo de contraseña en un logout forzoso.
     """
     row = await pool.fetchrow("SELECT password_hash FROM usuarios WHERE id = $1", admin["id"])
-    if not row or not bcrypt.checkpw(password.encode(), row["password_hash"].encode()):
+    if not row or not row["password_hash"]:
+        # Google / magic-link-only admin: no password to re-check. Refuse with a
+        # clear next step instead of crashing (bcrypt on None was a 500).
+        raise HTTPException(
+            status_code=403,
+            detail="Tu cuenta no tiene contraseña. Usa 'Olvidé mi contraseña' para crear una y repite la acción.",
+        )
+    if not bcrypt.checkpw(password.encode(), row["password_hash"].encode()):
         raise HTTPException(status_code=403, detail="Contraseña incorrecta")
 
 
@@ -1266,10 +1300,44 @@ async def test_email(
 ):
     """Send a test email to verify SMTP config. Defaults to ADMIN_EMAIL."""
     from api.utils.email import send_email, ADMIN_EMAIL
-    target = req.to or ADMIN_EMAIL
+    # Only to the configured admin address or the caller's own: an arbitrary
+    # `to` turned this into an open relay from the site's sender.
+    allowed = {e.strip().lower() for e in (ADMIN_EMAIL, admin.get("email")) if e}
+    target = (req.to or ADMIN_EMAIL or "").strip()
+    if target.lower() not in allowed:
+        raise HTTPException(status_code=400, detail="Destinatario no permitido")
     await send_email(
         target,
         "Test SMTP · Medellín Social",
         "<p>SMTP funciona correctamente desde Medellín Social.</p>",
     )
     return {"ok": True, "sent_to": target}
+
+
+# ── Listing link health ────────────────────────────────────────────────────────
+
+@router.get("/link-health/summary")
+async def link_health_summary(admin: dict = Depends(require_admin)):
+    """Counts per source/status + age of the oldest check (staleness of the checker)."""
+    pool = get_pool()
+    rows = await pool.fetch(
+        """SELECT fuente, url_status, COUNT(*)::int AS n, MIN(last_checked_at) AS oldest_check
+             FROM public.listing_link_health GROUP BY fuente, url_status ORDER BY fuente, url_status""")
+    oldest = await pool.fetchval("SELECT MIN(last_checked_at) FROM public.listing_link_health")
+    never = await pool.fetchval("SELECT COUNT(*)::int FROM public.listing_link_health WHERE last_checked_at IS NULL")
+    pending = await pool.fetchval("SELECT COUNT(*)::int FROM public.listing_link_health WHERE url_status='pending_review'")
+    now = datetime.now(timezone.utc)
+    by_source: dict = {}
+    for r in rows:
+        d = by_source.setdefault(r["fuente"], {"statuses": {}, "oldest_check_age_hours": None})
+        d["statuses"][r["url_status"]] = r["n"]
+        if r["oldest_check"]:
+            age = round((now - r["oldest_check"]).total_seconds() / 3600, 1)
+            if d["oldest_check_age_hours"] is None or age > d["oldest_check_age_hours"]:
+                d["oldest_check_age_hours"] = age
+    return {
+        "by_source": by_source,
+        "oldest_check_age_hours": round((now - oldest).total_seconds() / 3600, 1) if oldest else None,
+        "never_checked": never or 0,
+        "pending_review": pending or 0,
+    }

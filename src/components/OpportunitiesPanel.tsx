@@ -56,7 +56,7 @@ export function OpportunitiesPanel({ onSelect, perfil, mostrarOportunidades = fa
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.25 }}
-            className="max-h-[55vh] overflow-y-auto"
+            className="max-h-[55dvh] overflow-y-auto"
           >
             <div className="divide-y divide-border/60">
               {oportunidades.map((opp, i) => {

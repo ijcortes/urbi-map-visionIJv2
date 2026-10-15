@@ -28,7 +28,7 @@ INSERT INTO raw.listings_habi (
     antiguedad, administracion, url_360, correo_contacto,
     telefono_contacto, contacto_zona, has_three_checks,
     inventory_type_id, property_moment_id, is_private, remodelado,
-    publicado_status
+    publicado_status, last_seen_at
 ) VALUES (
     %(tipo_inmueble)s, %(precio)s, %(precio_anterior)s, %(discount_rate)s, %(area_m2)s,
     %(habitaciones)s, %(banos)s, %(parqueaderos)s, %(piso)s, %(num_ascensores)s,
@@ -38,7 +38,7 @@ INSERT INTO raw.listings_habi (
     %(antiguedad)s, %(administracion)s, %(url_360)s, %(correo_contacto)s,
     %(telefono_contacto)s, %(contacto_zona)s, %(has_three_checks)s,
     %(inventory_type_id)s, %(property_moment_id)s, %(is_private)s, %(remodelado)s,
-    %(publicado_status)s
+    %(publicado_status)s, NOW()
 )
 ON CONFLICT (property_nid) DO UPDATE SET
     precio              = EXCLUDED.precio,
@@ -63,8 +63,9 @@ ON CONFLICT (property_nid) DO UPDATE SET
     antiguedad          = EXCLUDED.antiguedad,
     administracion      = EXCLUDED.administracion,
     url_360             = EXCLUDED.url_360,
-    correo_contacto     = EXCLUDED.correo_contacto,
-    telefono_contacto   = EXCLUDED.telefono_contacto,
+    -- contact PII is no longer collected; NULL out on every refresh (Ley 1581 minimisation)
+    correo_contacto     = NULL,
+    telefono_contacto   = NULL,
     contacto_zona       = EXCLUDED.contacto_zona,
     has_three_checks    = EXCLUDED.has_three_checks,
     inventory_type_id   = EXCLUDED.inventory_type_id,
@@ -73,7 +74,8 @@ ON CONFLICT (property_nid) DO UPDATE SET
     remodelado          = EXCLUDED.remodelado,
     publicado_status    = EXCLUDED.publicado_status,
     activo              = true,
-    fecha_scraping      = NOW()
+    fecha_scraping      = NOW(),
+    last_seen_at        = NOW()
 """
 
 

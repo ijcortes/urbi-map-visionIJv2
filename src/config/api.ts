@@ -2,16 +2,19 @@
 //   - `npm run dev`   → import.meta.env.DEV → local API
 //   - `npm run build` → prod bundle         → Railway API
 //   - VITE_API_URL (en .env.local o build ARG de Railway) overridea ambos.
+// Prod has no baked-in host: a build without VITE_API_URL (the Docker build already
+// refuses that) must not silently point some other environment at production.
 const API_BASE_URL =
-  (import.meta.env.VITE_API_URL as string | undefined) ??
+  (import.meta.env.VITE_API_URL as string | undefined) ||
   (import.meta.env.DEV
     ? "http://localhost:8011/api/v1"   // API local corre en 8011 (8001 lo secuestra Cursor)
-    : "https://medellinsocial-api.up.railway.app/api/v1");
+    : (console.error("VITE_API_URL no definido en el build — usando /api/v1 del mismo origen"), "/api/v1"));
 
 export const API_ENDPOINTS = {
   // Auth
   register: `${API_BASE_URL}/auth/register`,
   login: `${API_BASE_URL}/auth/login`,
+  resendVerification: `${API_BASE_URL}/auth/resend-verification`,
   googleLogin: `${API_BASE_URL}/auth/google`,
   me: `${API_BASE_URL}/auth/me`,
   logout: `${API_BASE_URL}/auth/logout`,
@@ -26,11 +29,14 @@ export const API_ENDPOINTS = {
   barrio: (id: number) => `${API_BASE_URL}/barrios/${id}`,
   barrioInfo: (id: number) => `${API_BASE_URL}/barrios/${id}/info`,
   comparar: `${API_BASE_URL}/barrios/comparar`,
+  barrioAliases: `${API_BASE_URL}/barrios/aliases`,
+  barrioBuscar: (q: string) => `${API_BASE_URL}/barrios/buscar?q=${encodeURIComponent(q)}`,
   listings: (id: number) => `${API_BASE_URL}/barrios/${id}/listings`,
   allListings: `${API_BASE_URL}/listings`,
   trm: `${API_BASE_URL}/trm`,
   listing: (id: number) => `${API_BASE_URL}/listings/${id}`,
   listingVista: (id: number) => `${API_BASE_URL}/listings/${id}/vista`,
+  listingReportBrokenLink: (id: number) => `${API_BASE_URL}/listings/${id}/report-broken-link`,
   listingReclamar: (id: number) => `${API_BASE_URL}/listings/${id}/reclamar`,
   listingSimilares: (id: number) => `${API_BASE_URL}/listings/${id}/similares`,
   listingAgente: (id: number) => `${API_BASE_URL}/listings/${id}/agente`,

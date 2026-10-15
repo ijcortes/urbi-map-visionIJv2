@@ -1,15 +1,19 @@
+import { tipoInmuebleLabel } from "@/lib/tipoInmueble";
+import { Name } from "@/lib/i18n";
 import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bath, Bed, Building2, ChevronRight, MapPin, Maximize2, X } from "@/lib/icons";
 import { apiFetch } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
-import { formatCOP } from "@/lib/format";
+import { usePriceFormat } from "@/hooks/usePriceFormat";
+import { formatNumber, M2_PER_FT2 } from "@/lib/format";
 import type { ApiListing, ApiListingDetail } from "@/lib/adapters";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { PopupGallery } from "./PopupGallery";
+import { OriginalListingLink } from "@/components/OriginalListingLink";
 
 const POPUP_WIDTH = 300;
 
-const copShort = (n: number) => formatCOP(Math.round(n)).replace(" COP", "");
 
 /** Pin data comes ALL CAPS (barrio_nombre "ALEJANDRIA") — sentence-case it while
  *  the detail (which has *_display already cased) loads. */
@@ -26,6 +30,7 @@ type Props = {
 
 export function ListingPopup({ listing, onClose, onViewMore }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const { formatPrice, formatSecondary, formatPricePerArea, unit, lang } = usePriceFormat();
 
   // Same queryKey as ListingDrawer → shared cache; opening the drawer after is free.
   const { data: detail, isLoading } = useQuery<ApiListingDetail>({
@@ -63,19 +68,20 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
 
   // Desktop: tarjeta flotante centrada sobre el mapa visible. Móvil: bottom
   // sheet anclado abajo (más intuitivo, refiere claro al pin tocado).
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-  const panelWidth = window.innerWidth >= 768 ? 380 : 0;
+  const isMobile = useIsMobile();
+  const panelWidth = isMobile ? 0 : 380;
   const width = Math.min(POPUP_WIDTH, window.innerWidth - 24);
   const left = Math.max(12, (window.innerWidth - panelWidth - width) / 2);
   const posStyle: React.CSSProperties = isMobile
-    ? { left: 8, right: 8, bottom: 12, width: "auto", maxHeight: "72vh" }
-    : { left, top: 72, width, maxHeight: "calc(100vh - 120px)" };
+    // never taller than the space under the header + filter row (short / landscape
+    // phones put the sheet's top over the header after a fly-to)
+    ? { left: 8, right: 8, bottom: 12, width: "auto", maxHeight: "min(72dvh, calc(100dvh - var(--map-header-h, 53px) - 80px))" }
+    : { left, top: 72, width, maxHeight: "calc(100dvh - 120px)" };
 
   // Header fields: prefer detail (proper *_display casing), fall back to pin.
   const d = detail;
   const tipoOp = d?.tipo_operacion ?? listing.tipo_operacion;
   const precioCop = d?.precio_cop ?? listing.precio_cop;
-  const precioUsd = d?.precio_usd ?? listing.precio_usd;
   const habitaciones = d?.habitaciones ?? listing.habitaciones;
   const banos = d?.banos ?? listing.banos;
   const areaM2 = d?.area_m2 ?? listing.area_m2;
@@ -101,7 +107,7 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
         ref={containerRef}
         role="dialog"
         aria-modal="true"
-        aria-label={`Detalle de listing en ${ubicacion || "el mapa"}`}
+        aria-label={lang === "en" ? `Listing details in ${ubicacion || "the map"}` : `Detalle de listing en ${ubicacion || "el mapa"}`}
         tabIndex={-1}
         data-tour="listing-popup"
         className="fixed z-50 flex flex-col overflow-hidden outline-none rounded-2xl"
@@ -124,7 +130,9 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
             fotos={d?.fotos}
             fallbackFoto={listing.foto_principal}
             loading={isLoading}
-            alt={`${tipoInmueble ?? "Inmueble"} en ${ubicacion || "Medellín"}`}
+            alt={lang === "en"
+              ? `${tipoInmuebleLabel(d?.tipo_inmueble ?? listing.tipo_inmueble, "en")} in ${ubicacion || "Medellín"}`
+              : `${tipoInmueble ?? "Inmueble"} en ${ubicacion || "Medellín"}`}
           />
           <button
             type="button"
@@ -166,11 +174,11 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
           <div>
             <div className="flex items-baseline gap-2">
               <span className="text-xl font-bold leading-tight" style={{ color: "#111418" }}>
-                {desdePrecio ? `Desde ${formatCOP(desdePrecio)}` : precioCop ? formatCOP(precioCop) : "—"}
+                {desdePrecio ? `${lang === "en" ? "From" : "Desde"} ${formatPrice(desdePrecio)}` : formatPrice(precioCop)}
               </span>
-              {!desdePrecio && precioUsd != null && precioUsd > 0 && (
+              {!desdePrecio && formatSecondary(precioCop) && (
                 <span className="text-[11px]" style={{ color: "#6E726E" }}>
-                  ≈ US${Math.round(precioUsd).toLocaleString("en-US")}
+                  {formatSecondary(precioCop)}
                 </span>
               )}
             </div>
@@ -184,10 +192,10 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
                 <span className="flex items-center gap-1"><Bath className="h-3.5 w-3.5 shrink-0" />{Math.round(banos)} baños</span>
               )}
               {areaM2 != null && (
-                <span className="flex items-center gap-1"><Maximize2 className="h-3.5 w-3.5 shrink-0" />{Math.round(areaM2)} m²</span>
+                <span className="flex items-center gap-1"><Maximize2 className="h-3.5 w-3.5 shrink-0" />{unit === "sqft" ? `${formatNumber(Math.round(areaM2 * M2_PER_FT2), lang)} ft²` : `${formatNumber(Math.round(areaM2), lang)} m²`}</span>
               )}
               {precioM2 != null && precioM2 > 0 && (
-                <span>{copShort(precioM2)}/m²</span>
+                <span>{formatPricePerArea(precioM2)}</span>
               )}
             </div>
 
@@ -199,7 +207,7 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
             )}
             {d?.nombre_edificio && (
               <div className="mt-0.5 flex items-center gap-1 text-[11px] font-medium" style={{ color: "#5B5F5C" }}>
-                <Building2 className="h-3 w-3 shrink-0" />{d.nombre_edificio}
+                <Building2 className="h-3 w-3 shrink-0" /><Name>{d.nombre_edificio}</Name>
               </div>
             )}
           </div>
@@ -209,7 +217,11 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
         </div>
 
         {/* 9. CTA único — Popup1 es muestra; el detalle + link a la fuente van en Popup2 */}
-        <div className="shrink-0 border-t p-3" style={{ borderColor: "#E5E0D5" }}>
+        <div className="shrink-0 space-y-2 border-t p-3" style={{ borderColor: "#E5E0D5" }}>
+          <OriginalListingLink
+            listing={{ url: detail?.url ?? listing.url, fuente: detail?.fuente ?? listing.fuente }}
+            className="w-full"
+          />
           <button
             type="button"
             onClick={() => onViewMore(listing.id)}

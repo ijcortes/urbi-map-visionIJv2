@@ -128,7 +128,18 @@ async def get_intake(
 ):
     """Detalle del intake (owner dueño o realtor asignado)."""
     async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT * FROM intake WHERE id = $1", intake_id)
+        # Explicit columns (no SELECT *): new private columns must be opted in.
+        row = await conn.fetchrow(
+            """
+            SELECT id, owner_id, estado, agent_id, listing_id, operacion, tipo_inmueble,
+                   ST_Y(geom) AS lat, ST_X(geom) AS lon,
+                   municipio, barrio, direccion_aprox, zona_nivel, zona_codigo,
+                   precio_esperado, area_m2, habitaciones, banos,
+                   declaraciones, notas_owner, created_at, updated_at
+            FROM intake WHERE id = $1
+            """,
+            intake_id,
+        )
         if not row:
             raise HTTPException(status_code=404)
         # Acceso UUID vs UUID: dueño (owner del usuario) o realtor asignado

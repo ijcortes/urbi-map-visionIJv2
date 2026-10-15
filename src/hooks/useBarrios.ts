@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
-import { barrioToNeighborhood, type ApiBarrio, type ApiListingsResponse } from "@/lib/adapters";
+import { appendSegmentParams } from "@/lib/listingParams";
+import { barrioToNeighborhood, appendPriceParams, type ApiBarrio, type ApiListingsResponse } from "@/lib/adapters";
 import { setScoreThresholds } from "@/config/mapColors";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -351,7 +352,9 @@ export function useBarriosRaw(perfil?: string) {
       const patched = apiData.map((b) => {
         const key = geoKey(b.nombre ?? "", b.municipio ?? "");
         apiKeys.add(key);
-        const cd_comuna = _comunaMap.get(key) ?? null;
+        // GeoJSON wins when it knows the barrio; otherwise keep the API value (was
+        // overwritten with null, dropping the comuna of every barrio missing there).
+        const cd_comuna = _comunaMap.get(key) ?? b.cd_comuna ?? null;
         const comuna = _nombreComunaMap.get(key) ?? b.comuna;
         if (b.geometry) return { ...b, cd_comuna, comuna };
         return { ...b, geometry: geoLookup.get(key) ?? null, cd_comuna, comuna };
@@ -523,8 +526,7 @@ export function useAllListings(filters: AllListingsFilters) {
       if (filters.barrio_id != null) params.set("barrio_id", String(filters.barrio_id));
       if (filters.tipo_operacion) params.set("tipo_operacion", filters.tipo_operacion);
       if (filters.tipo_inmueble) params.set("tipo_inmueble", filters.tipo_inmueble);
-      if (filters.precio_min != null) params.set("precio_min", String(filters.precio_min));
-      if (filters.precio_max != null) params.set("precio_max", String(filters.precio_max));
+      appendPriceParams(params, filters.precio_min, filters.precio_max);
       if (filters.area_min != null) params.set("area_min", String(filters.area_min));
       if (filters.habitaciones != null) params.set("habitaciones", String(filters.habitaciones));
       params.set("limit", String(filters.limit ?? 200));
@@ -548,6 +550,8 @@ export type ListingsApiFilters = {
   precio_max?: number | null;
   habitaciones?: number | null;
   tipo_inmueble?: string[] | null;
+  segmento?: "residencial" | "comercial" | "todos" | null;
+  ocultar_destacados?: boolean | null;
 };
 
 export function useListings(
@@ -579,12 +583,12 @@ export function useListings(
         for (const a of extraFilters.amenidades) params.append("amenidades", a);
       }
       if (extraFilters?.amoblado != null) params.set("amoblado", String(extraFilters.amoblado));
-      if (extraFilters?.precio_min != null) params.set("precio_min", String(extraFilters.precio_min));
-      if (extraFilters?.precio_max != null) params.set("precio_max", String(extraFilters.precio_max));
+      appendPriceParams(params, extraFilters?.precio_min, extraFilters?.precio_max);
       if (extraFilters?.habitaciones != null) params.set("habitaciones", String(extraFilters.habitaciones));
       if (extraFilters?.tipo_inmueble?.length) {
         for (const t of extraFilters.tipo_inmueble) params.append("tipo_inmueble", t);
       }
+      appendSegmentParams(params, { segmento: extraFilters?.segmento, ocultarDestacados: extraFilters?.ocultar_destacados });
       return apiFetch<ApiListingsResponse>(`${API_ENDPOINTS.allListings}?${params}`);
     },
     enabled: forceEnabled || barrioId != null || cdComuna != null || !!municipioNombre,

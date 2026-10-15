@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { API_BASE_URL } from '@/config/api'
@@ -7,12 +8,7 @@ import { K as TOKENS } from "@/design/tokens";
 
 export const Route = createFileRoute('/negocios/unirse')({
   component: NegociosUnirsePage,
-  head: () => ({
-    meta: [
-      { title: 'Lista tu negocio · Medellín Social' },
-      { name: 'description', content: 'Sé el negocio de referencia en tu barrio. Un solo negocio por categoría.' },
-    ],
-  }),
+  head: () => seo({ title: "Lista tu negocio · Medellín Social", description: "Sé el negocio de referencia en tu barrio. Un solo negocio por categoría.", path: "/negocios/unirse" }),
 })
 
 const K = TOKENS;
@@ -517,7 +513,7 @@ function NegociosUnirsePage() {
                       <select value={barrioId ?? ''} onChange={e => setBarrioId(e.target.value ? Number(e.target.value) : null)} style={{ ...inputStyle, cursor: 'pointer' }}>
                         <option value="">Selecciona…</option>
                         {BARRIOS.filter(b => b.barrio_id !== null).map(b => (
-                          <option key={b.slug} value={b.barrio_id!}>{b.nombre}</option>
+                          <option data-i18n-skip key={b.slug} value={b.barrio_id!}>{b.nombre}</option>
                         ))}
                       </select>
                     </div>

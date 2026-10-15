@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 
 import asyncpg
 from airflow import DAG
+
+from _schedule import cron_or_none as _sched
 from airflow.operators.python import PythonOperator
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
@@ -142,7 +144,7 @@ with DAG(
     dag_id="analytics_usuarios",
     default_args=default_args,
     description="Crear partición user_events + calcular user_interests",
-    schedule_interval="0 7 * * *",  # 2:00 AM COT = 7:00 UTC
+    schedule_interval=_sched("0 7 * * *"),  # 2:00 AM COT = 7:00 UTC
     start_date=datetime(2026, 6, 1),
     catchup=False,
     tags=["analytics", "usuarios", "tracking"],

@@ -1,3 +1,4 @@
+import { categoriaLabel, tendenciaLabel } from "@/lib/enumLabels";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Link } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
@@ -41,10 +42,10 @@ import { LIQUIDITY_COLORS } from "@/data/marketActivity";
 import { OPP_COLORS, getScoreColor, getScoreLabel } from "@/config/mapColors";
 import { auth, GOAL_LABEL, recommendation, type Goal } from "@/lib/auth";
 import { useTarget, TARGET_OPTIONS } from "@/contexts/TargetContext";
-import { formatCOP, formatPct, yieldColor } from "@/lib/format";
+import { formatCOP, formatNumber, formatPct, yieldColor } from "@/lib/format";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useLang, AutoTranslate } from "@/lib/i18n";
-import { useTrm } from "@/hooks/useTrm";
+import { usePriceFormat } from "@/hooks/usePriceFormat";
 import { useListings, useCiudadStats, useBarrios, useBarriosRaw } from "@/hooks/useBarrios";
 import { useFavoritos, useToggleFavorito } from "@/hooks/useUser";
 import type { ApiListing } from "@/lib/adapters";
@@ -149,6 +150,20 @@ export function FloatingPanel({ selected, onClear, onSelect, onGoToMLS, perfil: 
   useEffect(() => { sizeRef.current = size; }, [size]);
   useEffect(() => { posRef.current = pos; }, [pos]);
 
+  // Keep the floating panel inside the viewport after resize / rotation.
+  useEffect(() => {
+    const onResize = () => {
+      const w = Math.max(PANEL_MIN_W, Math.min(panelMaxW(), sizeRef.current.width));
+      const h = Math.max(PANEL_MIN_H, Math.min(panelMaxH(), sizeRef.current.height));
+      if (w !== sizeRef.current.width || h !== sizeRef.current.height) setSize({ width: w, height: h });
+      const left = Math.max(0, Math.min(window.innerWidth - w - 8, posRef.current.left));
+      const top = Math.max(70, Math.min(window.innerHeight - 200, posRef.current.top));
+      if (left !== posRef.current.left || top !== posRef.current.top) setPos({ left, top });
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   useEffect(() => {
     if (selected) {
       setView("barrio");
@@ -231,7 +246,7 @@ export function FloatingPanel({ selected, onClear, onSelect, onGoToMLS, perfil: 
           initial={{ y: 400 }}
           animate={{ y: minimized ? 360 : 0 }}
           transition={{ type: "spring", stiffness: 260, damping: 30 }}
-          className="absolute inset-x-0 bottom-0 z-20 max-h-[78vh] overflow-hidden rounded-t-2xl"
+          className="absolute inset-x-0 bottom-0 z-20 max-h-[78dvh] overflow-hidden rounded-t-2xl"
           style={{ background: '#FAF8F3', borderTop: '0.5px solid #E5E0D5', '--background': '#FFFFFF', '--foreground': '#111418', '--surface': '#FAF8F3', '--surface-elevated': '#F3F0E8', '--muted-foreground': '#5B5F5C', '--border': 'rgb(184 164 138 / 50%)' } as React.CSSProperties}
           drag="y"
           dragConstraints={{ top: 0, bottom: 360 }}
@@ -240,7 +255,7 @@ export function FloatingPanel({ selected, onClear, onSelect, onGoToMLS, perfil: 
           <div className="flex justify-center pt-2">
             <div className="h-1.5 w-10 rounded-full bg-border" />
           </div>
-          <div className="max-h-[70vh] overflow-y-auto px-4 pb-6">
+          <div className="max-h-[70dvh] overflow-y-auto px-4" style={{ paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom))", overscrollBehavior: "contain" }}>
             <PanelContent view={view} setView={setView} selected={selected} onClear={onClear} user={user} onSelect={onSelect} onGoToMLS={onGoToMLS} />
           </div>
         </motion.div>
@@ -1204,7 +1219,7 @@ function AirbnbSection({ n }: { n: Neighborhood }) {
           <div className="flex justify-between items-center">
             <span className="text-muted-foreground">Ingresos anuales estimados:</span>
             <span className="font-semibold text-emerald-400">
-              ${(ab.ingresos_anuales_p50_cop / 1_000_000).toFixed(1)}M COP
+              {formatCOP(ab.ingresos_anuales_p50_cop)}
             </span>
           </div>
         )}
@@ -1291,6 +1306,7 @@ function AmenadidsSection({ n }: { n: Neighborhood }) {
 /* ------------- Seguridad ------------- */
 
 function SeguridadSection({ n }: { n: Neighborhood }) {
+  const { lang } = useLang();
   const cat = n.seguridad_categoria ?? "SIN DATOS";
   const score = n.seguridad_score;
   const nota = n.seguridad_nota;
@@ -1299,11 +1315,10 @@ function SeguridadSection({ n }: { n: Neighborhood }) {
 
   const tend = n.seguridad_tendencia;
   const tendInfo = tend
-    ? tend.toLowerCase().includes("mejor")
-      ? { label: "↑ Mejorando", color: "#0F8A4F" }
-      : tend.toLowerCase().includes("empeor")
-      ? { label: "↓ Empeorando", color: "#CE1126" }
-      : { label: "→ Estable", color: "#8A8E8A" }
+    ? {
+        label: tendenciaLabel(tend, lang),
+        color: tend.toLowerCase().includes("mejor") ? "#0F8A4F" : tend.toLowerCase().includes("empeor") ? "#CE1126" : "#8A8E8A",
+      }
     : null;
 
   return (
@@ -1320,7 +1335,7 @@ function SeguridadSection({ n }: { n: Neighborhood }) {
       >
         <div className="flex items-center justify-between">
           <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider" style={{ background: `${color}22`, color }}>
-            {cat}
+            <span data-i18n-skip>{categoriaLabel(cat, lang)}</span>
           </span>
           <div className="flex items-center gap-2">
             {tendInfo && (
@@ -1344,6 +1359,7 @@ function SeguridadSection({ n }: { n: Neighborhood }) {
 
 function VerdeSection({ n, maxVerdePct }: { n: Neighborhood; maxVerdePct: number }) {
   const pct = n.verde_pct;
+  const { lang } = useLang();
   const cat = n.verde_categoria ?? "SIN DATOS";
   if (pct === null || pct === undefined) return null;
   const ratio = Math.min(1, pct / maxVerdePct);
@@ -1363,7 +1379,7 @@ function VerdeSection({ n, maxVerdePct }: { n: Neighborhood; maxVerdePct: number
       >
         <div className="flex items-center justify-between">
           <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider" style={{ background: `${color}22`, color }}>
-            {cat}
+            <span data-i18n-skip>{categoriaLabel(cat, lang)}</span>
           </span>
           <span className="text-[11px] font-semibold" style={{ color }}>{pct.toFixed(1)}%</span>
         </div>
@@ -1476,6 +1492,7 @@ function UsoSueloSection({ n }: { n: Neighborhood }) {
 /* ------------- Salud financiera ------------- */
 
 function SaludFinancieraSection({ n }: { n: Neighborhood }) {
+  const { lang } = useLang();
   const remates = n.n_remates_municipio ?? 0;
   const cat = remates === 0 ? "MUY SALUDABLE" : remates <= 3 ? "SALUDABLE" : remates <= 8 ? "PRECAUCIÓN" : "ALERTA";
   const color = SALUD_COLORS[cat] ?? "#5B5F5C";
@@ -1487,7 +1504,7 @@ function SaludFinancieraSection({ n }: { n: Neighborhood }) {
       <div className="rounded-xl border p-3" style={{ borderColor: `${color}66`, background: `${color}10` }}>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider" style={{ background: `${color}22`, color }}>
-            {cat}
+            <span data-i18n-skip>{categoriaLabel(cat, lang)}</span>
           </span>
           <span className="text-xs text-muted-foreground">
             {remates === 0
@@ -1527,7 +1544,7 @@ function CatastroSection({ n }: { n: Neighborhood }) {
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
           <div>
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Total predios</div>
-            <div className="mt-0.5 font-semibold">{cat.total_predios.toLocaleString()}</div>
+            <div className="mt-0.5 font-semibold">{formatNumber(cat.total_predios)}</div>
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">% Apartamentos</div>
@@ -1585,12 +1602,12 @@ function MercadoRealSection({ n }: { n: Neighborhood }) {
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
           <div>
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Ventas cerradas {mr.anio_dato}</div>
-            <div className="mt-0.5 font-semibold">{mr.n_transacciones_anual?.toLocaleString() ?? "—"}</div>
+            <div className="mt-0.5 font-semibold">{mr.n_transacciones_anual != null ? formatNumber(mr.n_transacciones_anual) : "—"}</div>
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Valor mediana cierre</div>
             <div className="mt-0.5 font-semibold">
-              {mr.valor_mediana_anual != null ? `$${(mr.valor_mediana_anual / 1_000_000).toFixed(0)}M` : "—"}
+              {mr.valor_mediana_anual != null ? formatCOP(mr.valor_mediana_anual) : "—"}
             </div>
           </div>
           <div>
@@ -1616,7 +1633,7 @@ function MercadoRealSection({ n }: { n: Neighborhood }) {
         )}
       </div>
       <p className="mt-1.5 text-[10px] text-muted-foreground">
-        Fuente: registro notarial SNR/ORIPS, nivel municipio (no barrio) — {mr.n_transacciones_anual?.toLocaleString()} transacciones reales de {n.municipio} en {mr.anio_dato}.
+        Fuente: registro notarial SNR/ORIPS, nivel municipio (no barrio) — {mr.n_transacciones_anual != null ? formatNumber(mr.n_transacciones_anual) : "—"} transacciones reales de {n.municipio} en {mr.anio_dato}.
         {mr.ipvn_dane_pct != null && ` Índice DANE nacional del mismo año: ${mr.ipvn_dane_pct > 0 ? "+" : ""}${mr.ipvn_dane_pct}% (referencia, no aplicado como ajuste).`}
         {" "}Valor absoluto, no controla mezcla de tipo/tamaño de inmueble.
       </p>
@@ -1703,13 +1720,10 @@ function ValorizacionSection({ n }: { n: Neighborhood }) {
 
 function ListingCard({ l }: { l: ApiListing }) {
   const mc = l.relevancia_score != null ? matchColor(l.relevancia_score) : null;
-  const { lang } = useLang();
-  const trm = useTrm();
+  const { formatPrice, formatSecondary, formatPricePerArea } = usePriceFormat();
   const cop = l.precio_cop ?? 0;
-  const usdVal = cop / trm;
-  const usdStr = cop ? `~${usdVal >= 1_000_000 ? `$${(usdVal / 1_000_000).toFixed(1)}M` : `$${Math.round(usdVal / 1_000)}k`} USD` : null;
-  const primary = lang === "en" && usdStr ? usdStr : formatCOP(cop);
-  const secondary = lang === "en" ? formatCOP(cop) : usdStr;
+  const primary = formatPrice(cop);
+  const secondary = formatSecondary(cop);
   return (
     <div style={{ borderRadius: 10, border: '1px solid rgb(184 164 138 / 55%)', background: 'rgba(255,255,255,0.6)', padding: 12 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
@@ -1723,7 +1737,7 @@ function ListingCard({ l }: { l: ApiListing }) {
           {secondary && <div data-i18n-skip="true" style={{ fontSize: 11, color: '#5B5F5C' }}>{secondary}</div>}
           <div style={{ marginTop: 2, fontSize: 12, color: '#33473D' }}>
             {l.area_m2 != null ? `${l.area_m2} m²` : "—"}
-            {l.habitaciones != null ? ` · ${l.habitaciones} hab` : ""}
+            {l.habitaciones != null ? ` · ${l.habitaciones === 0 ? "Studio" : `${l.habitaciones} hab`}` : ""}
             {l.banos != null ? ` · ${l.banos} baños` : ""}
           </div>
           {l.direccion_raw && (
@@ -1753,7 +1767,7 @@ function ListingCard({ l }: { l: ApiListing }) {
             </span>
           )}
           {l.precio_m2 != null && (
-            <div style={{ fontSize: 11, color: '#33473D', fontWeight: 600 }}>{formatCOP(l.precio_m2)}/m²</div>
+            <div style={{ fontSize: 11, color: '#33473D', fontWeight: 600 }}>{formatPricePerArea(l.precio_m2)}</div>
           )}
           {l.url && (
             <a href={l.url} target="_blank" rel="noopener noreferrer"
@@ -1778,6 +1792,7 @@ function ListingsView({
   perfil?: string;
   risk?: string;
 }) {
+  const { formatPrice: fmtP } = usePriceFormat();
   const defaultOp: "venta" | "arriendo" = perfil === "mediano_plazo" ? "arriendo" : "venta";
   const [op, setOp] = useState<"venta" | "arriendo">(defaultOp);
   const [precioMax, setPrecioMax] = useState<number | null>(null);
@@ -1848,7 +1863,7 @@ function ListingsView({
             isLoading
               ? "Precio máx · cargando…"
               : maxPrecioData > 0
-              ? `Precio máx · ${formatCOP(sliderPrecio)}`
+              ? `Precio máx · ${fmtP(sliderPrecio)}`
               : "Precio máx · sin datos"
           }
           onReset={precioMax !== null ? () => setPrecioMax(null) : undefined}
@@ -2006,6 +2021,7 @@ const tooltipStyle: React.CSSProperties = {
 /* ------------- Liquidity / Opportunity ------------- */
 
 function LiquiditySection({ n }: { n: Neighborhood }) {
+  const { lang } = useLang();
   const apiLiq = n.liquidez_api;
   const cat = (apiLiq?.categoria ?? "MEDIA") as import("@/data/marketActivity").LiquidityCat;
   const colors = LIQUIDITY_COLORS[cat] ?? LIQUIDITY_COLORS["MEDIA"];
@@ -2037,7 +2053,7 @@ function LiquiditySection({ n }: { n: Neighborhood }) {
       >
         <div className="flex items-center justify-between">
           <div className="text-sm font-bold uppercase tracking-wider" style={{ color: colors.border }}>
-            {cat}
+            <span data-i18n-skip>{categoriaLabel(cat, lang)}</span>
           </div>
           <div className="text-[11px] font-semibold" style={{ color: colors.border }}>
             {score}/100
@@ -2079,6 +2095,7 @@ function LiquiditySection({ n }: { n: Neighborhood }) {
             >
               <button
                 onClick={() => setShowInfo(false)}
+                aria-label="Cerrar"
                 className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground"
               >
                 <X className="h-4 w-4" />

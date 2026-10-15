@@ -45,7 +45,7 @@ def _fake_httpx(response):
 async def test_verify_google_id_token_accepts_matching_aud(monkeypatch):
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "web-client-id")
     monkeypatch.setattr(auth_mod, "httpx", _fake_httpx(_FakeResponse(200, {
-        "aud": "web-client-id", "email": "user@example.com", "email_verified": "true",
+        "aud": "web-client-id", "sub": "1234", "email": "user@example.com", "email_verified": "true",
     })))
 
     claims = await _verify_google_id_token("fake-id-token")
@@ -92,7 +92,7 @@ async def test_google_login_creates_new_user(client, monkeypatch):
     email = "pytest_google_new@example.com"
 
     async def fake_verify(id_token):
-        return {"email": email, "email_verified": "true", "given_name": "Pytest", "family_name": "Google"}
+        return {"sub": "sub-" + email, "email": email, "email_verified": "true", "given_name": "Pytest", "family_name": "Google"}
 
     monkeypatch.setattr(auth_mod, "_verify_google_id_token", fake_verify)
 
@@ -111,7 +111,7 @@ async def test_google_login_existing_user_logs_in(client, monkeypatch):
     email = "pytest_google_existing@example.com"
 
     async def fake_verify(id_token):
-        return {"email": email, "email_verified": "true", "given_name": "Pytest", "family_name": "Existing"}
+        return {"sub": "sub-" + email, "email": email, "email_verified": "true", "given_name": "Pytest", "family_name": "Existing"}
 
     monkeypatch.setattr(auth_mod, "_verify_google_id_token", fake_verify)
 

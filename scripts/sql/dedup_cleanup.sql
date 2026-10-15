@@ -1,5 +1,5 @@
 -- Deduplicación de listings existentes con dedup_hash
--- DB: postgresql://urbidata:urbidata007@localhost:5433/urbidata
+-- DB: postgresql://USER:PASSWORD@localhost:5433/urbidata
 --
 -- Ejecutar DESPUÉS de migrate_dedup_hash.sql
 -- Pasos: calcular hashes → reportar duplicados → eliminar → agregar constraint

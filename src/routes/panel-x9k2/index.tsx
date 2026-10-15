@@ -1,4 +1,7 @@
+import { Name } from "@/lib/i18n";
+import { seo } from "@/lib/seo";
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { formatMoney } from "@/lib/format";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -10,7 +13,8 @@ import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, LabelList,
 } from "recharts";
-import { apiFetch } from "@/lib/apiClient";
+import { apiFetch, getToken } from "@/lib/apiClient";
+import { adminGateErrorKind } from "@/lib/adminGate";
 import { API_ENDPOINTS } from "@/config/api";
 import { auth } from "@/lib/auth";
 import { toast } from "sonner";
@@ -22,12 +26,12 @@ import { K as TOKENS } from "@/design/tokens";
 // 1) require_admin (email allowlist + JWT) 2) audit log inmutable 3) re-auth por
 // password en mutaciones críticas. El redirect de AdminPanel es UX, no seguridad.
 export const Route = createFileRoute("/panel-x9k2/")({
+  head: () => seo({ title: "Admin · Medellín Social", description: "Panel de administración.", noindex: true }),
   beforeLoad: () => {
     if (typeof window === "undefined") return;
-    if (!localStorage.getItem("medellin-social.user")) throw redirect({ to: "/login" });
+    if (!localStorage.getItem("medellin-social.user") || !getToken()) throw redirect({ to: "/login" });
   },
   component: AdminPanel,
-  head: () => ({ meta: [{ title: "Panel · Medellín Social" }] }),
 });
 
 const K = TOKENS;
@@ -55,14 +59,34 @@ function AdminPanel() {
     queryFn: () => apiFetch<Dashboard>(API_ENDPOINTS.adminDashboard),
     retry: false,
   });
+  const errMsg = gate.error ? String((gate.error as Error).message) : "";
+  const kind = adminGateErrorKind(errMsg);
   useEffect(() => {
-    if (gate.error && /403|no autorizado/i.test(String((gate.error as Error).message))) {
-      navigate({ to: "/" });
-    }
-  }, [gate.error, navigate]);
+    if (kind === "login") navigate({ to: "/login" });
+    else if (kind === "forbidden") navigate({ to: "/" });
+  }, [kind, navigate]);
 
   if (gate.isLoading) return <div style={{ background: K.paper, minHeight: "100dvh" }} />;
-  if (gate.error) return null; // redirigiendo
+  if (gate.error) {
+    // Never a blank page: redirecting states say so, anything else shows the reason.
+    return (
+      <div role="alert" style={{ background: K.paper, minHeight: "100dvh", display: "grid", placeItems: "center", padding: 24 }}>
+        <div style={{ maxWidth: 420, textAlign: "center", color: K.ink }}>
+          <h1 className="text-lg font-bold" style={{ fontFamily: K.serif }}>
+            {kind === "login" ? "Inicia sesión para continuar" : kind === "forbidden" ? "No autorizado" : "No se pudo cargar el panel"}
+          </h1>
+          <p className="mt-2 text-sm" style={{ color: K.muted }}>
+            {kind === "other" ? errMsg : "Redirigiendo…"}
+          </p>
+          {kind === "other" && (
+            <button onClick={() => gate.refetch()} className="mt-4 rounded-md border px-3 py-1.5 text-sm" style={{ borderColor: K.line }}>
+              Reintentar
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ background: K.paper, minHeight: "100dvh" }}>
@@ -337,7 +361,7 @@ function OverviewTab({ data }: { data?: Dashboard }) {
             <div className="rounded-xl border" style={{ borderColor: K.line, background: "#FFFFFF" }}>
               {c.barrios_top10.slice(0, 8).map((b, i) => (
                 <div key={i} className="flex items-center justify-between border-b px-4 py-2 text-sm last:border-0" style={{ borderColor: K.line }}>
-                  <span style={{ color: K.ink }}>{i + 1}. {b.nombre}</span>
+                  <span style={{ color: K.ink }}>{i + 1}. <Name>{b.nombre}</Name></span>
                   <span style={{ color: K.muted }}>{b.visitas} vistas</span>
                 </div>
               ))}
@@ -370,7 +394,7 @@ type ListingRevision = {
 };
 
 const fmtCOP = (n: number) =>
-  n >= 1_000_000_000 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1_000_000 ? `$${Math.round(n / 1e6)}M` : `$${n.toLocaleString("es-CO")}`;
+  formatMoney(n, "COP", "es", { suffix: false });
 
 function ListingsTab() {
   const qc = useQueryClient();
@@ -544,7 +568,7 @@ function RealtorsTab() {
           <div key={a.id} className="rounded-xl border" style={{ borderColor: K.line, background: "#FFFFFF" }}>
             <div className="flex flex-wrap items-center justify-between gap-3 p-3">
             <div className="min-w-0">
-              <div className="font-medium" style={{ color: K.ink }}>{a.nombre}</div>
+              <div className="font-medium" style={{ color: K.ink }}><Name>{a.nombre}</Name></div>
               <div className="text-xs" style={{ color: K.muted }}>{a.email}{a.telefono ? ` · ${a.telefono}` : ""}</div>
             </div>
             <div className="flex gap-2">
@@ -660,13 +684,13 @@ function ZonasManager({ agentId }: { agentId: string }) {
         <select value={comunaSel} onChange={(e) => { setComunaSel(e.target.value); setBarrioSel(""); }}
           className="rounded-md border px-2 py-1 text-xs" style={{ borderColor: K.line, color: K.ink, background: "#FFF" }}>
           <option value="">{nivel === "comuna" ? "Elegir comuna…" : "Filtrar por comuna…"}</option>
-          {catalogo.data?.comunas.map((c) => <option key={c.cd_comuna} value={String(c.cd_comuna)}>{c.nombre}</option>)}
+          {catalogo.data?.comunas.map((c) => <option data-i18n-skip key={c.cd_comuna} value={String(c.cd_comuna)}>{c.nombre}</option>)}
         </select>
         {nivel === "barrio" && (
           <select value={barrioSel} onChange={(e) => setBarrioSel(e.target.value)} disabled={!comunaSel}
             className="rounded-md border px-2 py-1 text-xs" style={{ borderColor: K.line, color: K.ink, background: "#FFF" }}>
             <option value="">Elegir barrio…</option>
-            {barriosDeComuna.map((b) => <option key={b.id} value={String(b.id)}>{b.nombre}</option>)}
+            {barriosDeComuna.map((b) => <option data-i18n-skip key={b.id} value={String(b.id)}>{b.nombre}</option>)}
           </select>
         )}
         <button onClick={onAgregar} disabled={!puedeAgregar || agregar.isPending}
@@ -745,7 +769,7 @@ function DestacadoScope({ destacado, nivel, zonaCodigo, onSave, disabled }: {
         <select value={localZona} onChange={(e) => handleZona(e.target.value)} disabled={disabled || catalogo.isLoading}
           className="rounded-md border px-2 py-1 text-[11px]" style={{ borderColor: K.line, color: K.ink, background: "#FFF" }}>
           <option value="">{catalogo.isLoading ? "Cargando…" : "Elegir comuna…"}</option>
-          {catalogo.data?.comunas.map((c) => <option key={c.codigo} value={c.codigo}>{c.nombre}</option>)}
+          {catalogo.data?.comunas.map((c) => <option data-i18n-skip key={c.codigo} value={c.codigo}>{c.nombre}</option>)}
         </select>
       )}
       {localNivel === "barrio" && (
@@ -754,7 +778,7 @@ function DestacadoScope({ destacado, nivel, zonaCodigo, onSave, disabled }: {
           <option value="">{catalogo.isLoading ? "Cargando…" : "Elegir barrio…"}</option>
           {Object.entries(barriosPorMunicipio ?? {}).map(([municipio, barrios]) => (
             <optgroup key={municipio} label={municipio}>
-              {barrios.map((b) => <option key={b.id} value={String(b.id)}>{b.nombre}</option>)}
+              {barrios.map((b) => <option data-i18n-skip key={b.id} value={String(b.id)}>{b.nombre}</option>)}
             </optgroup>
           ))}
         </select>
@@ -893,7 +917,7 @@ function NegociosTab() {
               {data.tiendas.map((t) => (
                 <tr key={t.id} className="border-b last:border-0" style={{ borderColor: K.line }}>
                   <td className="px-4 py-3">
-                    <div className="font-medium" style={{ color: K.ink }}>{t.nombre}</div>
+                    <div className="font-medium" style={{ color: K.ink }}><Name>{t.nombre}</Name></div>
                     <div className="text-xs" style={{ color: K.muted }}>{[t.barrio, t.municipio].filter(Boolean).join(", ") || "—"}</div>
                   </td>
                   <td className="px-4 py-3 capitalize" style={{ color: K.muted }}>{t.categoria ?? "—"}</td>

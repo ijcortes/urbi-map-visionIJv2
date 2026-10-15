@@ -13,10 +13,14 @@ Run:
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 
 import psycopg2
 import psycopg2.extras
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from scraping.utils.quality import in_valle, resolve_barrio as _resolve_barrio  # noqa: E402
 
 DB_URL = os.environ["DATABASE_URL"]
 RAW_DIR = Path(__file__).parent / "data" / "raw"
@@ -33,12 +37,15 @@ INSERT INTO raw.listings_fincaraiz
     (fuente, tipo_operacion, tipo_inmueble, precio, area_m2,
      habitaciones, banos, direccion_raw, barrio_id, url,
      barrio_raw, municipio_raw, raw_data, activo,
-     lat, lon, estrato_real, descripcion, amenidades, fotos, fecha_scraping)
+     lat, lon, estrato_real, descripcion, amenidades, fotos, fecha_scraping,
+     last_seen_at, destacado, anunciante_tipo, moneda, precio_incluye_admin, area_tipo)
 VALUES
-    ('fincaraiz',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,true,%s,%s,%s,%s,%s,%s,NOW())
+    ('fincaraiz',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,true,%s,%s,%s,%s,%s,%s,NOW(),
+     NOW(),%s,%s,%s,%s,%s)
 ON CONFLICT (url) DO UPDATE SET
-    descripcion    = EXCLUDED.descripcion,
-    amenidades     = EXCLUDED.amenidades,
+    -- always refreshed: price/area/last_seen must move even when the text did not
+    descripcion    = COALESCE(EXCLUDED.descripcion, listings_fincaraiz.descripcion),
+    amenidades     = COALESCE(EXCLUDED.amenidades, listings_fincaraiz.amenidades),
     fotos          = CASE WHEN array_length(EXCLUDED.fotos,1) > 0 THEN EXCLUDED.fotos ELSE listings_fincaraiz.fotos END,
     precio         = EXCLUDED.precio,
     area_m2        = EXCLUDED.area_m2,
@@ -47,45 +54,25 @@ ON CONFLICT (url) DO UPDATE SET
     tipo_inmueble  = EXCLUDED.tipo_inmueble,
     raw_data       = EXCLUDED.raw_data,
     fecha_scraping = EXCLUDED.fecha_scraping,
-    barrio_id      = COALESCE(EXCLUDED.barrio_id, listings_fincaraiz.barrio_id)
-WHERE
-    EXCLUDED.descripcion IS NOT NULL
-    OR EXCLUDED.amenidades IS NOT NULL
-    OR EXCLUDED.fotos IS NOT NULL
-    OR listings_fincaraiz.descripcion IS NULL
+    barrio_id      = COALESCE(EXCLUDED.barrio_id, listings_fincaraiz.barrio_id),
+    activo         = true,
+    last_seen_at   = NOW(),
+    destacado      = EXCLUDED.destacado,
+    anunciante_tipo = COALESCE(EXCLUDED.anunciante_tipo, listings_fincaraiz.anunciante_tipo),
+    moneda         = EXCLUDED.moneda,
+    precio_incluye_admin = EXCLUDED.precio_incluye_admin,
+    area_tipo      = EXCLUDED.area_tipo
 """
-
-BARRIO_SQL = """
-SELECT id FROM raw.barrios
-WHERE ST_Contains(
-    geometry,
-    ST_SetSRID(ST_Point(%s, %s), 4326)
-)
-AND municipio ILIKE 'medell%%'
-LIMIT 1
-"""
-
-BARRIO_NEAREST_SQL = """
-SELECT id FROM raw.barrios
-WHERE municipio ILIKE 'medell%%'
-ORDER BY ST_Distance(geometry, ST_SetSRID(ST_Point(%s, %s), 4326))
-LIMIT 1
-"""
-
 
 def resolve_barrio(cur, lon: float, lat: float) -> int | None:
-    cur.execute(BARRIO_SQL, (lon, lat))
-    row = cur.fetchone()
-    if row:
-        return row["id"]
-    cur.execute(BARRIO_NEAREST_SQL, (lon, lat))
-    row = cur.fetchone()
-    return row["id"] if row else None
+    """Polygon containment in ANY Valle municipio (a Medellín-slug listing can sit
+    in Envigado), else nearest barrio within 300 m, else NULL (no far guesses)."""
+    return _resolve_barrio(cur, lat, lon)
 
 
 def load_file(cur, json_path: Path, dry_run: bool) -> tuple[int, int]:
     listings = json.load(open(json_path))
-    inserted = skipped = 0
+    inserted = skipped = outside = 0
 
     for lst in listings:
         if not lst:
@@ -103,6 +90,9 @@ def load_file(cur, json_path: Path, dry_run: bool) -> tuple[int, int]:
 
         barrio_id = None
         if lat and lng:
+            if not in_valle(cur, lat, lng):
+                outside += 1  # e.g. Rionegro/Guarne inside the scraper's lat/lon box
+                continue
             barrio_id = resolve_barrio(cur, float(lng), float(lat))
 
         amenidades_list = lst.get("amenidades") or []
@@ -134,10 +124,17 @@ def load_file(cur, json_path: Path, dry_run: bool) -> tuple[int, int]:
                 lst.get("descripcion"),
                 amenidades_list if amenidades_list else None,
                 fotos_list if fotos_list else None,
+                lst.get("destacado"),
+                lst.get("anunciante_tipo"),
+                lst.get("moneda") or "COP",
+                lst.get("precio_incluye_admin"),
+                lst.get("area_tipo"),
             ))
         inserted += 1
 
-    return inserted, skipped
+    if outside:
+        print(f"    {json_path.name}: {outside} outside the Valle polygons (skipped)")
+    return inserted, skipped + outside
 
 
 def main():

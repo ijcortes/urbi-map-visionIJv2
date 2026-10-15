@@ -1,4 +1,5 @@
 export type { TiendaData } from '@/hooks/useTiendas'
+import { Name } from "@/lib/i18n";
 import type { TiendaData } from '@/hooks/useTiendas'
 import { CATEGORIA_LABELS, CATEGORIA_COLORS, CATEGORIA_EMOJI } from '@/lib/categorias_comunidad'
 import { safeHref } from '@/lib/utils'
@@ -136,7 +137,7 @@ export function BusinessCardDirectory({ tienda }: { tienda: TiendaData }) {
             textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
-            {tienda.barrio_nombre}
+            <Name>{tienda.barrio_nombre}</Name>
           </p>
         )}
 
@@ -149,7 +150,7 @@ export function BusinessCardDirectory({ tienda }: { tienda: TiendaData }) {
           WebkitBoxOrient: 'vertical',
           overflow: 'hidden',
         }}>
-          {tienda.nombre}
+          <Name>{tienda.nombre}</Name>
         </p>
 
         {/* Rating + precio */}
@@ -266,7 +267,7 @@ export function BusinessCardList({ tienda }: { tienda: TiendaData }) {
           fontFamily: K.serif, fontWeight: 700, fontSize: 15, margin: 0, color: K.ink, lineHeight: 1.3,
           display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
         }}>
-          {tienda.nombre}
+          <Name>{tienda.nombre}</Name>
         </h4>
 
         {catLabel && (

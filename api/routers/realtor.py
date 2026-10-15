@@ -17,7 +17,9 @@ from api.routers.barrios import BarrioResponse, _BARRIO_SQL, _build_response
 from api.services.asignador_service import AsignadorError, sweep_asignados_vencidos, tomar_del_pool
 from api.services.listing_service import TRANSICIONES_VALIDAS, datos_minimos_completos
 from api.utils import ghl_client
-from api.utils.storage import upload_file
+from api.utils.storage import read_upload_bounded, upload_file
+
+from api.services.trm_service import get_usd_rate
 
 router = APIRouter()
 
@@ -109,7 +111,7 @@ async def subir_foto_perfil(
     agent = await _agent_del_usuario(user, pool, exigir_activo=False)
     if not (foto.filename and foto.size):
         raise HTTPException(status_code=400, detail="Foto inválida")
-    url = await upload_file(await foto.read(), foto.filename, folder="agentes")
+    url = await upload_file(await read_upload_bounded(foto), foto.filename, folder="agentes")
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE agent SET foto_url = $2, updated_at = NOW() WHERE id = $1",
@@ -391,7 +393,7 @@ async def subir_fotos(
         for i, f in enumerate(fotos):
             if not (f.filename and f.size):
                 continue
-            url = await upload_file(await f.read(), f.filename, folder="listings")
+            url = await upload_file(await read_upload_bounded(f), f.filename, folder="listings")
             await conn.execute(
                 "INSERT INTO listing_media (listing_id, url, orden, es_portada) "
                 "VALUES ($1, $2, $3, $4)",
@@ -796,7 +798,7 @@ async def inteligencia(
     row = await pool.fetchrow(_BARRIO_SQL + " WHERE b.id = $1", barrio_id)
     if not row:
         raise HTTPException(status_code=404, detail=f"Zona '{zona_codigo}' no encontrada")
-    return _build_response(dict(row))
+    return _build_response(dict(row), usd_rate=await get_usd_rate())
 
 
 # ── Disponibilidad semanal del agente (para slots de visita, sin Google) ──────

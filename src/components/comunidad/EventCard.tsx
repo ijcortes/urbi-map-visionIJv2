@@ -1,4 +1,5 @@
 import { safeHref } from "@/lib/utils"
+import { numberLocale } from "@/lib/format";
 import { K as TOKENS } from "@/design/tokens";
 
 export interface EventoData {
@@ -30,10 +31,10 @@ function parseFecha(str: string) {
   const d = new Date(normalized)
   if (isNaN(d.getTime())) return { day: '??', month: '???', full: str, hora: '' }
   return {
-    day: d.toLocaleDateString('es-CO', { day: 'numeric' }),
-    month: d.toLocaleDateString('es-CO', { month: 'short' }).replace('.', '').toUpperCase(),
-    full: d.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }),
-    hora: d.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }),
+    day: d.toLocaleDateString(numberLocale(), { day: 'numeric' }),
+    month: d.toLocaleDateString(numberLocale(), { month: 'short' }).replace('.', '').toUpperCase(),
+    full: d.toLocaleDateString(numberLocale(), { weekday: 'long', day: 'numeric', month: 'long' }),
+    hora: d.toLocaleTimeString(numberLocale(), { hour: '2-digit', minute: '2-digit' }),
   }
 }
 

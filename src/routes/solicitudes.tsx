@@ -1,7 +1,9 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { formatCOP, formatDate } from "@/lib/format";
 import { useState, useEffect } from "react";
 import { auth } from "@/lib/auth";
-import { getToken } from "@/lib/apiClient";
+import { authHeaders, authCredentials } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { ComunidadLayout } from "@/components/comunidad/ComunidadLayout";
 import { K as TOKENS } from "@/design/tokens";
@@ -28,6 +30,7 @@ interface Solicitud {
 }
 
 export const Route = createFileRoute("/solicitudes")({
+  head: () => seo({ title: "Solicitudes · Medellín Social", description: "Solicitudes de tus inmuebles.", noindex: true }),
   component: SolicitudesPage,
 });
 
@@ -46,9 +49,9 @@ function SolicitudesPage() {
       navigate({ to: "/login" });
       return;
     }
-    const token = getToken();
     fetch(API_ENDPOINTS.listingsPropiosSolicitudesPendientes, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: authHeaders(),
+      credentials: authCredentials,
     })
       .then(async (r) => {
         if (r.status === 403) { setNotAgente(true); return []; }
@@ -70,7 +73,8 @@ function SolicitudesPage() {
       fd.append("accion", accion);
       const res = await fetch(API_ENDPOINTS.listingsPropiosSolicitudById(solId), {
         method: "PATCH",
-        headers: { Authorization: `Bearer ${getToken()}` },
+        headers: authHeaders(),
+        credentials: authCredentials,
         body: fd,
       });
       if (!res.ok) throw new Error(await res.text());
@@ -200,9 +204,9 @@ function SolicitudCard({
   readOnly?: boolean;
 }) {
   const foto = sol.fotos?.[0];
-  const precio = `$${sol.precio_cop.toLocaleString("es-CO")} COP`;
+  const precio = formatCOP(sol.precio_cop);
   const propietario = `${sol.propietario_nombre} ${sol.propietario_apellido}`.trim();
-  const date = new Date(sol.created_at).toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" });
+  const date = formatDate(sol.created_at);
 
   const estadoBadge = {
     pendiente:  { bg: "#FFF6D6", color: "#856404", label: "Pendiente" },

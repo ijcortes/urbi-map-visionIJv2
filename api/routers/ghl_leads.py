@@ -18,11 +18,13 @@ from __future__ import annotations
 
 import hmac
 import os
+import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 
 from api.db import get_pool
+from api.limiter import client_ip, limiter
 
 router = APIRouter()
 
@@ -42,12 +44,28 @@ _LEAD_SELECT = """
 """
 
 
-def require_ghl_token(x_api_key: str | None = Header(default=None)) -> None:
-    """Cerrado por defecto: sin GHL_LEADS_TOKEN en el entorno → 503."""
-    token = os.getenv("GHL_LEADS_TOKEN")
-    if not token:
+def _valid_tokens() -> list[str]:
+    """GHL_LEADS_TOKEN admite varios valores separados por coma para rotar sin
+    corte: se agrega el nuevo, Talal lo cambia en GHL, se quita el viejo."""
+    raw = os.getenv("GHL_LEADS_TOKEN", "")
+    return [t.strip() for t in raw.split(",") if t.strip()]
+
+
+def require_ghl_token(request: Request, x_api_key: str | None = Header(default=None)) -> None:
+    """Cerrado por defecto: sin GHL_LEADS_TOKEN en el entorno → 503.
+
+    Opcional: GHL_LEADS_ALLOWED_IPS (coma) limita además por IP de origen."""
+    tokens = _valid_tokens()
+    if not tokens:
         raise HTTPException(status_code=503, detail="Lead API no configurada (falta GHL_LEADS_TOKEN)")
-    if not x_api_key or not hmac.compare_digest(x_api_key, token):
+    allowed_ips = {ip.strip() for ip in os.getenv("GHL_LEADS_ALLOWED_IPS", "").split(",") if ip.strip()}
+    if allowed_ips and client_ip(request) not in allowed_ips:
+        raise HTTPException(status_code=403, detail="origen no permitido")
+    # compare against every configured token (no early exit → constant work)
+    ok = False
+    for t in tokens:
+        ok |= bool(x_api_key) and hmac.compare_digest(x_api_key or "", t)
+    if not ok:
         raise HTTPException(status_code=401, detail="token inválido")
 
 
@@ -75,14 +93,18 @@ def _lead(r) -> dict:
 
 
 @router.get("/leads", dependencies=[Depends(require_ghl_token)])
+@limiter.limit("60/minute")
 async def listar_leads(
+    request: Request,
     since: str | None = Query(default=None, description="ISO 8601; solo leads creados después"),
     estado: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     pool=Depends(get_pool),
 ):
     """Descubrimiento/polling: Talal lo llama en un workflow programado con
-    `since` = el `created_at` del último lead que ya trajo."""
+    `since` = el `created_at` del último lead que ya trajo.
+    Con `since` el orden es ASC (el cursor avanza sin saltarse leads cuando
+    hay más de `limit`); sin `since`, DESC (los más recientes primero)."""
     desde = None
     if since:
         try:
@@ -96,7 +118,7 @@ async def listar_leads(
         _LEAD_SELECT + """
         WHERE ($1::timestamptz IS NULL OR v.created_at > $1)
           AND ($2::text IS NULL OR v.estado = $2)
-        ORDER BY v.created_at DESC
+        ORDER BY v.created_at """ + ("ASC" if desde else "DESC") + """
         LIMIT $3
         """,
         desde, estado, limit,
@@ -105,8 +127,13 @@ async def listar_leads(
 
 
 @router.get("/leads/{visita_id}", dependencies=[Depends(require_ghl_token)])
-async def obtener_lead(visita_id: str, pool=Depends(get_pool)):
+@limiter.limit("120/minute")
+async def obtener_lead(request: Request, visita_id: str, pool=Depends(get_pool)):
     """GET por ID — para re-sincronizar un lead puntual desde GHL."""
+    try:
+        uuid.UUID(visita_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Lead no encontrado")
     row = await pool.fetchrow(_LEAD_SELECT + " WHERE v.id = $1", visita_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead no encontrado")

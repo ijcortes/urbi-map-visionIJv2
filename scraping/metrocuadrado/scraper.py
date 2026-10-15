@@ -48,6 +48,15 @@ load_dotenv(Path(__file__).parent.parent.parent / ".env")
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from scraping.utils.db import get_connection
+from scraping.utils.dedup import dedup_hash as _shared_dedup_hash
+from scraping.utils.quality import (
+    RunStats,
+    http_get,
+    implausible_reason,
+    record_run,
+    resolve_barrio,
+    scraper_user_agent,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,7 +69,15 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 API_URL = "https://www.metrocuadrado.com"
 # Extraído del HTML embebido: env.apiKey en config de Next.js RSC
-API_KEY = os.getenv("METROCUADRADO_API_KEY", "P1MfFHfQMOtL16Zpg36NcntJYCLFm8FqFfudnavl")
+API_KEY = os.getenv("METROCUADRADO_API_KEY", "").strip()  # never hard-code; see .env.example
+
+
+def _require_api_key() -> str:
+    if not API_KEY:
+        raise RuntimeError(
+            "METROCUADRADO_API_KEY is not set. Export it (see .env.example) before running the Metrocuadrado scraper."
+        )
+    return API_KEY
 PAGE_SIZE = 50  # n.L=50, obligatorio — otras sizes retornan 0 resultados
 
 # Municipios del Valle de Aburrá — slug URL → nombre display
@@ -95,16 +112,11 @@ BASE_CONFIGS = [
     {"tipo_inmueble": "lote",          "tipo_operacion": "venta"},
 ]
 
-HEADERS = {
-    "User-Agent": os.getenv(
-        "SCRAPER_USER_AGENT",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    ),
+_BASE_HEADERS = {
+    "User-Agent": scraper_user_agent(),
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
     "Content-Type": "application/json",
-    "X-Api-Key": API_KEY,
     "Referer": "https://www.metrocuadrado.com/",
 }
 
@@ -112,32 +124,9 @@ HEADERS = {
 # Dedup hash
 # ---------------------------------------------------------------------------
 
-def calcular_dedup_hash(
-    barrio_raw,
-    tipo_inmueble,
-    tipo_operacion,
-    habitaciones,
-    banos,
-    area_m2,
-    precio,
-) -> str:
-    # math.floor(x + 0.5) matches PostgreSQL ROUND() half-away-from-zero
-    area_r = math.floor(float(area_m2 or 0) + 0.5)
-    precio_val = float(precio or 0)
-    # Scale-aware rounding: arriendo prices ~1M-5M → 500K buckets
-    #                        venta prices ~100M-500M → 10M buckets
-    factor = 500_000 if (tipo_operacion or "").lower() == "arriendo" else 10_000_000
-    precio_r = math.floor(precio_val / factor + 0.5) * factor
-    campos = "|".join([
-        (barrio_raw or "").lower().strip(),
-        (tipo_inmueble or ""),
-        (tipo_operacion or ""),
-        str(int(habitaciones or 0)),
-        str(int(banos or 0)),
-        str(area_r),
-        str(int(precio_r)),
-    ])
-    return hashlib.md5(campos.encode()).hexdigest()
+def calcular_dedup_hash(barrio_raw, tipo_inmueble, tipo_operacion, habitaciones, banos, area_m2, precio) -> str:
+    """Kept for callers/tests; the formula lives in scraping/utils/dedup.py."""
+    return _shared_dedup_hash(barrio_raw, tipo_inmueble, tipo_operacion, habitaciones, banos, area_m2, precio)
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +163,12 @@ ALTER TABLE raw.listings_metrocuadrado ADD COLUMN IF NOT EXISTS dias_en_mercado 
 ALTER TABLE raw.listings_metrocuadrado ADD COLUMN IF NOT EXISTS dedup_hash        VARCHAR;
 ALTER TABLE raw.listings_metrocuadrado ADD COLUMN IF NOT EXISTS municipio_raw     TEXT;
 ALTER TABLE raw.listings_metrocuadrado ADD COLUMN IF NOT EXISTS fotos             TEXT[];
+ALTER TABLE raw.listings_metrocuadrado ADD COLUMN IF NOT EXISTS last_seen_at      TIMESTAMPTZ;
+ALTER TABLE raw.listings_metrocuadrado ADD COLUMN IF NOT EXISTS destacado         BOOLEAN;
+ALTER TABLE raw.listings_metrocuadrado ADD COLUMN IF NOT EXISTS anunciante_tipo   TEXT;
+ALTER TABLE raw.listings_metrocuadrado ADD COLUMN IF NOT EXISTS moneda            TEXT;
+ALTER TABLE raw.listings_metrocuadrado ADD COLUMN IF NOT EXISTS precio_incluye_admin BOOLEAN;
+ALTER TABLE raw.listings_metrocuadrado ADD COLUMN IF NOT EXISTS area_tipo         TEXT;
 CREATE INDEX IF NOT EXISTS idx_mq_tipo_op  ON raw.listings_metrocuadrado(tipo_operacion);
 CREATE INDEX IF NOT EXISTS idx_mq_tipo_inm ON raw.listings_metrocuadrado(tipo_inmueble);
 CREATE INDEX IF NOT EXISTS idx_mq_barrio   ON raw.listings_metrocuadrado(barrio_id);
@@ -189,14 +184,18 @@ INSERT INTO raw.listings_metrocuadrado
      habitaciones, banos, direccion_raw, barrio_raw, municipio_raw, url,
      lat, lon, estrato, parqueaderos, piso, antiguedad, administracion,
      amenidades, fecha_scraping, activo, raw_data,
-     fecha_publicacion, dias_en_mercado, dedup_hash, fotos)
+     fecha_publicacion, dias_en_mercado, dedup_hash, fotos,
+     barrio_id, last_seen_at, destacado, anunciante_tipo, moneda,
+     precio_incluye_admin, area_tipo)
 VALUES
     (%(fuente)s, %(tipo_operacion)s, %(tipo_inmueble)s, %(precio)s,
      %(area_m2)s, %(habitaciones)s, %(banos)s, %(direccion_raw)s,
      %(barrio_raw)s, %(municipio_raw)s, %(url)s, %(lat)s, %(lon)s, %(estrato)s,
      %(parqueaderos)s, %(piso)s, %(antiguedad)s, %(administracion)s,
      %(amenidades)s, %(fecha_scraping)s, %(activo)s, %(raw_data)s,
-     %(fecha_publicacion)s, %(dias_en_mercado)s, %(dedup_hash)s, %(fotos)s)
+     %(fecha_publicacion)s, %(dias_en_mercado)s, %(dedup_hash)s, %(fotos)s,
+     %(barrio_id)s, NOW(), %(destacado)s, %(anunciante_tipo)s, %(moneda)s,
+     %(precio_incluye_admin)s, %(area_tipo)s)
 -- Identidad = (url, tipo_operacion), estable y sin precio. Una url de MC
 -- (murldetalle keyea por midinmueble) hostea venta Y arriendo del mismo
 -- inmueble, así que url sola fusionaría ambas operaciones -> (url,op). dedup_hash
@@ -225,7 +224,14 @@ ON CONFLICT (url, tipo_operacion) DO UPDATE SET
     raw_data          = EXCLUDED.raw_data,
     fecha_publicacion = EXCLUDED.fecha_publicacion,
     dias_en_mercado   = EXCLUDED.dias_en_mercado,
-    fotos             = CASE WHEN array_length(EXCLUDED.fotos,1) > 0 THEN EXCLUDED.fotos ELSE raw.listings_metrocuadrado.fotos END;
+    fotos             = CASE WHEN array_length(EXCLUDED.fotos,1) > 0 THEN EXCLUDED.fotos ELSE raw.listings_metrocuadrado.fotos END,
+    barrio_id         = COALESCE(EXCLUDED.barrio_id, raw.listings_metrocuadrado.barrio_id),
+    last_seen_at      = NOW(),
+    destacado         = EXCLUDED.destacado,
+    anunciante_tipo   = COALESCE(EXCLUDED.anunciante_tipo, raw.listings_metrocuadrado.anunciante_tipo),
+    moneda            = EXCLUDED.moneda,
+    precio_incluye_admin = EXCLUDED.precio_incluye_admin,
+    area_tipo         = EXCLUDED.area_tipo;
 """
 
 MQ_CDN = "https://multimedia.metrocuadrado.com"
@@ -282,13 +288,28 @@ def _parse_float(val) -> float | None:
         return None
 
 
+def normalize_tipo_inmueble(tipo_inmueble: str) -> tuple[str, bool]:
+    """apartaestudio is stored as 'apartamento' (a studio is an apartment with 0
+    rooms) so filters/labels show a single type. Returns (tipo, was_studio)."""
+    if (tipo_inmueble or "").strip().lower() == "apartaestudio":
+        return "apartamento", True
+    return tipo_inmueble, False
+
+
 def _parse_listing(item: dict, tipo_inmueble: str, tipo_operacion: str,
                    municipio_raw: str | None = None) -> dict | None:
     """Convert raw API listing to normalized record."""
+    tipo_inmueble, es_estudio = normalize_tipo_inmueble(tipo_inmueble)
     link = item.get("link") or item.get("data", {}).get("murldetalle", "")
     if not link:
         return None
     url = API_URL + link if not link.startswith("http") else link
+
+    # Currency: the REST search returns COP; honour an explicit non-COP marker if
+    # the portal ever sends one instead of silently treating it as pesos.
+    moneda = str(item.get("mmoneda") or item.get("currency") or "COP").upper()
+    if moneda in ("$", "PESOS", "COP$"):
+        moneda = "COP"
 
     # Price: use mvalorventa for venta, mvalorarriendo for arriendo
     precio = None
@@ -297,11 +318,16 @@ def _parse_listing(item: dict, tipo_inmueble: str, tipo_operacion: str,
     else:
         precio = _parse_float(item.get("mvalorarriendo"))
 
-    # Area: prefer private area, fall back to total
-    area = _parse_float(item.get("areaprivada") or item.get("areaPrivada") or item.get("marea"))
+    # Area: prefer private area, fall back to total — and record which one, since
+    # mixing both skews price/m2 (private is typically 10-20 % smaller).
+    area_priv = _parse_float(item.get("areaprivada") or item.get("areaPrivada"))
+    area = area_priv or _parse_float(item.get("marea"))
+    area_tipo = "privada" if area_priv else ("total" if area else None)
 
     # Rooms/baths
     habitaciones = _parse_int(item.get("mnrocuartos"))
+    if es_estudio:
+        habitaciones = 0
     banos = _parse_int(item.get("mnrobanos"))
 
     # Location
@@ -371,6 +397,11 @@ def _parse_listing(item: dict, tipo_inmueble: str, tipo_operacion: str,
 
     fotos = _build_fotos(item)
 
+    # Paid placement: the search API marks promoted cards with a badge.
+    badge = item.get("badge")
+    destacado = bool(badge) if badge is not None else None
+    anunciante_tipo = (item.get("mtipousuario") or item.get("userType") or None)
+
     raw_data = {
         "midinmueble":      item.get("midinmueble"),
         "title":            title,
@@ -428,6 +459,12 @@ def _parse_listing(item: dict, tipo_inmueble: str, tipo_operacion: str,
         "fecha_publicacion":  fecha_pub_str,
         "dias_en_mercado":    dias_mercado,
         "fotos":              fotos if fotos else None,
+        "barrio_id":          None,  # resolved against raw.barrios at save time
+        "destacado":          destacado,
+        "anunciante_tipo":    anunciante_tipo,
+        "moneda":             moneda,
+        "precio_incluye_admin": None,  # MC lists admin separately (commonExpenses)
+        "area_tipo":          area_tipo,
         "dedup_hash":         calcular_dedup_hash(
             barrio_raw=barrio,
             tipo_inmueble=tipo_inmueble,
@@ -460,8 +497,10 @@ class MetrocuadradoScraper:
         self.tipos = tipos
         self.municipios = municipios or ["medellin"]
         self.since_date = since_date
+        self.stats = RunStats("metrocuadrado")
+        self.coverage: list[tuple[str, int | None, int, int]] = []  # (config_key, total_hits, seen, pages_failed)
         self._session = requests.Session()
-        self._session.headers.update(HEADERS)
+        self._session.headers.update({**_BASE_HEADERS, "X-Api-Key": _require_api_key()})
 
     def _get_page(self, tipo_inmueble: str, tipo_operacion: str,
                   from_offset: int, city: str) -> dict | None:
@@ -472,17 +511,13 @@ class MetrocuadradoScraper:
             "from":                   from_offset,
             "size":                   PAGE_SIZE,
         }
-        try:
-            resp = self._session.get(
-                f"{API_URL}/rest-search/search",
-                params=params,
-                timeout=30,
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as e:
-            log.error(f"HTTP error [{city}/{tipo_inmueble}/{tipo_operacion}] from={from_offset}: {e}")
+        resp = http_get(self._session, f"{API_URL}/rest-search/search", params=params,
+                        timeout=30, stats=self.stats)
+        if resp is None:
+            log.error(f"HTTP error [{city}/{tipo_inmueble}/{tipo_operacion}] from={from_offset} (after retries)")
             return None
+        try:
+            return resp.json()
         except ValueError as e:
             log.error(f"JSON decode error [{city}/{tipo_inmueble}/{tipo_operacion}] from={from_offset}: {e}")
             return None
@@ -498,6 +533,10 @@ class MetrocuadradoScraper:
 
         all_results: list[dict] = []
         seen_urls: set[str] = set()
+        config_key = f"{city}|{tipo_inmueble}|{tipo_operacion}"
+        total_hits: int | None = None
+        pages_failed = 0
+        consecutive_old_pages = 0
 
         for page_num in range(self.max_pages):
             from_offset = page_num * PAGE_SIZE
@@ -508,6 +547,10 @@ class MetrocuadradoScraper:
 
             data = self._get_page(tipo_inmueble, tipo_operacion, from_offset, city)
             if not data:
+                # Truncated pass: recorded (not complete) so the stale rule cannot
+                # age out listings this run never reached; counted for the exit code.
+                pages_failed += 1
+                self.stats.truncated_configs.append(config_key)
                 break
 
             total_hits = data.get("totalHits", 0)
@@ -515,6 +558,8 @@ class MetrocuadradoScraper:
 
             if page_num == 0:
                 log.info(f"    Total disponible en API: {total_hits:,}")
+                if total_hits > 10000:
+                    log.warning(f"    {config_key}: {total_hits:,} > 10.000 (tope de la API) — cobertura incompleta")
 
             if not items:
                 log.info(f"    Sin resultados en página {page_num + 1}, deteniendo")
@@ -523,10 +568,21 @@ class MetrocuadradoScraper:
             new_items = []
             old_count = 0
             for item in items:
-                parsed = _parse_listing(item, tipo_inmueble, tipo_operacion,
-                                        municipio_raw=municipio_display)
-                if not parsed or parsed["url"] in seen_urls:
+                self.stats.items_seen += 1
+                try:
+                    parsed = _parse_listing(item, tipo_inmueble, tipo_operacion,
+                                            municipio_raw=municipio_display)
+                except Exception as e:  # schema drift must be counted, not swallowed
+                    log.debug(f"parse error: {e}")
+                    parsed = None
+                if not parsed:
+                    self.stats.parse_failed += 1
                     continue
+                if parsed["url"] in seen_urls:
+                    continue
+                if implausible_reason(parsed["precio"], parsed["area_m2"],
+                                      parsed["tipo_inmueble"], tipo_operacion):
+                    self.stats.implausible += 1
                 # Incremental filter: skip if older than since_date
                 if self.since_date and parsed.get("fecha_publicacion"):
                     try:
@@ -543,10 +599,16 @@ class MetrocuadradoScraper:
                 log.info(f"    Sin items nuevos, deteniendo")
                 break
 
-            # Stop early if whole page is older than cutoff
+            # Stop early only after 3 consecutive all-old pages: the search API's
+            # sort order is not guaranteed to be by publish date, so a single old
+            # page (e.g. a bumped/featured block) must not end the pass.
             if self.since_date and old_count > 0 and len(new_items) == 0:
-                log.info(f"    Página completa más antigua que {self.since_date} — deteniendo")
-                break
+                consecutive_old_pages += 1
+                if consecutive_old_pages >= 3:
+                    log.info(f"    3 páginas seguidas más antiguas que {self.since_date} — deteniendo")
+                    break
+            else:
+                consecutive_old_pages = 0
 
             all_results.extend(new_items)
             log.info(f"    +{len(new_items)} listings, {old_count} old (total {len(all_results)})")
@@ -558,6 +620,9 @@ class MetrocuadradoScraper:
             if page_num < self.max_pages - 1:
                 self._delay()
 
+        self.coverage.append((config_key, total_hits, len(seen_urls), pages_failed))
+        if total_hits and len(seen_urls) < 0.95 * min(total_hits, 10000) and not self.since_date:
+            log.warning(f"    {config_key}: cobertura {len(seen_urls)}/{total_hits} — subir --max-pages")
         return all_results
 
     def run(self, save_func=None) -> list[dict]:
@@ -601,8 +666,24 @@ def save_listings(listings: list[dict]) -> int:
         return 0
     with get_connection() as conn:
         with conn.cursor() as cur:
+            # barrio_id at insert (polygon, else nearest within 300 m) — the MC
+            # upsert never set it before, leaving those rows to query-time joins.
+            for l in listings:
+                try:
+                    l["barrio_id"] = resolve_barrio(cur, l.get("lat"), l.get("lon"))
+                except Exception:
+                    conn.rollback()
+                    l["barrio_id"] = None
             psycopg2.extras.execute_batch(cur, UPSERT_SQL, listings, page_size=50)
     return len(listings)
+
+
+def save_coverage(scraper: "MetrocuadradoScraper") -> None:
+    modo = "incremental" if scraper.since_date else "full"
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            for config_key, total, seen, failed in scraper.coverage:
+                record_run(cur, "metrocuadrado", config_key, modo, total, seen, failed)
 
 
 # ---------------------------------------------------------------------------
@@ -614,6 +695,8 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="No escribe a DB")
     parser.add_argument("--max-pages", type=int, default=10, help="Máx páginas por tipo (default 10 = 500 listings)")
     parser.add_argument("--since-days", type=int, default=None, help="Incremental: solo listings publicados en los últimos N días")
+    parser.add_argument("--full-on-weekday", type=int, default=None,
+                        help="Con --since-days: ese día de la semana (0=lun..6=dom) hace pasada completa")
     parser.add_argument(
         "--tipos",
         nargs="+",
@@ -642,6 +725,11 @@ def main():
                 parser.error(f"Municipios desconocidos: {unknown}. Opciones: {list(MUNICIPIOS_VALLE.keys())}")
             municipios = args.municipios
 
+    if args.since_days is not None and args.full_on_weekday is not None \
+            and date.today().weekday() == args.full_on_weekday:
+        log.info("Pasada completa hoy (--full-on-weekday)")
+        args.since_days = None
+
     since_date: date | None = None
     if args.since_days is not None:
         since_date = date.today() - timedelta(days=args.since_days)
@@ -659,7 +747,12 @@ def main():
     else:
         ensure_table()
         listings = scraper.run(save_func=save_listings)
+        try:
+            save_coverage(scraper)
+        except Exception:
+            log.exception("No se pudo registrar raw.scrape_runs (¿migración 0112 aplicada?)")
 
+    log.info(scraper.stats.summary())
     if not listings:
         log.warning("Sin listings extraídos. Verificar API key o conexión.")
         sys.exit(1)
@@ -693,6 +786,9 @@ def main():
     print("\n  Por municipio:")
     for mun, cnt in sorted(mun_count.items(), key=lambda x: -x[1]):
         print(f"    {mun:18} {cnt:5}")
+
+    # Non-zero when the run was silently truncated / the portal schema drifted.
+    sys.exit(scraper.stats.exit_code())
 
 
 if __name__ == "__main__":

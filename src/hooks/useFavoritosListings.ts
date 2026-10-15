@@ -3,6 +3,11 @@ import { toast } from "sonner";
 import { apiFetch, getToken } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 
+/** Favorites key for a listing: fav_key (stable id, works for own listings whose `url` is null) else url. */
+export function favKey(l: { fav_key?: string | null; url?: string | null }): string | null {
+  return l.fav_key || l.url || null;
+}
+
 const BASE = API_ENDPOINTS.favoritos + "/listings";
 
 export function useFavoritosListings() {

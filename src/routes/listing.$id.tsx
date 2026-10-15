@@ -1,4 +1,7 @@
+import { Name } from "@/lib/i18n";
+import { seo } from "@/lib/seo";
 import { createFileRoute, redirect, Link } from "@tanstack/react-router";
+import { RouteError, RoutePending } from "@/components/RouteStates";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft, Bed, Bath, Maximize2, Building2, Calendar,
@@ -7,17 +10,23 @@ import {
 import { apiFetch } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { MAPBOX_TOKEN } from "@/lib/mapboxToken";
-import { formatCOP, yieldColor, yieldLabel } from "@/lib/format";
+import { yieldColor, yieldLabel } from "@/lib/format";
+import { usePriceFormat } from "@/hooks/usePriceFormat";
 import type { ApiListingDetail } from "@/lib/adapters";
 import { SiteNavbar } from "@/components/SiteNavbar";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { toast } from "sonner";
+import { copyText } from "@/lib/clipboard";
+import { OriginalListingLink } from "@/components/OriginalListingLink";
 
 export const Route = createFileRoute("/listing/$id")({
+  head: () => seo({ title: "Inmueble · Medellín Social", description: "Detalle del inmueble: precio, área, barrio, fotos y comparación con el mercado de la zona." }),
   beforeLoad: ({ params }) => {
     throw redirect({ to: "/map", search: { listing: Number(params.id) } });
   },
   component: ListingPage,
+  errorComponent: RouteError,
+  pendingComponent: RoutePending,
 });
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -154,6 +163,7 @@ export function ListingDetailContent({
   isModal?: boolean;
 }) {
   const { lat, lon } = listing;
+  const { formatPrice, formatSecondary, formatPricePerArea } = usePriceFormat();
   const fuente = (listing.fuente ?? "").toLowerCase();
   const tipoOp = listing.tipo_operacion ?? "venta";
 
@@ -163,7 +173,7 @@ export function ListingDetailContent({
       : null;
 
   const waText = encodeURIComponent(
-    `Hola, me interesa este listing en ${listing.barrio_nombre ?? ""} de ${listing.precio_cop ? formatCOP(listing.precio_cop) : "—"}. ID: ${listing.id}`,
+    `Hola, me interesa este listing en ${listing.barrio_nombre ?? ""} de ${formatPrice(listing.precio_cop)}. ID: ${listing.id}`,
   );
   const waUrl = `https://wa.me/+573122502394?text=${waText}`;
 
@@ -196,7 +206,7 @@ export function ListingDetailContent({
 
   function handleShare() {
     const url = `${window.location.origin}/map?listing=${listing.id}`;
-    navigator.clipboard.writeText(url).then(() => toast.success("Link copiado ✅"));
+    void copyText(url).then((ok) => (ok ? toast.success("Link copiado ✅") : toast.error("No se pudo copiar el link")));
   }
 
   return (
@@ -213,7 +223,7 @@ export function ListingDetailContent({
             )}
             {listing.barrio_nombre && (
               <span className="text-sm text-muted-foreground truncate hidden sm:inline">
-                · {listing.barrio_nombre}
+                · <Name>{listing.barrio_nombre}</Name>
               </span>
             )}
           </div>
@@ -256,7 +266,7 @@ export function ListingDetailContent({
               )}
               <div className="flex items-center gap-2 border-t border-[#E5E0D5] bg-white px-4 py-2 text-xs text-muted-foreground">
                 <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
-                {listing.barrio_nombre && <span>{listing.barrio_nombre}</span>}
+                {listing.barrio_nombre && <span><Name>{listing.barrio_nombre}</Name></span>}
                 {listing.municipio && <span>· {listing.municipio}</span>}
                 {listing.estrato_real != null && <span>· Estrato {listing.estrato_real}</span>}
               </div>
@@ -359,7 +369,7 @@ export function ListingDetailContent({
                     <div className="text-xs text-muted-foreground">
                       Mediana zona:{" "}
                       {listing.precio_m2_mediana_barrio
-                        ? `${(listing.precio_m2_mediana_barrio / 1_000_000).toFixed(1)}M/m²`
+                        ? formatPricePerArea(listing.precio_m2_mediana_barrio)
                         : "—"}
                     </div>
                   </div>
@@ -378,7 +388,7 @@ export function ListingDetailContent({
                     <div className="text-xs text-muted-foreground">Arriendo referencia barrio</div>
                     <div className="text-2xl font-bold">
                       {listing.arriendo_p50_barrio
-                        ? formatCOP(listing.arriendo_p50_barrio)
+                        ? formatPrice(listing.arriendo_p50_barrio)
                         : "—"}
                     </div>
                     <div className="text-xs text-muted-foreground">
@@ -390,7 +400,7 @@ export function ListingDetailContent({
                     <div className="text-xs text-muted-foreground">Ingreso anual estimado</div>
                     <div className="text-2xl font-bold text-primary">
                       {listing.arriendo_p50_barrio
-                        ? formatCOP(listing.arriendo_p50_barrio * 12)
+                        ? formatPrice(listing.arriendo_p50_barrio * 12)
                         : "—"}
                     </div>
                     <div className="text-xs text-muted-foreground">
@@ -482,16 +492,16 @@ export function ListingDetailContent({
                       className="block rounded-xl border border-[#E5E0D5] bg-[#F3F0E8] p-4 transition hover:border-primary/40 hover:bg-primary/5"
                     >
                       <div className="mb-1 text-xs capitalize text-muted-foreground">
-                        {s.tipo_inmueble} · {s.barrio_nombre}
+                        {s.tipo_inmueble} · <Name>{s.barrio_nombre}</Name>
                       </div>
                       <div className="font-bold">
-                        {s.precio_cop ? formatCOP(s.precio_cop) : "—"}
+                        {formatPrice(s.precio_cop)}
                       </div>
                       <div className="mt-1 flex gap-2 text-xs text-muted-foreground">
                         {s.habitaciones != null && <span>{s.habitaciones}hab</span>}
                         {s.area_m2 != null && <span>{s.area_m2}m²</span>}
                         {s.precio_m2 != null && tipoOp === "venta" && (
-                          <span>{(s.precio_m2 / 1_000_000).toFixed(1)}M/m²</span>
+                          <span>{formatPricePerArea(s.precio_m2)}</span>
                         )}
                       </div>
                     </Link>
@@ -507,14 +517,16 @@ export function ListingDetailContent({
             <div className="space-y-4 rounded-2xl border border-[#E5E0D5] bg-white p-6 backdrop-blur-sm">
               <div>
                 <div className="font-display text-3xl font-bold leading-tight" style={{ color: '#111418' }}>
-                  {listing.precio_cop ? formatCOP(listing.precio_cop) : "—"}
+                  {formatPrice(listing.precio_cop)}
                 </div>
-                {listing.precio_usd && (
+                {formatSecondary(listing.precio_cop) && (
                   <div className="mt-0.5 text-sm" style={{ color: '#5B5F5C' }}>
-                    ~{listing.precio_usd >= 1_000_000 ? `$${(listing.precio_usd / 1_000_000).toFixed(1)}M` : `$${Math.round(listing.precio_usd / 1_000)}k`} USD
+                    {formatSecondary(listing.precio_cop)}
                   </div>
                 )}
               </div>
+
+              <OriginalListingLink listing={listing} className="w-full" />
 
               {/* Key specs */}
               <div className="flex flex-wrap gap-2 text-sm">
@@ -547,7 +559,7 @@ export function ListingDetailContent({
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Precio/m²</span>
                       <span className="font-semibold">
-                        {(listing.precio_m2 / 1_000_000).toFixed(1)}M/m²
+                        {formatPricePerArea(listing.precio_m2)}
                       </span>
                     </div>
                   )}
@@ -555,7 +567,7 @@ export function ListingDetailContent({
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Mediana zona</span>
                       <span>
-                        {(listing.precio_m2_mediana_barrio / 1_000_000).toFixed(1)}M/m²
+                        {formatPricePerArea(listing.precio_m2_mediana_barrio)}
                       </span>
                     </div>
                   )}
@@ -581,7 +593,7 @@ export function ListingDetailContent({
                   {listing.arriendo_p50_barrio != null && tipoOp === "venta" && (
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Arriendo ref. barrio</span>
-                      <span>{formatCOP(listing.arriendo_p50_barrio)}</span>
+                      <span>{formatPrice(listing.arriendo_p50_barrio)}</span>
                     </div>
                   )}
                 </div>
@@ -603,17 +615,6 @@ export function ListingDetailContent({
                   <Phone className="h-4 w-4" />
                   Contactar agente (WhatsApp)
                 </a>
-                {listing.url && (
-                  <a
-                    href={listing.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-primary/40 bg-primary/10 py-3 text-sm font-semibold text-primary transition hover:bg-primary/20"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                    {SOURCE_LABEL[fuente] ?? "Ver listado original"}
-                  </a>
-                )}
                 {isModal && (
                   <button
                     onClick={handleShare}
@@ -637,7 +638,7 @@ export function ListingDetailContent({
             {listing.barrio_id != null && (
               <div className="space-y-3 rounded-2xl border border-[#E5E0D5] bg-white p-4">
                 <div className="text-sm font-semibold" style={{ color: '#111418' }}>
-                  Zona: {listing.barrio_nombre}
+                  Zona: <Name>{listing.barrio_nombre}</Name>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   {listing.yield_bruto_pct != null && (
@@ -784,7 +785,7 @@ function ListingPage() {
             </span>
           )}
           {listing.barrio_nombre && (
-            <span className="text-sm text-muted-foreground">· {listing.barrio_nombre}</span>
+            <span className="text-sm text-muted-foreground">· <Name>{listing.barrio_nombre}</Name></span>
           )}
           {listing.municipio && (
             <span className="text-sm text-muted-foreground">· {listing.municipio}</span>

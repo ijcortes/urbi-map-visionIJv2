@@ -1,7 +1,9 @@
+import { seo } from "@/lib/seo";
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { auth } from "@/lib/auth";
-import { GHL, ghlRedirect } from "@/config/ghl";
+import { PLAN_PRICES } from "@/config/ghl";
+import { PlanCta } from "@/components/PlanCta";
 import { ComunidadLayout } from "@/components/comunidad/ComunidadLayout";
 import { K as TOKENS } from "@/design/tokens";
 
@@ -49,6 +51,7 @@ const FAQ = [
 ];
 
 export const Route = createFileRoute("/planes_/featured-realtor")({
+  head: () => seo({ title: "Featured Realtor · Medellín Social", description: "Sé el agente destacado de tu zona y recibe los contactos de compradores e inversionistas.", path: "/planes/featured-realtor" }),
   component: FeaturedRealtorPage,
 });
 
@@ -73,28 +76,18 @@ function FeaturedRealtorPage() {
           Marketing digital, AI agents y web site administrado. Todo para dominar tu zona en Medellín Social.
         </p>
         <div style={{ display: "inline-block", background: "rgba(255,255,255,0.12)", borderRadius: 14, padding: "20px 36px" }}>
-          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", textDecoration: "line-through", marginBottom: 2 }}>$599 precio regular</p>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", textDecoration: "line-through", marginBottom: 2 }}>{PLAN_PRICES.featured_realtor!.regular} precio regular</p>
           <p style={{ fontFamily: K.serif, fontSize: "3rem", fontWeight: 900, color: "#fff", lineHeight: 1, letterSpacing: "-0.04em" }}>
-            $299<span style={{ fontSize: "1.1rem", fontWeight: 400 }}>/mo</span>
+            {PLAN_PRICES.featured_realtor!.special}<span style={{ fontSize: "1.1rem", fontWeight: 400 }}>/mo</span>
           </p>
-          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", marginTop: 4 }}>precio especial · + $199 setup fee</p>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", marginTop: 4 }}>precio especial · + {PLAN_PRICES.featured_realtor!.setup} setup fee</p>
         </div>
       </div>
 
       <div style={{ background: K.paper }}>
         <div style={{ maxWidth: 680, margin: "0 auto", padding: "48px 20px 72px" }}>
 
-          <button
-            onClick={() => ghlRedirect(GHL.featured_realtor, email)}
-            style={{
-              display: "block", width: "100%", background: K.teal, color: "#fff",
-              border: "none", borderRadius: 10, padding: "14px 0",
-              fontWeight: 700, fontSize: 15, cursor: "pointer",
-              fontFamily: "inherit", marginBottom: 40,
-            }}
-          >
-            Solicitar Featured Realtor →
-          </button>
+          <PlanCta plan="featured_realtor" planLabel="Featured Realtor" label="Solicitar Featured Realtor →" params={email} />
 
           {/* Base features */}
           <h2 style={{ fontFamily: K.serif, fontSize: "1.2rem", fontWeight: 800, color: K.ink, marginBottom: 14 }}>

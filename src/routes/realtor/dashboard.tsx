@@ -1,4 +1,6 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { RouteError, RoutePending } from "@/components/RouteStates";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Inbox, MapPinned, Plus } from "@/lib/icons";
@@ -7,7 +9,7 @@ import { apiFetch } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCOP } from "@/lib/format";
-import { LanguageToggle } from "@/lib/i18n";
+import { LanguageToggle, Name } from "@/lib/i18n";
 import {
   datosMinimosCompletos,
   realtorApi,
@@ -40,15 +42,15 @@ import {
 } from "@/hooks/useRealtorDashboard";
 
 export const Route = createFileRoute("/realtor/dashboard")({
+  errorComponent: RouteError,
+  pendingComponent: RoutePending,
   beforeLoad: () => {
     if (typeof window === "undefined") return;
     const raw = localStorage.getItem("medellin-social.user");
     if (!raw) throw redirect({ to: "/login" });
   },
   component: RealtorDashboardPage,
-  head: () => ({
-    meta: [{ title: "Dashboard · Realtor · Medellín Social" }],
-  }),
+  head: () => seo({ title: "Panel del agente · Medellín Social", description: "Tus leads, zonas y propiedades.", noindex: true }),
 });
 
 // ── Tabs ───────────────────────────────────────────────────────────────────────
@@ -149,7 +151,7 @@ function RealtorNav({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
                   : initials}
               </div>
               <div className="hidden md:block">
-                <div className="text-sm font-medium leading-tight text-foreground">{perfil.nombre}</div>
+                <div className="text-sm font-medium leading-tight text-foreground"><Name>{perfil.nombre}</Name></div>
                 {perfil.zonas_patrocinadas.length > 0 && (
                   <div className="text-[11px] leading-tight text-muted-foreground">
                     {perfil.zonas_patrocinadas.map((z) => z.nombre).join(" · ")}
@@ -929,7 +931,7 @@ function VisitaRow({
     <div className={`flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${first ? "" : "border-t border-border/70"}`}>
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="font-medium text-foreground">{v.nombre}</span>
+          <span className="font-medium text-foreground"><Name>{v.nombre}</Name></span>
           {v.es_pro && (
             <span
               className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider"
@@ -1724,7 +1726,7 @@ function InteligenciaTab() {
               aria-label="Seleccionar zona de análisis"
             >
               {zonas.map((z) => (
-                <option key={z.codigo} value={z.codigo}>{z.nombre}</option>
+                <option data-i18n-skip key={z.codigo} value={z.codigo}>{z.nombre}</option>
               ))}
             </select>
           </div>
@@ -2168,7 +2170,7 @@ function ZonasCompraTab() {
             {perfil!.zonas_patrocinadas.map((z) => (
               <span key={z.codigo} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1 text-sm text-foreground">
                 <MapPinned className={`h-3.5 w-3.5 ${z.nivel === "comuna" ? "text-primary" : "text-warning"}`} />
-                {z.nombre} <span className="text-xs text-muted-foreground">({z.nivel})</span>
+                <Name>{z.nombre}</Name> <span className="text-xs text-muted-foreground">({z.nivel})</span>
               </span>
             ))}
           </div>
@@ -2205,7 +2207,7 @@ function ZonasCompraTab() {
             >
               <option value="">Elegir comuna…</option>
               {(disp.data?.comunas ?? []).map((c) => (
-                <option key={c.cd_comuna} value={String(c.cd_comuna)}>{c.nombre}</option>
+                <option data-i18n-skip key={c.cd_comuna} value={String(c.cd_comuna)}>{c.nombre}</option>
               ))}
             </select>
           </label>

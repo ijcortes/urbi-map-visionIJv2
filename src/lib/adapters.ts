@@ -276,6 +276,8 @@ export type ApiListing = {
   banos?: number | null;
   direccion_raw?: string | null;
   url?: string | null;
+  /** Stable favorites key (== raw url; for own listings the internal id, where `url` is null). */
+  fav_key?: string | null;
   fecha_scraping?: string | null;
   buena_oferta?: boolean | null;
   pct_bajo_mediana?: number | null;
@@ -299,6 +301,8 @@ export type ApiListing = {
   verificado?: boolean | null;
   // URL availability — present after validate_listings_urls.py has run
   disponible_actualmente?: boolean | null;
+  // Original-link health from the API: url is already null when gone/pending_review/error
+  link_status?: "unknown" | "ok" | "redirected" | "pending_review" | "gone" | "error" | null;
   fecha_ultima_verificacion?: string | null;
   favoritos_count?: number | null;
   foto_principal?: string | null;
@@ -538,3 +542,26 @@ export function parseBudgetCop(budget?: string | null): [number, number] | null 
   return null;
 }
 
+
+// ── Price filter params ─────────────────────────────────────────────────────
+// Filter state is canonical COP. The API takes `moneda` (COP|USD) + precio_min /
+// precio_max in that currency. Until the deployed backend is known to support
+// `moneda` (VITE_API_SUPPORTS_MONEDA=true) we send COP-converted values, which
+// both old and new backends interpret correctly (new ones default moneda=COP).
+// Backend now supports moneda/segmento/ocultar_destacados/zona_completa/compact: default ON,
+// set VITE_API_SUPPORTS_MONEDA=false to opt out.
+const SUPPORTS_MONEDA = import.meta.env.VITE_API_SUPPORTS_MONEDA !== "false";
+
+export function appendPriceParams(
+  params: URLSearchParams,
+  minCop: number | null | undefined,
+  maxCop: number | null | undefined,
+  opts: { currency?: "COP" | "USD"; trm?: number | null; supportsMoneda?: boolean } = {},
+): void {
+  const supports = opts.supportsMoneda ?? SUPPORTS_MONEDA;
+  const useUsd = supports && opts.currency === "USD" && !!opts.trm && opts.trm > 0;
+  const conv = (v: number) => (useUsd ? Math.round(v / (opts.trm as number)) : Math.round(v));
+  if (minCop != null) params.set("precio_min", String(conv(minCop)));
+  if (maxCop != null) params.set("precio_max", String(conv(maxCop)));
+  if (supports && (minCop != null || maxCop != null)) params.set("moneda", useUsd ? "USD" : "COP");
+}

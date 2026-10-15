@@ -137,21 +137,29 @@ function _decodeJwtExp(token: string): number | null {
 
 export async function refreshIfExpiringSoon(): Promise<void> {
   if (typeof window === "undefined") return;
-  const token = localStorage.getItem(TOKEN_KEY);
-  if (!token) return;
-  const exp = _decodeJwtExp(token);
-  if (!exp) return;
-  if (exp - Date.now() > REFRESH_THRESHOLD_MS) return;
+  const { COOKIE_MODE, authHeaders, authCredentials, getToken, setToken } = await import("@/lib/apiClient");
+  if (!getToken()) return;
+  if (COOKIE_MODE) {
+    // The JWT is unreadable here (HttpOnly): refresh at most once a day instead.
+    const k = "medellin-social.session.refreshedAt";
+    if (Date.now() - Number(localStorage.getItem(k) || 0) < 24 * 60 * 60 * 1000) return;
+    localStorage.setItem(k, String(Date.now()));
+  } else {
+    const exp = _decodeJwtExp(localStorage.getItem(TOKEN_KEY) || "");
+    if (!exp) return;
+    if (exp - Date.now() > REFRESH_THRESHOLD_MS) return;
+  }
 
   try {
     const { API_ENDPOINTS } = await import("@/config/api");
     const res = await fetch(API_ENDPOINTS.refreshToken, {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
+      headers: authHeaders(),
+      credentials: authCredentials,
     });
     if (!res.ok) return;
     const data = await res.json();
-    if (data.token) localStorage.setItem(TOKEN_KEY, data.token);
+    if (data.token) setToken(data.token);
   } catch {
     // silent — old token remains valid until it actually expires
   }

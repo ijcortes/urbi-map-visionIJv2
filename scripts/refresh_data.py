@@ -59,7 +59,8 @@ def main() -> int:
     python = sys.executable
     dry = ["--dry-run"] if args.dry_run else []
     steps: list[tuple[list[str], str]] = [
-        ([python, "scrape_fincaraiz.py"], "fincaraiz scrape"),
+        # Daily incremental; full pass on Sundays (coverage + stale-listing rule).
+        ([python, "scrape_fincaraiz.py", "--since-days", "3", "--full-on-weekday", "6"], "fincaraiz scrape"),
         # scrape_fincaraiz.py only writes JSON to data/raw/ — these two actually
         # load it into raw.listings_fincaraiz. Missing here since this pipeline's
         # inception meant every scrape was discarded on container restart and

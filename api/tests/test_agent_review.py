@@ -17,6 +17,9 @@ async def _register_and_login(client, email: str) -> dict:
     await client.post("/api/v1/auth/register", json={
         "email": email, "password": PASSWORD, "nombre": "Pytest", "apellido": "Review",
     })  # 201, o 409 si quedó de una corrida anterior
+    # Registration no longer yields a usable account: simulate the emailed-link click.
+    from api.db import get_pool
+    await get_pool().execute("UPDATE usuarios SET email_verificado = TRUE WHERE email = $1", email)
     r = await client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD})
     assert r.status_code == 200
     return {"Authorization": f"Bearer {r.json()['token']}"}

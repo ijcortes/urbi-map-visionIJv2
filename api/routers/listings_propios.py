@@ -14,7 +14,8 @@ import uuid
 from types import SimpleNamespace
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, Request
+from api.limiter import limiter
 from pydantic import BaseModel, Field
 
 from api.db import get_pool
@@ -24,15 +25,15 @@ from api.services.asignador_service import asignar_intake
 from api.services.intake_service import _aplica, get_or_create_owner
 from api.services.listing_service import datos_minimos_completos
 from api.utils import ghl_client
-from api.utils.email import ADMIN_EMAIL, _wrap, send_email
-from api.utils.storage import upload_file
+from api.utils.email import ADMIN_EMAIL, _wrap, esc, send_email
+from api.utils.storage import read_upload_bounded, upload_file
+from api.utils.pii import mask_email
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 _APP_URL = os.getenv("APP_URL", "https://medellin.social")
-_COP_TO_USD = 4200.0
 
 # Enum listing_operacion solo tiene venta|arriendo.
 _OPERACION_MAP = {"venta": "venta", "arriendo": "arriendo"}
@@ -146,12 +147,16 @@ class OtpEnviarRequest(BaseModel):
     telefono: str = Field(min_length=7, max_length=30)
 
 
+_OTP_MAX_INTENTOS = 5
+
+
 class OtpConfirmarRequest(BaseModel):
     codigo: str = Field(min_length=4, max_length=10)
 
 
 @router.post("/verificar-telefono/enviar")
-async def otp_enviar(req: OtpEnviarRequest, current_user: dict = Depends(get_current_user)):
+@limiter.limit("3/minute")
+async def otp_enviar(request: Request, req: OtpEnviarRequest, current_user: dict = Depends(get_current_user)):
     """Genera y envía el código de verificación del teléfono del owner.
 
     ponytail: canal email (único proveedor configurado); cambiar a SMS/WhatsApp
@@ -161,7 +166,7 @@ async def otp_enviar(req: OtpEnviarRequest, current_user: dict = Depends(get_cur
     owner_id = await get_or_create_owner(current_user, pool)
     codigo = f"{secrets.randbelow(1_000_000):06d}"
     await pool.execute(
-        "UPDATE owner SET telefono = $1, otp_codigo = $2, "
+        "UPDATE owner SET telefono = $1, otp_codigo = $2, otp_intentos = 0, "
         "otp_expira = NOW() + INTERVAL '10 minutes', telefono_verificado = FALSE "
         "WHERE id = $3::uuid",
         req.telefono, codigo, owner_id,
@@ -178,21 +183,30 @@ async def otp_enviar(req: OtpEnviarRequest, current_user: dict = Depends(get_cur
             """),
         )
     except Exception:
-        logger.exception("OTP: fallo enviando email a %s", current_user["email"])
+        logger.exception("OTP: fallo enviando email a %s", mask_email(current_user["email"]))
     return {"enviado": True, "canal": "email"}
 
 
 @router.post("/verificar-telefono/confirmar")
-async def otp_confirmar(req: OtpConfirmarRequest, current_user: dict = Depends(get_current_user)):
+@limiter.limit("10/minute")
+async def otp_confirmar(request: Request, req: OtpConfirmarRequest, current_user: dict = Depends(get_current_user)):
     pool = get_pool()
     owner_id = await get_or_create_owner(current_user, pool)
     ok = await pool.fetchval(
-        "UPDATE owner SET telefono_verificado = TRUE, otp_codigo = NULL, otp_expira = NULL "
+        "UPDATE owner SET telefono_verificado = TRUE, otp_codigo = NULL, otp_expira = NULL, otp_intentos = 0 "
         "WHERE id = $1::uuid AND otp_codigo = $2 AND otp_expira > NOW() "
-        "RETURNING TRUE",
-        owner_id, req.codigo,
+        "AND otp_intentos < $3 RETURNING TRUE",
+        owner_id, req.codigo, _OTP_MAX_INTENTOS,
     )
     if not ok:
+        # Per-account cap (the per-IP limit alone allows a distributed guess of
+        # the 6 digits): after N wrong codes the code is burned, ask for a new one.
+        await pool.execute(
+            "UPDATE owner SET otp_intentos = otp_intentos + 1, "
+            "otp_codigo = CASE WHEN otp_intentos + 1 >= $2 THEN NULL ELSE otp_codigo END "
+            "WHERE id = $1::uuid AND otp_codigo IS NOT NULL",
+            owner_id, _OTP_MAX_INTENTOS,
+        )
         raise HTTPException(400, "Código inválido o vencido")
     return {"telefono_verificado": True}
 
@@ -311,7 +325,7 @@ async def crear_listing(
 
     foto_urls: list[str] = []
     for f in fotos_validas:
-        foto_urls.append(await upload_file(await f.read(), f.filename or "foto.jpg", folder="listings"))
+        foto_urls.append(await upload_file(await read_upload_bounded(f), f.filename or "foto.jpg", folder="listings"))
 
     listing_id = str(uuid.uuid4())
     slug = f"{(municipio_nom or 'med')[:6]}-{listing_id[:8]}".lower().replace(" ", "-")
@@ -575,10 +589,10 @@ async def _notify_admin_new_listing(
       <h3 style="color:#1D9E75">Nueva propiedad pendiente de revisión</h3>
       <table style="width:100%;border-collapse:collapse">
         <tr><td style="padding:6px;color:#62736d;width:140px">ID</td><td style="padding:6px;font-weight:600">#{listing_id}</td></tr>
-        <tr><td style="padding:6px;color:#62736d">Tipo</td><td style="padding:6px">{tipo_inmueble} · {tipo_operacion}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Tipo</td><td style="padding:6px">{esc(tipo_inmueble)} · {esc(tipo_operacion)}</td></tr>
         <tr><td style="padding:6px;color:#62736d">Precio</td><td style="padding:6px">{precio_fmt}</td></tr>
-        <tr><td style="padding:6px;color:#62736d">Contacto</td><td style="padding:6px">{nombre_contacto or '—'}</td></tr>
-        <tr><td style="padding:6px;color:#62736d">Email</td><td style="padding:6px">{email_contacto or '—'}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Contacto</td><td style="padding:6px">{esc(nombre_contacto) or '—'}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Email</td><td style="padding:6px">{esc(email_contacto) or '—'}</td></tr>
       </table>
       <p style="margin-top:16px;font-size:13px;color:#62736d">
         Este listing está en estado <strong>pendiente</strong> hasta que lo apruebes.
@@ -758,13 +772,13 @@ async def _notify_agente_nueva_solicitud(
     html = _wrap(f"""
       <h3 style="color:#1D9E75">Nueva solicitud de gestión — #{sol_id}</h3>
       <p style="font-size:14px;color:#1A1208">
-        Hola <strong>{agente.get('nombre','')}</strong>, un propietario quiere que gestiones su propiedad.
+        Hola <strong>{esc(agente.get('nombre',''))}</strong>, un propietario quiere que gestiones su propiedad.
       </p>
       <table style="width:100%;border-collapse:collapse;margin:12px 0">
-        <tr><td style="padding:6px;color:#62736d;width:150px">Tipo</td><td style="padding:6px">{listing['tipo_inmueble']} · {listing['tipo_operacion']}</td></tr>
+        <tr><td style="padding:6px;color:#62736d;width:150px">Tipo</td><td style="padding:6px">{esc(listing['tipo_inmueble'])} · {esc(listing['tipo_operacion'])}</td></tr>
         <tr><td style="padding:6px;color:#62736d">Precio</td><td style="padding:6px">{precio_fmt}</td></tr>
-        <tr><td style="padding:6px;color:#62736d">Propietario</td><td style="padding:6px">{propietario.get('nombre','')} {propietario.get('apellido','')}</td></tr>
-        <tr><td style="padding:6px;color:#62736d">Email contacto</td><td style="padding:6px">{propietario.get('email','—')}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Propietario</td><td style="padding:6px">{esc(propietario.get('nombre',''))} {esc(propietario.get('apellido',''))}</td></tr>
+        <tr><td style="padding:6px;color:#62736d">Email contacto</td><td style="padding:6px">{esc(propietario.get('email','—'))}</td></tr>
       </table>
       <a href="{_APP_URL}/solicitudes"
          style="display:inline-block;background:#1D9E75;color:#fff;padding:10px 20px;border-radius:6px;font-weight:700;text-decoration:none;font-size:13px">
@@ -787,7 +801,7 @@ async def _notify_propietario_respuesta(
         titulo = "¡Tu propiedad ya está activa!"
         detalle = f"""
           <p style="font-size:14px;color:#1A1208;margin-bottom:12px">
-            El agente <strong>{agente_nombre}</strong> aceptó gestionar tu propiedad.
+            El agente <strong>{esc(agente_nombre)}</strong> aceptó gestionar tu propiedad.
             Tu listing está ahora <strong>activo</strong> en el MLS de Medellín Social.
           </p>
           <a href="{_APP_URL}/mis-listings"
@@ -799,7 +813,7 @@ async def _notify_propietario_respuesta(
         titulo = "Actualización sobre tu solicitud"
         detalle = f"""
           <p style="font-size:14px;color:#1A1208">
-            El agente <strong>{agente_nombre}</strong> no pudo aceptar tu solicitud en este momento.
+            El agente <strong>{esc(agente_nombre)}</strong> no pudo aceptar tu solicitud en este momento.
             Puedes conectar con otro agente desde tu panel.
           </p>
           <a href="{_APP_URL}/conectar-agente?listing_id={listing_id}"
@@ -809,7 +823,7 @@ async def _notify_propietario_respuesta(
         """
     html = _wrap(f"""
       <h3 style="color:#1D9E75">{titulo}</h3>
-      <p style="font-size:14px;color:#1A1208;margin-bottom:8px">Hola <strong>{propietario_nombre}</strong>,</p>
+      <p style="font-size:14px;color:#1A1208;margin-bottom:8px">Hola <strong>{esc(propietario_nombre)}</strong>,</p>
       {detalle}
     """)
     await send_email(propietario_email, titulo, html)

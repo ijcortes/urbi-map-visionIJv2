@@ -1,4 +1,4 @@
-import { apiFetch, getToken } from "@/lib/apiClient";
+import { apiFetch, authHeaders, authCredentials } from "@/lib/apiClient";
 import { API_BASE_URL } from "@/config/api";
 import type { ApiBarrio } from "@/lib/adapters";
 
@@ -578,10 +578,10 @@ const httpApi: RealtorDashboardApi = {
     // multipart — no puede pasar por apiFetch (fuerza Content-Type JSON)
     const fd = new FormData();
     fd.append("foto", file);
-    const t = getToken();
     const res = await fetch(`${API_BASE_URL}/realtor/me/foto`, {
       method: "POST",
-      headers: t ? { Authorization: `Bearer ${t}` } : undefined,
+      headers: authHeaders(),
+      credentials: authCredentials,
       body: fd,
     });
     if (!res.ok) {
@@ -593,10 +593,10 @@ const httpApi: RealtorDashboardApi = {
     // multipart — no puede pasar por apiFetch (fuerza Content-Type JSON)
     const fd = new FormData();
     for (const f of files) fd.append("fotos", f);
-    const t = getToken();
     const res = await fetch(`${API_BASE_URL}/realtor/listings/${id}/fotos`, {
       method: "POST",
-      headers: t ? { Authorization: `Bearer ${t}` } : undefined,
+      headers: authHeaders(),
+      credentials: authCredentials,
       body: fd,
     });
     if (!res.ok) {

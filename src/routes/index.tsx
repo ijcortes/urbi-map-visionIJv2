@@ -1,4 +1,7 @@
+import { Name, useT } from "@/lib/i18n";
+import { seo } from "@/lib/seo";
 import { createFileRoute } from '@tanstack/react-router'
+import { numberLocale } from "@/lib/format";
 import { useState, useCallback, useRef } from 'react'
 import { MapView } from '@/components/MapView'
 import { ComunidadLayout } from '@/components/comunidad/ComunidadLayout'
@@ -17,12 +20,7 @@ import { K as TOKENS } from "@/design/tokens";
 
 export const Route = createFileRoute('/')({
   component: HomePage,
-  head: () => ({
-    meta: [
-      { title: 'Medellín Social · Tu Ciudad. Tu Barrio. Tu Historia.' },
-      { name: 'description', content: 'Eventos, negocios y cultura local en Medellín y el Valle de Aburrá.' },
-    ],
-  }),
+  head: () => seo({ title: "Medellín Social · Tu Ciudad. Tu Barrio. Tu Historia.", description: "Eventos, negocios y cultura local en Medellín y el Valle de Aburrá.", path: "/" }),
 })
 
 const K = TOKENS;
@@ -136,7 +134,7 @@ function HeroOverlay({ comuna, onClose, t }: {
               {t('Explora la comuna', 'Explore the comuna')}
             </div>
             <div style={{ fontFamily: K.serif, fontWeight: 800, fontSize: 21, lineHeight: 1.08, color: K.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {comuna.nombre}
+              <Name>{comuna.nombre}</Name>
             </div>
           </div>
           <button onClick={onClose} aria-label={t('Cerrar', 'Close')} style={{
@@ -211,7 +209,7 @@ function SideHead({ children }: { children: string }) {
 // del panel "Trading" luzcan como una sola arquitectura.
 function NoticiaRow({ noticia, last = false }: { noticia: { id: number; titulo: string; url: string; fuente: string | null; fecha_publicacion: string | null }; last?: boolean }) {
   const fecha = noticia.fecha_publicacion
-    ? new Date(noticia.fecha_publicacion).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })
+    ? new Date(noticia.fecha_publicacion).toLocaleDateString(numberLocale(), { day: 'numeric', month: 'short' })
     : null
   return (
     <a href={noticia.url} target="_blank" rel="noopener noreferrer" style={{
@@ -245,7 +243,7 @@ function NoticiaRow({ noticia, last = false }: { noticia: { id: number; titulo: 
 function HomeContent() {
   const { barrio, lang, setBarrioSlug } = useBarrio()
   const isMobile = useIsMobile()
-  const t = (es: string, en: string) => lang === 'es' ? es : en
+  const t = useT()
   const catLabel = (cat: string) => (lang === 'es' ? CATEGORIA_LABELS : CATEGORIA_LABELS_EN)[cat] ?? cat
 
   const [nombre, setNombre] = useState('')
@@ -640,13 +638,13 @@ function HomeContent() {
                   </span>
                   {negocio.barrio_nombre && (
                     <span style={{ fontFamily: K.manrope, fontSize: 10, fontWeight: 600, color: K.muted, background: K.surface, padding: '3px 8px', borderRadius: 999, letterSpacing: '.3px' }}>
-                      {negocio.barrio_nombre}
+                      <Name>{negocio.barrio_nombre}</Name>
                     </span>
                   )}
                 </div>
 
                 <p style={{ fontFamily: K.manrope, fontWeight: 700, fontSize: 15, color: K.ink, margin: '0 0 5px', lineHeight: 1.2 }}>
-                  {negocio.nombre}
+                  <Name>{negocio.nombre}</Name>
                 </p>
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, marginBottom: 11 }}>

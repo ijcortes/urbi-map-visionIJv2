@@ -1,10 +1,13 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useTrm } from "@/hooks/useTrm";
+import { formatMoney } from "@/lib/format";
 import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { motion, AnimatePresence } from "framer-motion";
 import { API_ENDPOINTS } from "@/config/api";
-import { apiFetch, getToken } from "@/lib/apiClient";
+import { apiFetch, getToken, authHeaders, authCredentials } from "@/lib/apiClient";
 import { auth } from "@/lib/auth";
 import { MAPBOX_TOKEN } from "@/lib/mapboxToken";
 import { ComunidadLayout } from "@/components/comunidad/ComunidadLayout";
@@ -12,15 +15,7 @@ import { K as TOKENS } from "@/design/tokens";
 
 export const Route = createFileRoute("/publicar")({
   component: PublicarRoot,
-  head: () => ({
-    meta: [
-      { title: "Publicar propiedad · Medellín Social" },
-      {
-        name: "description",
-        content: "Publica tu propiedad en el MLS de Medellín Social en 5 pasos.",
-      },
-    ],
-  }),
+  head: () => seo({ title: "Publica tu inmueble · Medellín Social", description: "Publica tu apartamento, casa o local gratis y llega a compradores e inversionistas en Medellín.", path: "/publicar" }),
 });
 
 function PublicarRoot() {
@@ -33,8 +28,6 @@ function PublicarRoot() {
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 const K = TOKENS;
-
-const COP_USD_RATE = 4200;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -121,7 +114,7 @@ const TIPOS_OP = [
 ];
 const TIPOS_IN = [
   { v: "apartamento", l: "Apartamento" }, { v: "casa", l: "Casa" },
-  { v: "apartaestudio", l: "Apartaestudio" }, { v: "lote", l: "Lote" },
+  { v: "lote", l: "Lote" },
   { v: "local", l: "Local" }, { v: "oficina", l: "Oficina" },
   { v: "bodega", l: "Bodega" }, { v: "otro", l: "Otro" },
 ];
@@ -573,7 +566,8 @@ function Step1({
   data: FormData; setData: (p: Partial<FormData>) => void;
 }) {
   const precioCOP = parseCOP(data.precio_cop);
-  const precioUSD = precioCOP ? Math.round(precioCOP / COP_USD_RATE).toLocaleString("en-US") : null;
+  const { valor: trm } = useTrm();
+  const precioUSD = precioCOP && trm ? formatMoney(precioCOP / trm, "USD", "en", { suffix: false }) : null;
   const isArriendo = data.tipo_operacion === "arriendo";
 
   return (
@@ -622,7 +616,7 @@ function Step1({
         </div>
         {precioUSD && (
           <p style={{ fontSize: 12, color: K.teal, marginTop: 4 }}>
-            ≈ USD {precioUSD}
+            ≈ USD {precioUSD.replace(/^\$/, "")}
           </p>
         )}
       </Field>
@@ -858,7 +852,7 @@ function Step3({
                 }}
               >
                 <option value="">Seleccionar barrio</option>
-                {barriosFiltrados.map((b) => <option key={b.id} value={b.id}>{b.nombre}</option>)}
+                {barriosFiltrados.map((b) => <option data-i18n-skip key={b.id} value={b.id}>{b.nombre}</option>)}
               </Select>
             </Field>
           )}
@@ -1663,13 +1657,12 @@ function PublicarPage() {
         fd.append("fotos", p.file);
       }
 
-      const token = getToken();
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const headers: Record<string, string> = authHeaders();
 
       const res = await fetch(API_ENDPOINTS.listingsPropios, {
         method: "POST",
         headers,
+        credentials: authCredentials,
         body: fd,
       });
 

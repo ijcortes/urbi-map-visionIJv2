@@ -9,6 +9,8 @@ import os
 import asyncpg
 import pytest
 
+pytestmark = pytest.mark.require_db  # needs a live Postgres (conn refused in CI sandbox)
+
 # Mismo mapeo que scripts/compute_uso_suelo_barrio.py — si diverge, el test falla.
 SCORE_POR_CATEGORIA = {
     "Áreas de baja mixtura": 50,

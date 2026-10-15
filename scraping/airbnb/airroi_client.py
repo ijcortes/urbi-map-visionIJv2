@@ -36,6 +36,7 @@ load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from scraping.utils.cost_ledger import BudgetExceeded, charge
 from scraping.utils.db import get_connection
 
 logging.basicConfig(
@@ -242,6 +243,11 @@ class AirROIClient:
             "radius": self.radius_km,
             "currency": "USD",
         }
+        try:
+            charge("airroi", "market/search")
+        except BudgetExceeded as e:
+            log.error(str(e))
+            return None
         try:
             resp = self._session.get(url, params=params, timeout=30)
             resp.raise_for_status()

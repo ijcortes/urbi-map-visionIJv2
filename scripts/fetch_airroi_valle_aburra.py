@@ -30,6 +30,10 @@ import psycopg2.extras
 import requests
 from dotenv import load_dotenv
 
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from scraping.utils.cost_ledger import charge  # noqa: E402  (raises BudgetExceeded at the cap)
+
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 DB_URL  = os.environ["DATABASE_URL"]
@@ -116,6 +120,7 @@ def fase_a(session: requests.Session, conn, dry_run: bool) -> dict:
         barrios = [dict(r) for r in cur.fetchall()]
         print(f"  Barrios en DB: {len(barrios)}")
 
+        charge("airroi", "markets/search")
         resp = session.get(
             f"{BASE}/markets/search",
             params={"query": f"{mun_query} Antioquia Colombia"},
@@ -257,6 +262,7 @@ def fase_b(session: requests.Session, conn, dry_run: bool) -> dict:
 
     for i, row in enumerate(existing, 1):
         lid = row["listing_id"]
+        charge("airroi", "listings", 0.01)
         resp = session.get(f"{BASE}/listings", params={"id": lid}, timeout=20)
         cost += 0.01
         time.sleep(DELAY)

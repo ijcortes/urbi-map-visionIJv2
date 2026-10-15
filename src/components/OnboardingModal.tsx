@@ -79,6 +79,7 @@ export function OnboardingModal() {
         >
           <button
             onClick={dismiss}
+            aria-label="Cerrar"
             className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-full text-[#5B5F5C] transition hover:bg-[#E5E0D5] hover:text-[#111418]"
           >
             <X className="h-4 w-4" />

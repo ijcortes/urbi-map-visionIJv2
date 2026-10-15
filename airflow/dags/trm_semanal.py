@@ -8,6 +8,8 @@ import sys
 from datetime import datetime, timedelta
 
 from airflow import DAG
+
+from _schedule import cron_or_none as _sched
 from airflow.operators.python import PythonOperator
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
@@ -25,7 +27,7 @@ with DAG(
     dag_id="trm_semanal",
     default_args=default_args,
     description="Refresca la TRM oficial (COP/USD) semanal desde datos.gov.co",
-    schedule_interval="0 11 * * 1",  # lunes 6:00 AM COT = 11:00 UTC
+    schedule_interval=_sched("0 11 * * 1"),  # lunes 6:00 AM COT = 11:00 UTC
     start_date=datetime(2026, 1, 1),
     catchup=False,
     tags=["trm", "finanzas"],

@@ -1,3 +1,4 @@
+import { useT } from '@/lib/i18n'
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -68,7 +69,7 @@ function GroupLabel({ children }: { children: string }) {
 
 function EventosPage() {
   const { barrio, lang } = useBarrio()
-  const t = (es: string, en: string) => lang === 'es' ? es : en
+  const t = useT()
 
   const [categoria, setCategoria] = useState('all')
   const [fecha, setFecha]         = useState('all')
@@ -256,7 +257,7 @@ function EventosPage() {
               <p style={{ color: K.muted, fontSize: '1.05rem', marginBottom: 12 }}>
                 {t('Aún no hay eventos aquí.', 'No events here yet.')}
               </p>
-              <a href="#" style={{ color: K.coral, fontWeight: 700, textDecoration: 'none' }}>
+              <a href="/publicar" style={{ color: K.coral, fontWeight: 700, textDecoration: 'none' }}>
                 {t('¿Tienes uno? Publícalo →', 'Have one? Publish it →')}
               </a>
             </div>

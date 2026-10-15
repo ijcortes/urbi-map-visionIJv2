@@ -17,6 +17,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from airflow import DAG
+
+from _schedule import cron_or_none as _sched
 from airflow.operators.bash import BashOperator
 
 DBT_DIR = "/home/edwlearn/urbi/dbt"
@@ -31,7 +33,7 @@ default_args = {
 with DAG(
     dag_id="remates_dbt_semanal",
     description="dbt run scores que dependen de remates (sin re-scrapear, cubierto por Railway)",
-    schedule_interval="0 10 * * 3",  # miércoles 10:00 UTC = 05:00 COT
+    schedule_interval=_sched("0 10 * * 3"),  # miércoles 10:00 UTC = 05:00 COT
     start_date=datetime(2024, 1, 10),
     catchup=False,
     default_args=default_args,

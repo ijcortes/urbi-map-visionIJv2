@@ -4,7 +4,7 @@ Embed your public Mapbox token directly in the client (it's a `pk.*` key — saf
 
 ### Changes
 1. **`src/lib/mapboxToken.ts`** — set `MAPBOX_TOKEN` to your token:
-   `pk.eyJ1IjoidXJiaWRhdGEiLCJhIjoiY21vcGY0bXlkMDdleTJxb2lzdjh5cDh2YSJ9.QS8YJWC5kvX5JoILBUlR0w`
+   `<VITE_MAPBOX_TOKEN — set in Railway, never committed>`
 2. **`src/components/MapView.tsx`** — revert to importing `MAPBOX_TOKEN` directly, drop the `useState`/`getMapboxToken()` effect, keep the existing fallback error UI for safety.
 3. **`src/server/mapbox.functions.ts`** — delete (no longer used).
 

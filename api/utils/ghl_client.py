@@ -16,6 +16,9 @@ those can be filled in:
 """
 from __future__ import annotations
 
+import asyncio
+import hmac
+import json
 import logging
 import os
 from decimal import Decimal
@@ -49,11 +52,82 @@ def _headers() -> dict:
     }
 
 
+_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
+_MAX_ATTEMPTS = 3
+_RETRY_BACKOFF = 0.5          # seconds; doubles each attempt (patched to 0 in tests)
+_RETRY_AFTER_CAP = 5.0        # never sleep longer than this for a Retry-After header
+_IDEMPOTENT = {"GET", "PUT", "DELETE", "HEAD"}
+_RETRY_STATUS_ALWAYS = {429, 502, 503, 504}   # request not processed (or safe to replay)
+_RETRY_STATUS_IDEMPOTENT = {500}
+
+
+def _should_retry(method: str, exc: Optional[Exception], resp: Optional[httpx.Response]) -> bool:
+    """POST is NOT replayed after a read timeout / 500 (GHL may have created the
+    record already -> duplicate). It is replayed when the request provably never
+    ran: connect errors, 429, 502/503/504."""
+    method = method.upper()
+    if exc is not None:
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+            return True
+        return method in _IDEMPOTENT and isinstance(exc, httpx.TransportError)
+    if resp is not None:
+        if resp.status_code in _RETRY_STATUS_ALWAYS:
+            return True
+        return method in _IDEMPOTENT and resp.status_code in _RETRY_STATUS_IDEMPOTENT
+    return False
+
+
 async def _request(method: str, path: str, **kwargs) -> httpx.Response:
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.request(method, f"{_BASE_URL}{path}", headers=_headers(), **kwargs)
-    resp.raise_for_status()
-    return resp
+    """HTTP call to GHL with timeout + bounded retries (see _should_retry).
+    Raises httpx.HTTPStatusError / httpx.TransportError after the last attempt."""
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        resp: Optional[httpx.Response] = None
+        exc: Optional[Exception] = None
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                resp = await client.request(method, f"{_BASE_URL}{path}", headers=_headers(), **kwargs)
+        except httpx.TransportError as e:
+            exc = last_exc = e
+        if resp is not None and resp.status_code < 400:
+            return resp
+        if attempt < _MAX_ATTEMPTS and _should_retry(method, exc, resp):
+            delay = _RETRY_BACKOFF * (2 ** (attempt - 1))
+            ra = resp.headers.get("retry-after") if resp is not None else None
+            if ra and ra.isdigit():
+                delay = max(delay, min(float(ra), _RETRY_AFTER_CAP))
+            logger.warning("GHL %s %s attempt %d/%d failed (%s), retrying in %.1fs",
+                           method, path, attempt, _MAX_ATTEMPTS,
+                           exc.__class__.__name__ if exc else resp.status_code, delay)
+            await asyncio.sleep(delay)
+            continue
+        if exc is not None:
+            raise exc
+        resp.raise_for_status()
+        return resp
+    raise last_exc  # pragma: no cover - loop always returns/raises
+
+
+# One in-flight push per (type, id): two concurrent syncs of the same record would
+# both see "no mapping yet" and each POST a new GHL record (duplicates).
+_push_locks: dict[tuple[str, str], asyncio.Lock] = {}
+
+
+def _serialized(object_type: str):
+    """Decorator: serialize concurrent pushes of the same (type, id)."""
+    def deco(fn):
+        import functools
+
+        @functools.wraps(fn)
+        async def wrapper(internal_id, campos):
+            async with _push_lock(object_type, internal_id):
+                return await fn(internal_id, campos)
+        return wrapper
+    return deco
+
+
+def _push_lock(object_type: str, internal_id) -> asyncio.Lock:
+    return _push_locks.setdefault((object_type, str(internal_id)), asyncio.Lock())
 
 
 async def find_or_create_contact(usuario_id: int, email: str, nombre: str) -> Optional[str]:
@@ -85,14 +159,50 @@ async def cancelar_suscripcion(ghl_subscription_id: str) -> None:
     )
 
 
+class WebhookNotConfigured(Exception):
+    """GHL_WEBHOOK_SECRET missing -> the endpoint stays closed (503)."""
+
+
+class WebhookAuthError(Exception):
+    """Bad / missing webhook secret (401)."""
+
+
+def autenticar_webhook(headers: dict) -> None:
+    """Header-only authentication (no body needed, so callers can reject BEFORE
+    buffering the body). Raises WebhookNotConfigured | WebhookAuthError."""
+    secret = os.getenv("GHL_WEBHOOK_SECRET") or GHL_WEBHOOK_SECRET
+    if not secret:
+        raise WebhookNotConfigured("GHL webhook no configurado (falta GHL_WEBHOOK_SECRET)")
+    h = {k.lower(): v for k, v in headers.items()}
+    supplied = h.get("x-webhook-secret") or ""
+    if not supplied and h.get("authorization", "").lower().startswith("bearer "):
+        supplied = h["authorization"][7:].strip()
+    if not supplied or not hmac.compare_digest(supplied.encode(), secret.encode()):
+        raise WebhookAuthError("firma de webhook inválida")
+
+
+def parsear_evento(payload: bytes) -> dict:
+    try:
+        event = json.loads(payload or b"")
+    except (ValueError, UnicodeDecodeError):
+        raise ValueError("payload no es JSON válido")
+    if not isinstance(event, dict):
+        raise ValueError("payload debe ser un objeto JSON")
+    return event
+
+
 def verificar_webhook(payload: bytes, headers: dict) -> dict:
-    """Returns parsed GHL event or raises ValueError. Mirrors
-    stripe_client.verificar_webhook's shape — signature scheme unknown yet."""
-    if not GHL_WEBHOOK_SECRET:
-        raise ValueError("GHL webhook no configurado")
-    raise NotImplementedError(
-        "ghl_client.verificar_webhook: needs GHL's webhook signing scheme (header + verification method) from Talal"
-    )
+    """Authenticate + parse an inbound GHL webhook. Returns the parsed event.
+
+    ASSUMPTION (pending Talal's contract for GHL's native signing scheme): the GHL
+    workflow "Custom Webhook" action is configured to send the shared secret in the
+    `X-Webhook-Secret` header (or `Authorization: Bearer <secret>`). It is compared in
+    constant time against GHL_WEBHOOK_SECRET. Closed by default: no secret in the
+    environment -> WebhookNotConfigured (503), never an open endpoint.
+    Raises WebhookNotConfigured | WebhookAuthError | ValueError (malformed body).
+    """
+    autenticar_webhook(headers)
+    return parsear_evento(payload)
 
 
 # ── Outbound: nuestras tablas -> GHL ─────────────────────────────────────────
@@ -206,6 +316,15 @@ async def _record_sync_result(
     object_type: str, internal_id: str, ghl_id: str, status: str, error: Optional[str]
 ) -> None:
     pool = get_pool()
+    if status == "synced":
+        try:
+            await pool.execute(
+                "UPDATE public.ghl_push_failures SET resolved_at = now() "
+                "WHERE object_type = $1 AND internal_object_id = $2 AND resolved_at IS NULL",
+                object_type, str(internal_id),
+            )
+        except Exception:
+            logger.exception("ghl_push_failures resolve(%s, %s)", object_type, internal_id)
     await pool.execute(
         """
         INSERT INTO public.ghl_object_mapping
@@ -221,6 +340,26 @@ async def _record_sync_result(
     )
 
 
+async def _record_push_failure(object_type: str, internal_id, error: str) -> None:
+    """First-time push that failed: there is no mapping row (ghl_object_id is
+    NOT NULL there), so keep it in ghl_push_failures for a later retry instead
+    of only logging it. Never raises (best-effort, same as the push itself)."""
+    try:
+        await get_pool().execute(
+            """
+            INSERT INTO public.ghl_push_failures (object_type, internal_object_id, error)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (object_type, internal_object_id) WHERE resolved_at IS NULL
+            DO UPDATE SET error = EXCLUDED.error, attempts = ghl_push_failures.attempts + 1,
+                          last_failed_at = now()
+            """,
+            object_type, str(internal_id), (error or "")[:2000],
+        )
+    except Exception:
+        logger.exception("no se pudo registrar ghl_push_failures(%s, %s)", object_type, internal_id)
+
+
+@_serialized("listing")
 async def push_listing_to_ghl(listing_id: str, campos: dict) -> Optional[str]:
     """listing_id es uuid (public.listing.id). Retorna ghl_object_id o None
     si no está configurado o si el push falla (best-effort — nunca levanta
@@ -240,6 +379,8 @@ async def push_listing_to_ghl(listing_id: str, campos: dict) -> Optional[str]:
         logger.warning("push_listing_to_ghl(%s): %s", listing_id, e)
         if existing:
             await _record_sync_result("listing", listing_id, existing["ghl_object_id"], "failed", str(e))
+        else:
+            await _record_push_failure("listing", listing_id, str(e))
         return None
 
     try:
@@ -259,9 +400,11 @@ async def push_listing_to_ghl(listing_id: str, campos: dict) -> Optional[str]:
             )
             ghl_id = resp.json()["record"]["id"]
     except Exception as e:
-        logger.warning("push_listing_to_ghl(%s) falló: %s", listing_id, e)
+        logger.error("push_listing_to_ghl(%s) falló (sin reintentos restantes): %s", listing_id, e)
         if existing:
             await _record_sync_result("listing", listing_id, existing["ghl_object_id"], "failed", str(e))
+        else:
+            await _record_push_failure("listing", listing_id, str(e))
         return None
 
     await _record_sync_result("listing", listing_id, ghl_id, "synced", None)
@@ -365,6 +508,7 @@ def _tienda_campos_to_custom(campos: dict) -> dict:
     return props
 
 
+@_serialized("tienda")
 async def push_tienda_to_ghl(tienda_id: int, campos: dict) -> Optional[str]:
     """tienda_id es integer (public.tiendas.id). Retorna ghl_object_id o None
     si no está configurado o si el push falla (best-effort, nunca lanza)."""
@@ -384,6 +528,8 @@ async def push_tienda_to_ghl(tienda_id: int, campos: dict) -> Optional[str]:
         logger.warning("push_tienda_to_ghl(%s): %s", tienda_id, e)
         if existing:
             await _record_sync_result("tienda", tienda_id, existing["ghl_object_id"], "failed", str(e))
+        else:
+            await _record_push_failure("tienda", tienda_id, str(e))
         return None
 
     try:
@@ -406,6 +552,8 @@ async def push_tienda_to_ghl(tienda_id: int, campos: dict) -> Optional[str]:
         logger.warning("push_tienda_to_ghl(%s) falló: %s", tienda_id, e)
         if existing:
             await _record_sync_result("tienda", tienda_id, existing["ghl_object_id"], "failed", str(e))
+        else:
+            await _record_push_failure("tienda", tienda_id, str(e))
         return None
 
     await _record_sync_result("tienda", tienda_id, ghl_id, "synced", None)
@@ -457,6 +605,7 @@ def _agency_campos_to_custom(campos: dict) -> dict:
     return props
 
 
+@_serialized("agency")
 async def push_agency_to_ghl(agency_id: str, campos: dict) -> Optional[str]:
     if not is_configured():
         return None
@@ -489,6 +638,8 @@ async def push_agency_to_ghl(agency_id: str, campos: dict) -> Optional[str]:
         logger.warning("push_agency_to_ghl(%s) falló: %s", agency_id, e)
         if existing:
             await _record_sync_result("agency", agency_id, existing["ghl_object_id"], "failed", str(e))
+        else:
+            await _record_push_failure("agency", agency_id, str(e))
         return None
 
     await _record_sync_result("agency", agency_id, ghl_id, "synced", None)

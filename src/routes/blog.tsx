@@ -1,4 +1,6 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute } from '@tanstack/react-router'
+import { numberLocale } from "@/lib/format";
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { API_BASE_URL } from '@/config/api'
@@ -10,12 +12,7 @@ import { K as TOKENS } from "@/design/tokens";
 
 export const Route = createFileRoute('/blog')({
   component: BlogPage,
-  head: () => ({
-    meta: [
-      { title: 'Blog del Barrio · Medellín Social' },
-      { name: 'description', content: 'Historias, noticias y voces de tu comunidad. Contenido de embajadores y vecinos de Medellín.' },
-    ],
-  }),
+  head: () => seo({ title: "Blog del Barrio · Medellín Social", description: "Historias, noticias y voces de tu comunidad. Contenido de embajadores y vecinos de Medellín.", path: "/blog" }),
 })
 
 const K = TOKENS;
@@ -172,7 +169,7 @@ function BlogPage() {
                 </h3>
                 {n.fecha_publicacion && (
                   <span style={{ fontSize: 11, color: K.muted }}>
-                    {new Date(n.fecha_publicacion).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
+                    {new Date(n.fecha_publicacion).toLocaleDateString(numberLocale(), { day: 'numeric', month: 'short' })}
                   </span>
                 )}
               </a>
@@ -275,7 +272,7 @@ function BlogPage() {
                       <select value={barrioId ?? ''} onChange={e => setBarrioId(e.target.value ? Number(e.target.value) : null)} style={{ ...inputStyle, cursor: 'pointer' }}>
                         <option value="">Selecciona tu barrio…</option>
                         {BARRIOS.filter(b => b.barrio_id !== null).map(b => (
-                          <option key={b.slug} value={b.barrio_id!}>{b.nombre}</option>
+                          <option data-i18n-skip key={b.slug} value={b.barrio_id!}>{b.nombre}</option>
                         ))}
                       </select>
                     </div>

@@ -1,3 +1,4 @@
+import { useLang } from "@/lib/i18n";
 import { useEffect, useState } from "react";
 import {
   Carousel,
@@ -56,6 +57,7 @@ export function PopupGallery({ fotos, fallbackFoto, loading, alt }: Props) {
   }, [api]);
 
   const gallery = (fotos ?? []).filter(Boolean);
+  const { lang } = useLang();
 
   if (gallery.length > 1) {
     return (
@@ -65,7 +67,7 @@ export function PopupGallery({ fotos, fallbackFoto, loading, alt }: Props) {
             <CarouselItem key={src} className="pl-0">
               <img
                 src={src}
-                alt={`${alt} — foto ${i + 1} de ${gallery.length}`}
+                alt={lang === "en" ? `${alt} — photo ${i + 1} of ${gallery.length}` : `${alt} — foto ${i + 1} de ${gallery.length}`}
                 className="w-full object-cover"
                 style={{ height: PHOTO_H }}
                 loading={i === 0 ? "eager" : "lazy"}

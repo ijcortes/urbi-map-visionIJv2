@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { API_BASE_URL } from '@/config/api'
@@ -6,12 +7,7 @@ import { K as TOKENS } from "@/design/tokens";
 
 export const Route = createFileRoute('/pasantias')({
   component: PasantiasPage,
-  head: () => ({
-    meta: [
-      { title: 'Prácticas EAFIT · Medellín Social' },
-      { name: 'description', content: 'Haz tu práctica en una empresa internacional sin salir de Medellín. IA, tecnología emergente y medios.' },
-    ],
-  }),
+  head: () => seo({ title: "Pasantías · Medellín Social", description: "Pasantías en datos, real estate y comunidad en Medellín Social.", path: "/pasantias" }),
 })
 
 const K = TOKENS;

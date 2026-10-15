@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from api.limiter import limiter
 from pydantic import BaseModel, Field
 
 from api import parametros
@@ -341,7 +342,8 @@ def calcular(
 # ── Endpoint ──────────────────────────────────────────────────────────────────
 
 @router.post("/simular", response_model=SimulacionResponse)
-async def simular(req: SimulacionRequest, current_user: Optional[dict] = Depends(get_optional_user)):
+@limiter.limit("60/minute")
+async def simular(request: Request, req: SimulacionRequest, current_user: Optional[dict] = Depends(get_optional_user)):
     pool = get_pool()
     row = await pool.fetchrow(_SQL, req.barrio_id)
     if row is None:

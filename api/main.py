@@ -4,11 +4,13 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import asyncpg
 import structlog
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -17,7 +19,10 @@ from api.db import create_pool, close_pool, get_pool
 from api import parametros
 from api.cache import refresh_listings_cache, run_periodic_cache_refresh
 from api.limiter import limiter
-from api.routers import admin, admin_agentes, afiliados, agency, alertas, asignador, auth, barrios, business, calculadora, comparador, comunidad, comunidad_posts, comunas, embajadores, favoritos, ghl_leads, ghl_webhook, historial, intake, listings, listings_propios, moderacion, oportunidades, pasantias, realtor, stats, suscripciones, tracking, trm, usuario, visitas, zonas
+from api.utils.body_limit import BodySizeLimitMiddleware
+from api.utils.session_cookie import SessionCookieMiddleware
+from api.dependencies import auth_cookie_mode
+from api.routers import admin, admin_agentes, afiliados, agency, alertas, asignador, auth, barrios, business, calculadora, comparador, comunidad, comunidad_posts, comunas, embajadores, favoritos, ghl_leads, ghl_webhook, historial, intake, link_review, listings, listings_propios, moderacion, oportunidades, pasantias, realtor, stats, suscripciones, tracking, trm, usuario, visitas, zonas
 
 # Sentry — only active when SENTRY_DSN is set (optional in local/test)
 _SENTRY_DSN = os.getenv("SENTRY_DSN", "")
@@ -36,23 +41,44 @@ if _SENTRY_DSN:
 
 logger = structlog.get_logger()
 
-_LOCAL_ORIGINS = [
+# Fail closed: production behaviour (no /docs, no localhost CORS origins) is the
+# DEFAULT. Dev behaviour requires ENV=dev (or development/local) explicitly; a
+# missing or misnamed RAILWAY_ENVIRONMENT no longer opens anything up.
+_IS_DEV = os.getenv("ENV", "").strip().lower() in ("dev", "development", "local")
+_IS_PROD = not _IS_DEV
+
+_DEV_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
     "http://localhost:5174",
     "http://localhost:8080",
     "http://localhost:8081",
     "http://localhost:8082",
+]
+
+_LOCAL_ORIGINS = [
     "https://urbidata.co",
     "https://www.urbidata.co",
     "https://medellinsocial.com",
     "https://www.medellinsocial.com",
 ]
 
+# Wildcard origins (preview deploys on shared platforms) are opt-in via env.
+# Default: dev keeps the old Lovable/Railway preview regex, prod allows none.
+_DEV_ORIGIN_REGEX = r"https://.*\.(lovable\.app|lovableproject\.com|up\.railway\.app)$"
+
+
+def _build_origin_regex() -> str | None:
+    explicit = os.getenv("CORS_ORIGIN_REGEX", "").strip()
+    if explicit:
+        return explicit
+    return None if _IS_PROD else _DEV_ORIGIN_REGEX
+
+
 def _build_origins() -> list[str]:
     extra = os.getenv("CORS_ORIGINS", "")
     extras = [o.strip() for o in extra.split(",") if o.strip()]
-    return _LOCAL_ORIGINS + extras
+    return _LOCAL_ORIGINS + ([] if _IS_PROD else _DEV_ORIGINS) + extras
 
 
 async def _connect_with_retry() -> None:
@@ -89,10 +115,49 @@ app = FastAPI(
     description="Motor de decisión de inversión inmobiliaria — Valle de Aburrá",
     version="1.0.0",
     lifespan=lifespan,
+    # Swagger/OpenAPI exposed only when ENV=dev (set EXPOSE_DOCS=1 to override).
+    docs_url=None if _IS_PROD and not os.getenv("EXPOSE_DOCS") else "/docs",
+    redoc_url=None if _IS_PROD and not os.getenv("EXPOSE_DOCS") else "/redoc",
+    openapi_url=None if _IS_PROD and not os.getenv("EXPOSE_DOCS") else "/openapi.json",
 )
 
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+def _retry_after_seconds(exc: RateLimitExceeded) -> int:
+    """Window length of the limit that was hit (upper bound on the wait)."""
+    try:
+        return max(1, int(exc.limit.limit.get_expiry()))
+    except Exception:
+        return 60
+
+
+async def _rate_limited(request: Request, exc: RateLimitExceeded):
+    """slowapi's default 429 plus the standard Retry-After header (its own header
+    injection needs headers_enabled + a `response` param on every endpoint)."""
+    resp = _rate_limit_exceeded_handler(request, exc)
+    resp.headers["Retry-After"] = str(_retry_after_seconds(exc))
+    return resp
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limited)
+
+
+@app.exception_handler(asyncpg.exceptions.DataError)
+async def _db_data_error_handler(request: Request, exc: Exception):
+    # Client-supplied numbers that overflow the column/param type (e.g.
+    # precio_max=99999999999999999999, /listings/99999999999) are a bad request,
+    # not a server fault: 422 instead of a 500 stack trace.
+    return JSONResponse(status_code=422, content={"detail": "valor numérico fuera de rango"})
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError):
+    # Same 422 shape as FastAPI's default, minus the "input"/"ctx" fields: the
+    # default handler echoes the submitted value back (passwords, emails, PII).
+    detail = [
+        {"type": e.get("type"), "loc": list(e.get("loc", ())), "msg": e.get("msg")}
+        for e in exc.errors()
+    ]
+    return JSONResponse(status_code=422, content={"detail": detail})
 
 
 @app.get("/health", include_in_schema=False)
@@ -130,15 +195,17 @@ async def security_headers(request: Request, call_next):
     response.headers.setdefault("Permissions-Policy", "geolocation=(), camera=(), microphone=()")
     return response
 
+app.add_middleware(SessionCookieMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_build_origins(),
-    allow_origin_regex=r"https://.*\.(lovable\.app|lovableproject\.com|up\.railway\.app)$",
-    # No cookie/session auth anywhere (Bearer JWT only, checked api/dependencies.py) —
-    # allow_credentials=True bought nothing but let any subdomain of these shared,
-    # publicly-registrable platforms make credentialed cross-origin calls.
-    allow_credentials=False,
+    # Cookie mode needs credentialed CORS — then only the explicit origins list,
+    # never a wildcard regex over shared, publicly-registrable platforms.
+    allow_origin_regex=None if auth_cookie_mode() else _build_origin_regex(),
+    # Bearer mode (default): no cookies anywhere, so no credentialed CORS either.
+    allow_credentials=auth_cookie_mode(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -146,6 +213,7 @@ app.add_middleware(
 app.include_router(auth.router,          prefix="/api/v1/auth",          tags=["auth"])
 app.include_router(barrios.router,       prefix="/api/v1/barrios",        tags=["barrios"])
 app.include_router(listings.router,      prefix="/api/v1/listings",       tags=["listings"])
+app.include_router(link_review.router,   prefix="/api/v1/link-review",    tags=["link-review"])
 app.include_router(calculadora.router,   prefix="/api/v1/calculadora",    tags=["calculadora"])
 app.include_router(oportunidades.router, prefix="/api/v1/oportunidades",  tags=["oportunidades"])
 app.include_router(usuario.router,       prefix="/api/v1/usuario",        tags=["usuario"])

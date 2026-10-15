@@ -200,15 +200,18 @@ class SuscribirseIn(BaseModel):
 
 
 class SuscribirseOut(BaseModel):
+    # Uniform on purpose: no `nuevo` / `usuario_id` (account-existence oracle).
     success: bool
-    nuevo: bool
-    usuario_id: int
 
 
 @router.post("/suscribirse", response_model=SuscribirseOut)
 @limiter.limit("5/minute")
 async def suscribirse(request: Request, body: SuscribirseIn, pool=Depends(get_pool)):
     try:
+        # Hash up front on every call so new-vs-existing email cost the same time.
+        import bcrypt
+        import secrets
+        hashed = bcrypt.hashpw(secrets.token_urlsafe(16).encode(), bcrypt.gensalt()).decode()
         existing = await pool.fetchrow(
             "SELECT id FROM public.usuarios WHERE email = $1", body.email
         )
@@ -231,12 +234,8 @@ async def suscribirse(request: Request, body: SuscribirseIn, pool=Depends(get_po
                 existing["id"], body.newsletter_activo, body.barrio_id,
                 body.intereses, body.nombre, body.apellido,
             )
-            return SuscribirseOut(success=True, nuevo=False, usuario_id=existing["id"])
+            return SuscribirseOut(success=True)
 
-        import bcrypt
-        import secrets
-        tmp_password = secrets.token_urlsafe(16)
-        hashed = bcrypt.hashpw(tmp_password.encode(), bcrypt.gensalt()).decode()
         row = await pool.fetchrow(
             """
             INSERT INTO public.usuarios
@@ -250,7 +249,7 @@ async def suscribirse(request: Request, body: SuscribirseIn, pool=Depends(get_po
             body.email, hashed, body.nombre, body.apellido,
             body.newsletter_activo, body.barrio_id, body.intereses,
         )
-        return SuscribirseOut(success=True, nuevo=True, usuario_id=row["id"])
+        return SuscribirseOut(success=True)
     except Exception:
         logger.exception("Error inesperado")
         raise HTTPException(status_code=500, detail="Error interno del servidor")

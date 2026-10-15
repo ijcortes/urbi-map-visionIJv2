@@ -1,4 +1,7 @@
+import { Name } from "@/lib/i18n";
+import { seo } from "@/lib/seo";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { formatMoney } from "@/lib/format";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { MapPin, MessageCircle, Users, ArrowRight, Search, Star, ShieldCheck, HelpCircle, X, Home, Calendar, CheckCircle } from "@/lib/icons";
@@ -11,6 +14,7 @@ import { K as TOKENS } from "@/design/tokens";
 type AgentesSearch = { agente?: string };
 
 export const Route = createFileRoute("/agentes")({
+  head: () => seo({ title: "Agentes inmobiliarios · Medellín Social", description: "Encuentra agentes inmobiliarios verificados por zona en Medellín y el Valle de Aburrá.", path: "/agentes" }),
   validateSearch: (s: Record<string, unknown>): AgentesSearch => ({
     agente: typeof s.agente === "string" ? s.agente : undefined,
   }),
@@ -74,7 +78,7 @@ function waLink(a: Agente): string {
 
 function fmtPrecio(v: number | null | undefined, moneda = "COP"): string {
   if (v == null) return "";
-  return new Intl.NumberFormat("es-CO", { style: "currency", currency: moneda, maximumFractionDigits: 0 }).format(v);
+  return formatMoney(v, moneda === "USD" ? "USD" : "COP", undefined, { suffix: moneda === "USD" });
 }
 
 function Stars({ value, size = 14 }: { value: number; size?: number }) {
@@ -270,7 +274,7 @@ function AgentePerfilModal({ agentId, onClose }: { agentId: string; onClose: () 
                   : <span className="text-2xl font-bold" style={{ color: K.tealDeep, fontFamily: K.serif }}>{iniciales}</span>}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-2xl font-bold leading-tight tracking-tight break-words" style={{ color: K.ink, fontFamily: K.serif }}>{p.nombre}</div>
+                <div className="text-2xl font-bold leading-tight tracking-tight break-words" style={{ color: K.ink, fontFamily: K.serif }}><Name>{p.nombre}</Name></div>
                 {p.rating_promedio != null ? (
                   <div className="mt-0.5 flex items-center gap-1.5">
                     <Stars value={p.rating_promedio} />
@@ -318,7 +322,7 @@ function AgentePerfilModal({ agentId, onClose }: { agentId: string; onClose: () 
               <div className="mt-4 flex flex-wrap gap-1.5">
                 {p.zonas.map((z) => (
                   <span key={`${z.nivel}-${z.nombre}`} className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ background: K.tealLight, color: K.tealDeep }}>
-                    <MapPin className="h-3 w-3" /> {z.nombre}
+                    <MapPin className="h-3 w-3" /> <Name>{z.nombre}</Name>
                   </span>
                 ))}
               </div>
@@ -404,7 +408,7 @@ function AgenteRow({ a, onOpen }: { a: Agente; onOpen: () => void }) {
         </button>
 
         <div className="min-w-0 flex-1">
-          <button onClick={onOpen} className="max-w-full break-words text-left text-2xl font-bold leading-tight tracking-tight transition hover:opacity-70" style={{ color: K.ink, fontFamily: K.serif }}>{a.nombre}</button>
+          <button onClick={onOpen} className="max-w-full break-words text-left text-2xl font-bold leading-tight tracking-tight transition hover:opacity-70" style={{ color: K.ink, fontFamily: K.serif }}><Name>{a.nombre}</Name></button>
 
           {a.rating_promedio != null ? (
             <div className="mt-0.5 flex items-center gap-1.5">
