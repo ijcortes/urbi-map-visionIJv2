@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from airflow import DAG
+
+from _schedule import cron_or_none as _sched
 from airflow.operators.python import PythonOperator
 
 SCRIPTS_PATH = Path("/home/edwlearn/urbi/scripts")  # load_pois.py vive en ~/urbi, no en urbi-map-vision
@@ -26,7 +28,7 @@ default_args = {
 with DAG(
     dag_id="ingest_pois",
     description="Carga POIs del Valle de Aburrá desde OpenStreetMap en raw.pois",
-    schedule_interval="0 4 * * 1",  # lunes 4am
+    schedule_interval=_sched("0 4 * * 1"),  # lunes 4am
     start_date=datetime(2024, 1, 1),
     catchup=False,
     tags=["raw", "geoespacial", "pois", "openstreetmap"],

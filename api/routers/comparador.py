@@ -123,8 +123,8 @@ async def batch_listings(
         raise HTTPException(status_code=400, detail="Máximo 5 listings por comparación")
 
     pool = get_pool()
-    from api import parametros
-    usd = parametros.get("USD_TO_COP") or _USD
+    from api.services.trm_service import get_usd_rate
+    usd = await get_usd_rate() or _USD
 
     rows = await pool.fetch(
         f"""

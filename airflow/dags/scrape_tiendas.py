@@ -9,6 +9,8 @@ import sys
 from datetime import datetime, timedelta
 
 from airflow import DAG
+
+from _schedule import cron_or_none as _sched
 from airflow.operators.python import PythonOperator
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
@@ -32,7 +34,7 @@ with DAG(
     "scrape_tiendas_google",
     default_args=default_args,
     description="Scrape tiendas por barrio vía Google Places API",
-    schedule_interval="0 8 1 */6 *",  # cada 6 meses (ene/jul) — API Google Places cuesta; DAG pausado por ahora
+    schedule_interval=_sched("0 8 1 */6 *"),  # cada 6 meses (ene/jul) — API Google Places cuesta; DAG pausado por ahora
     start_date=datetime(2026, 6, 1),
     catchup=False,
     tags=["tiendas", "google_places", "comunidad"],

@@ -592,7 +592,9 @@ def _i(row: dict, key: str) -> Optional[int]:
     return int(v) if v is not None else None
 
 
-def _build_response(row: dict, score_col: str = "score_corto", perfil: Optional[str] = None, perfil_dict: Optional[dict] = None, use_max_score: bool = False) -> BarrioResponse:
+def _build_response(row: dict, score_col: str = "score_corto", perfil: Optional[str] = None, perfil_dict: Optional[dict] = None, use_max_score: bool = False, usd_rate: Optional[float] = None) -> BarrioResponse:
+    # Shared TRM (same rate the listings use); env USD_TO_COP only as last resort.
+    _usd = usd_rate or _USD
     raw_geo = row.get("geometry_raw")
     geometry = json.loads(raw_geo) if raw_geo else None
 
@@ -645,7 +647,7 @@ def _build_response(row: dict, score_col: str = "score_corto", perfil: Optional[
         ),
         mercado=Mercado(
             precio_m2_cop=int(precio_m2_cop) if precio_m2_cop else None,
-            precio_m2_usd=int(precio_m2_cop / _USD) if precio_m2_cop else None,
+            precio_m2_usd=round(precio_m2_cop / _usd) if precio_m2_cop else None,
             precio_venta_promedio=_i(row, "precio_venta_promedio"),
             arriendo_p50_cop=_i(row, "arriendo_p50_cop"),
             yield_bruto_pct=_f(row, "yield_bruto_pct"),
@@ -664,7 +666,7 @@ def _build_response(row: dict, score_col: str = "score_corto", perfil: Optional[
             ocupacion_pct=_f(row, "ocupacion_airbnb_pct"),
             ocupacion_p25_pct=_f(row, "ocupacion_p25_pct"),
             ocupacion_p75_pct=_f(row, "ocupacion_p75_pct"),
-            adr_usd=round(adr_cop / _USD, 2) if adr_cop else None,
+            adr_usd=round(adr_cop / _usd, 2) if adr_cop else None,
             adr_cop=int(adr_cop) if adr_cop else None,
             yield_airbnb_pct=_f(row, "yield_airbnb_pct"),
             yield_airbnb_real_pct=_f(row, "yield_airbnb_real_pct"),
@@ -871,7 +873,8 @@ async def list_barrios(
     # response is personalized (logged-in user's perfil), `public` otherwise so
     # the shared CDN/proxy can serve anonymous map loads.
     response.headers["Cache-Control"] = "private, max-age=120" if current_user else "public, max-age=300"
-    return [_build_response(dict(r), score_col, effective_perfil, perfil_full, use_max_score=use_max) for r in rows]
+    rate = await get_usd_rate()
+    return [_build_response(dict(r), score_col, effective_perfil, perfil_full, use_max_score=use_max, usd_rate=rate) for r in rows]
 
 
 # ── Barrio aliases (sectors people search that are not official barrios) ────
@@ -1049,7 +1052,8 @@ async def comparar_barrios(
     pool = get_pool()
     sql = _BARRIO_SQL + " WHERE b.id = ANY($1::int[])"
     rows = await pool.fetch(sql, id_list)
-    return [_build_response(dict(r), score_col, perfil) for r in rows]
+    rate = await get_usd_rate()
+    return [_build_response(dict(r), score_col, perfil, usd_rate=rate) for r in rows]
 
 
 @router.get("/{barrio_id}", response_model=BarrioResponse)
@@ -1067,7 +1071,7 @@ async def get_barrio(
         raise HTTPException(status_code=503, detail="Datos temporalmente no disponibles")
     if row is None:
         raise HTTPException(status_code=404, detail=f"Barrio {barrio_id} no encontrado")
-    return _build_response(dict(row), score_col, perfil)
+    return _build_response(dict(row), score_col, perfil, usd_rate=await get_usd_rate())
 
 
 _BARRIO_COUNT_SQL = """

@@ -1,7 +1,8 @@
 """
-Metrocuadrado + Habi + dedup + analytics + espejo R2 + dbt incremental.
-Complementa refresh_data.py (fincaraiz+remates, diario) — corre cada 3 días.
-Puerto de airflow/dags/scrape_listings.py a cron plano (Railway no ve Airflow).
+Metrocuadrado + Habi + dedup + stale rule + analytics + espejo R2 + dbt incremental.
+Complementa refresh_data.py (fincaraiz+remates). Diario: incremental de 2 días,
+pasada completa los domingos (alimenta la regla de listings vencidos).
+Dockerfile.cron es la única fuente de horarios (Airflow solo local/manual).
 
 Run: python scripts/run_listings_metrocuadrado.py
 """
@@ -23,6 +24,16 @@ def _run(label: str, cmd: list[str], cwd: Path) -> bool:
     return ok
 
 
+def _alert(text: str) -> None:
+    """Same channels as data_quality_check (Sentry and/or webhook)."""
+    try:
+        sys.path.insert(0, str(SCRIPTS_DIR))
+        from data_quality_check import _alert as dq_alert
+        dq_alert(text)
+    except Exception:
+        pass
+
+
 def main() -> int:
     failed: list[str] = []
 
@@ -31,7 +42,8 @@ def main() -> int:
     # menos scrapers Playwright que estos.
     if not _run("scrape_metrocuadrado", [
         sys.executable, "-m", "scraping.metrocuadrado.scraper",
-        "--municipios", "all_valle", "--max-pages", "200", "--since-days", "4",
+        "--municipios", "all_valle", "--max-pages", "200", "--since-days", "2",
+        "--full-on-weekday", "6",
     ], PROJECT_DIR):
         failed.append("scrape_metrocuadrado")
 
@@ -40,6 +52,9 @@ def main() -> int:
 
     if not _run("dedup_fincaraiz", [sys.executable, str(SCRIPTS_DIR / "dedup_fincaraiz.py")], SCRIPTS_DIR):
         failed.append("dedup_fincaraiz")
+
+    if not _run("deactivate_stale", [sys.executable, str(SCRIPTS_DIR / "deactivate_stale_listings.py")], SCRIPTS_DIR):
+        failed.append("deactivate_stale")
 
     if not _run("refresh_analytics", [sys.executable, "enrich_barrios_stats.py"], SCRIPTS_DIR):
         failed.append("refresh_analytics")
@@ -52,6 +67,7 @@ def main() -> int:
 
     if failed:
         print(f"[listings_m2] DONE con fallas: {failed}", file=sys.stderr, flush=True)
+        _alert(f"run_listings_metrocuadrado: pasos fallidos {failed}")
         return 1
     print("[listings_m2] DONE — todos los pasos OK", flush=True)
     return 0

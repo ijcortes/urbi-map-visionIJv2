@@ -19,6 +19,8 @@ from api.services.listing_service import TRANSICIONES_VALIDAS, datos_minimos_com
 from api.utils import ghl_client
 from api.utils.storage import read_upload_bounded, upload_file
 
+from api.services.trm_service import get_usd_rate
+
 router = APIRouter()
 
 # claves del cuestionario que el dashboard muestra en "declarado"
@@ -796,7 +798,7 @@ async def inteligencia(
     row = await pool.fetchrow(_BARRIO_SQL + " WHERE b.id = $1", barrio_id)
     if not row:
         raise HTTPException(status_code=404, detail=f"Zona '{zona_codigo}' no encontrada")
-    return _build_response(dict(row))
+    return _build_response(dict(row), usd_rate=await get_usd_rate())
 
 
 # ── Disponibilidad semanal del agente (para slots de visita, sin Google) ──────

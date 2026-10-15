@@ -18,6 +18,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from airflow import DAG
+
+from _schedule import cron_or_none as _sched
 from airflow.operators.bash import BashOperator
 
 URBI_DIR = "/home/edwlearn/urbi"
@@ -33,7 +35,7 @@ default_args = {
 with DAG(
     dag_id="seguridad_mensual",
     description="Carga datos seguridad + dbt score largo plazo",
-    schedule_interval="0 9 1 * *",  # día 1 cada mes 09:00 UTC = 04:00 COT
+    schedule_interval=_sched("0 9 1 * *"),  # día 1 cada mes 09:00 UTC = 04:00 COT
     start_date=datetime(2024, 1, 1),
     catchup=False,
     default_args=default_args,

@@ -88,7 +88,8 @@ RUN printf '%s\n' \
     "0 3 * * * root cd /app && python3 scripts/refresh_data.py >> /var/log/refresh.log 2>&1" \
     "0 */6 * * * root cd /app && python3 scraping/run_comunidad.py >> /var/log/comunidad.log 2>&1" \
     "30 9 * * * root cd /app && python3 -m scraping.link_checker --limit 2000 >> /var/log/link_check.log 2>&1" \
-    "0 8 */3 * * root cd /app && python3 scripts/run_listings_metrocuadrado.py >> /var/log/listings_m2.log 2>&1" \
+    "0 8 * * * root cd /app && python3 scripts/run_listings_metrocuadrado.py >> /var/log/listings_m2.log 2>&1" \
+    "0 13 * * * root cd /app && python3 scripts/data_quality_check.py >> /var/log/data_quality.log 2>&1" \
     "0 9 */3 * * root cd /app && python3 scripts/run_renta_corta.py >> /var/log/renta_corta.log 2>&1" \
     "30 5 * * * root cd /app && python3 scripts/translate_descripciones.py >> /var/log/translate.log 2>&1" \
     "0 7 * * * root cd /app && python3 scripts/run_analytics_usuarios.py >> /var/log/analytics_usuarios.log 2>&1" \

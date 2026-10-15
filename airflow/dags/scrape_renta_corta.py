@@ -21,6 +21,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from airflow import DAG
+
+from _schedule import cron_or_none as _sched
 from airflow.operators.python import PythonOperator
 
 PROJECT_DIR = Path(__file__).parent.parent.parent  # urbi-map-vision/
@@ -70,7 +72,7 @@ with DAG(
     dag_id="scrape_renta_corta",
     default_args=default_args,
     description="Airbnb + VRBO + NomadBarrio + Flatio + Booking renta corta/media cada 3 días",
-    schedule_interval="0 9 */3 * *",  # 4:00 AM COT = 09:00 UTC, cada 3 días
+    schedule_interval=_sched("0 9 */3 * *"),  # 4:00 AM COT = 09:00 UTC, cada 3 días
     start_date=datetime(2026, 7, 1),
     catchup=False,
     tags=["renta_corta", "airbnb", "vrbo", "nomadbarrio", "flatio", "booking", "scraping"],

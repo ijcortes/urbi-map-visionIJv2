@@ -8,7 +8,7 @@ Schedule: cada 3 días a las 3:00 AM COT (08:00 UTC)
 Tasks:
     t1 — scrape Fincaraiz  (--since-days 4, todos los municipios)
     t2 — load Fincaraiz a DB
-    t2b — dedup Fincaraiz (borra duplicados por hash; metrocuadrado dedupa al insertar)
+    t2b — dedup Fincaraiz (marca duplicado_de, nunca borra)
     t3 — scrape Metrocuadrado (--since-days 4, all_valle)
     t8 — scrape Habi (Valle de Aburrá; escribe directo a DB, sin paso load separado)
     t4 — refresh analytics cache (enrich_barrios_stats)
@@ -27,6 +27,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from airflow import DAG
+
+from _schedule import cron_or_none as _sched
 from airflow.operators.python import PythonOperator
 
 PROJECT_DIR = Path(__file__).parent.parent.parent  # urbi-map-vision/
@@ -91,43 +93,9 @@ def refresh_analytics() -> None:
     )
 
 
-# Misma fórmula de hash que scripts/sql/dedup_cleanup.sql. El loader hace
-# ON CONFLICT (url), así que el mismo inmueble re-publicado con otra URL
-# entra duplicado; aquí se borra conservando el id más alto (más reciente).
-_DEDUP_HASH_EXPR = """MD5(
-    LOWER(TRIM(COALESCE(barrio_raw, ''))) || '|' ||
-    COALESCE(tipo_inmueble, '') || '|' ||
-    COALESCE(tipo_operacion, '') || '|' ||
-    COALESCE(habitaciones, 0)::text || '|' ||
-    COALESCE(banos, 0)::text || '|' ||
-    ROUND(COALESCE(area_m2, 0))::text || '|' ||
-    CASE COALESCE(tipo_operacion, '')
-        WHEN 'arriendo' THEN (ROUND(COALESCE(precio, 0) / 500000)  * 500000)::text
-        ELSE                 (ROUND(COALESCE(precio, 0) / 10000000) * 10000000)::text
-    END
-)"""
-
-
 def dedup_fincaraiz() -> None:
-    import psycopg2
-
-    conn = psycopg2.connect(os.environ["DATABASE_URL"])
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(f"""
-                DELETE FROM raw.listings_fincaraiz
-                WHERE id IN (
-                    SELECT id FROM (
-                        SELECT id, ROW_NUMBER() OVER (
-                            PARTITION BY {_DEDUP_HASH_EXPR} ORDER BY id DESC
-                        ) AS rn
-                        FROM raw.listings_fincaraiz
-                    ) x WHERE rn > 1
-                )
-            """)
-            print(f"[dedup_fincaraiz] {cur.rowcount} duplicados eliminados")
-    finally:
-        conn.close()
+    # Soft dedup (marks duplicado_de, never DELETEs) — same script cron runs.
+    _run([sys.executable, "dedup_fincaraiz.py"], cwd=SCRIPTS_DIR)
 
 
 def validate_urls() -> None:
@@ -160,7 +128,7 @@ with DAG(
     dag_id="scrape_listings",
     default_args=default_args,
     description="Scraping incremental de Fincaraiz + Metrocuadrado + Habi cada 3 días",
-    schedule_interval="0 8 */3 * *",   # 3:00 AM COT = 08:00 UTC, cada 3 días
+    schedule_interval=_sched("0 8 */3 * *"),   # 3:00 AM COT = 08:00 UTC, cada 3 días
     start_date=datetime(2026, 6, 1),
     catchup=False,
     tags=["listings", "scraping", "fincaraiz", "metrocuadrado", "habi"],

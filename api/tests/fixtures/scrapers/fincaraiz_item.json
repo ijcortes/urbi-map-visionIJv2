@@ -1,0 +1,24 @@
+{
+  "id": 191234567,
+  "latitude": 6.1702,
+  "longitude": -75.5871,
+  "price": {"amount": 1230000000, "admin_included": 1230827536, "hidePrice": false,
+            "currency": {"id": 4, "name": "$", "rate": 3200.61}},
+  "price_amount_usd": 384302,
+  "m2": 137, "m2Built": 137, "m2apto": 130, "m2Terrain": 137,
+  "stratum": 6,
+  "rooms": 3, "bathrooms": 4, "garage": 2,
+  "description": "Apartamento en Envigado con vista",
+  "facilities": [{"name": "Piscina"}, {"name": "Gimnasio"}],
+  "address": "Cra 1 # 2-3", "showAddress": false,
+  "images": [{"image": "https://cdn.example/1.jpg"}, {"image": "https://cdn.example/2.jpg"}],
+  "created_at": "2026-10-09T10:00:00",
+  "highlight": 18,
+  "isMapFeatured": false,
+  "include_administration": false,
+  "owner": {"id": 1, "name": "Inmobiliaria Ejemplo", "type": "inmobiliaria", "particular": false},
+  "locations": {
+    "location_main": {"name": "El Esmeraldal", "slug": "el-esmeraldal", "location_type": "neighbourhood"},
+    "city": [{"name": "Envigado"}]
+  }
+}

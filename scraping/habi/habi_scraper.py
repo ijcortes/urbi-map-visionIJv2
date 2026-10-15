@@ -56,10 +56,14 @@ from config import (
     get_conn,
     load_barrios,
     match_barrio,
-    barrio_from_coords,
     make_dedup_hash,
     upsert_listing,
 )
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from scraping.utils.quality import RunStats, http_get, implausible_reason, record_run, resolve_barrio, scraper_user_agent  # noqa: E402
+
+STATS = RunStats("habi")
 
 API_URL = "https://apiv2.habi.co/listing-global-api/get_properties"
 # Portal web-client key. NOT stored in the repo: set HABI_API_KEY in the
@@ -96,10 +100,7 @@ def _headers() -> dict:
 _BASE_HEADERS = {
     "Accept": "application/json, text/plain, */*",
     "Referer": "https://habi.co/",
-    "User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": scraper_user_agent(),
 }
 
 
@@ -115,15 +116,21 @@ def fetch_all_valle_aburra(max_pages: int | None) -> list[dict]:
         page += 1
         if max_pages and page > max_pages:
             break
-        r = session.get(
-            API_URL,
+        r = http_get(
+            session, API_URL,
             params={"offset": offset, "limit": PAGE_LIMIT, "filters": "{}", "country": "CO"},
-            timeout=25,
+            timeout=25, stats=STATS,
         )
-        if r.status_code != 200:
-            print(f"  offset {offset}: HTTP {r.status_code}, stopping")
+        if r is None:
+            print(f"  offset {offset}: failed after retries, stopping (run marked degraded)")
+            STATS.truncated_configs.append(f"offset {offset}")
             break
-        msg = r.json().get("messagge", {})
+        try:
+            msg = r.json().get("messagge", {})
+        except ValueError:
+            STATS.parse_failed += 1
+            STATS.items_seen += 1
+            break
         items = msg.get("data", [])
         if not items:
             break
@@ -287,8 +294,8 @@ def enrich_with_detail(listings: list[dict]) -> int:
                 continue
 
             listing["url_360"] = prop.get("url_360")
-            listing["correo_contacto"] = det.get("correo")
-            listing["telefono_contacto"] = det.get("telefono")
+            # Contact e-mail/phone of the seller are personal data we never serve:
+            # not stored (privacy review, Ley 1581 data minimisation).
             listing["contacto_zona"] = det.get("contacto_zona")
             listing["has_three_checks"] = bool(det.get("has_three_checks")) if det.get("has_three_checks") is not None else None
             listing["is_private"] = bool(det.get("is_private")) if det.get("is_private") is not None else None
@@ -318,12 +325,23 @@ def main():
     raw_items = fetch_all_valle_aburra(args.max_pages)
     print(f"\n{len(raw_items)} {TARGET_METRO} listings found")
 
-    listings = [normalize(i) for i in raw_items]
-    listings = [l for l in listings if l]
+    listings = []
+    for i in raw_items:
+        STATS.items_seen += 1
+        try:
+            l = normalize(i)
+        except Exception:
+            l = None
+        if l is None:
+            STATS.parse_failed += 1
+            continue
+        if implausible_reason(l["precio"], l["area_m2"], l["tipo_inmueble"], "venta"):
+            STATS.implausible += 1
+        listings.append(l)
     print(f"{len(listings)} normalized successfully")
 
     if not args.no_detail and listings:
-        print("\nAttempting detail-page enrichment (best-effort, many will 403)...")
+        print("\nAttempting detail-page enrichment (best-effort, many will 403; contact PII is not kept)...")
         n = enrich_with_detail(listings)
         print(f"  enriched {n}/{len(listings)}")
 
@@ -334,7 +352,11 @@ def main():
         municipio_hint = MUNICIPIO_HINT.get(listing["municipio_raw"])
         barrio_id = None
         if listing["lat"] and listing["lon"] and conn:
-            barrio_id = barrio_from_coords(conn, listing["lat"], listing["lon"])
+            try:
+                with conn.cursor() as cur:
+                    barrio_id = resolve_barrio(cur, listing["lat"], listing["lon"])
+            except Exception:
+                conn.rollback()
         if not barrio_id:
             barrio_id = match_barrio(listing["barrio_raw"], barrios, municipio_hint)
         listing["barrio_id"] = barrio_id
@@ -348,9 +370,19 @@ def main():
             upsert_listing(conn, listing)
 
     if conn:
+        # The feed is walked end to end every run: complete unless truncated.
+        try:
+            with conn, conn.cursor() as cur:
+                n = len(raw_items)
+                record_run(cur, "habi", "valle_aburra", "full" if not args.max_pages else "incremental",
+                           n if not STATS.truncated_configs else n + 1, n, len(STATS.truncated_configs))
+        except Exception as e:
+            print(f"  could not record raw.scrape_runs: {e}")
         conn.close()
     print(f"\nDone. Total listings processed: {len(listings)}")
+    print(STATS.summary())
+    return STATS.exit_code()
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

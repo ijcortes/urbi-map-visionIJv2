@@ -18,6 +18,8 @@ import logging
 from datetime import datetime, timedelta
 
 from airflow import DAG
+
+from _schedule import cron_or_none as _sched
 from airflow.operators.bash import BashOperator
 from airflow.operators.python import PythonOperator
 
@@ -35,7 +37,7 @@ default_args = {
 with DAG(
     dag_id="dbt_full_refresh_semanal",
     description="dbt run --full-refresh + dbt test, todos los modelos",
-    schedule_interval="0 7 * * 1",  # lunes 07:00 UTC = 02:00 COT
+    schedule_interval=_sched("0 7 * * 1"),  # lunes 07:00 UTC = 02:00 COT
     start_date=datetime(2024, 1, 8),
     catchup=False,
     default_args=default_args,

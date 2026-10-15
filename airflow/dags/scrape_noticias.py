@@ -9,6 +9,8 @@ import sys
 from datetime import datetime, timedelta
 
 from airflow import DAG
+
+from _schedule import cron_or_none as _sched
 from airflow.operators.python import PythonOperator
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
@@ -32,7 +34,7 @@ with DAG(
     "scrape_noticias_rss",
     default_args=default_args,
     description="Scrape noticias culturales El Colombiano vía RSS",
-    schedule_interval="0 */4 * * *",
+    schedule_interval=_sched("0 */4 * * *"),
     start_date=datetime(2026, 6, 1),
     catchup=False,
     tags=["noticias", "rss", "comunidad"],

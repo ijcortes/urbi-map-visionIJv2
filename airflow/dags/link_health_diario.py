@@ -14,6 +14,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from airflow import DAG
+
+from _schedule import cron_or_none as _sched
 from airflow.operators.python import PythonOperator
 
 PROJECT_DIR = Path(__file__).parent.parent.parent
@@ -41,7 +43,7 @@ with DAG(
     dag_id="link_health_diario",
     default_args=default_args,
     description="Salud de links originales de listings (soft-404, 2 strikes, freno mass-gone)",
-    schedule_interval="30 9 * * *",
+    schedule_interval=_sched("30 9 * * *"),
     start_date=datetime(2026, 10, 1),
     catchup=False,
     tags=["listings", "link-health"],

@@ -1281,7 +1281,9 @@ SELECT
         ELSE l.fuente
     END                          AS fuente_display,
     l.tier, l.tipo_operacion, l.tipo_inmueble,
-    CASE WHEN {featured} THEN 0 ELSE 1 END       AS _prio,
+    -- featured first; listings without any photo last (they stay listed, but a
+    -- capped / thinned map fills with pins that have something to show first)
+    CASE WHEN {featured} THEN 0 WHEN l.foto_principal IS NULL THEN 2 ELSE 1 END AS _prio,
     l.precio::bigint             AS precio_cop,
     NULL::bigint                 AS precio_usd,  -- filled in Python from the shared TRM
     l.area_m2::float8, round(l.precio_m2)::bigint AS precio_m2, l.habitaciones, l.banos::float8,
@@ -1319,6 +1321,7 @@ _VIEWPORT_POINTS_SQL = _VIEWPORT_POINTS_BODY + """
 ORDER BY
     CASE WHEN """ + _VIEWPORT_FEATURED_PRED + """ THEN 0 ELSE 1 END,
     CASE WHEN l.fuente = 'casadolcecasa' THEN 0 ELSE 1 END,
+    CASE WHEN l.foto_principal IS NULL THEN 1 ELSE 0 END,
     -- Round-robin por tipo: el cap de 3000 llenaba con los más recientes y en comunas
     -- densas (Poblado) los apartamentos tienen el fecha_scraping más nuevo → el mapa
     -- solo mostraba aptos aunque hay miles de oficinas/casas/locales. Interleavear por

@@ -1,0 +1,19 @@
+{
+  "midinmueble": "10765-M1234567",
+  "link": "/inmueble/venta-apartamento-medellin-el-poblado-3-habitaciones-2-banos/10765-M1234567",
+  "title": "Apartamento en Venta, El Poblado",
+  "mvalorventa": 850000000,
+  "mvalorarriendo": null,
+  "areaprivada": 95,
+  "marea": 110,
+  "mnrocuartos": "3",
+  "mnrobanos": "2",
+  "mbarrio": "el poblado",
+  "mciudad": "medellín",
+  "estrato": "6",
+  "localizacion": {"lat": 6.2088, "lon": -75.5678},
+  "featured": ["conPiscina:S", "nroGarajes:2", "tiempoConstruido:Entre 5 y 10 años", "valorAdministracion:650000"],
+  "badge": "Destacado",
+  "mgaleriainmueble": ["10765-M1234567_1", "10765-M1234567_2"],
+  "publishedAt": "2026-10-10T00:00:00Z"
+}

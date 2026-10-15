@@ -34,7 +34,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _APP_URL = os.getenv("APP_URL", "https://medellin.social")
-_COP_TO_USD = 4200.0
 
 # Enum listing_operacion solo tiene venta|arriendo.
 _OPERACION_MAP = {"venta": "venta", "arriendo": "arriendo"}

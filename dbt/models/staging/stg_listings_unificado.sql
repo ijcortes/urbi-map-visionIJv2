@@ -10,7 +10,7 @@
   + raw.listings_premium + raw.listings_renta_media.
 
   Deduplicación por dos vías:
-    A) Con coordenadas → cluster geoespacial ROUND(lat,3)×ROUND(lon,3) ≈ 111m²
+    A) Con coordenadas → cluster DBSCAN a 40 m + precio ±5 %
        + mismas características físicas (tipo_op, tipo_inm, hab, área±5m²).
     B) Sin coordenadas → dedup_hash o clave sintética por barrio+características.
 
@@ -18,7 +18,7 @@
   gana. Se conservan precio_min/max del cluster y flag precio_variable.
 */
 
-with todas_fuentes as (
+with todas_fuentes_raw as (
 
     -- ── FincaRaíz: coords disponibles (centroide barrio o extraídas de scraper) ─
     select
@@ -51,6 +51,7 @@ with todas_fuentes as (
     from {{ source('fincaraiz', 'listings_fincaraiz') }}
     where activo = true
       and url_activa is not false   -- validate_listings_urls marca URL muerta = FALSE; NULL = sin revisar = mostrar
+      and duplicado_de is null      -- soft dedup (scripts/dedup_fincaraiz.py), nunca DELETE
       and precio > 0
       and area_m2 > 0
 
@@ -156,7 +157,8 @@ with todas_fuentes as (
         null::boolean   as verificado,
         null::numeric   as administracion -- premium no trae este campo
     from {{ source('premium', 'listings_premium') }}
-    where precio_cop > 0
+    where activo is not false
+      and precio_cop > 0
       and area_m2 > 0
 
     union all
@@ -193,14 +195,54 @@ with todas_fuentes as (
         null::boolean           as verificado,
         null::numeric           as administracion -- renta_media no trae este campo
     from {{ source('renta_media', 'listings_renta_media') }}
-    where precio_mes_cop > 0
+    where activo is not false
+      and precio_mes_cop > 0
       and area_m2 > 0
 
 ),
 
+-- ── Normalización + plausibilidad (mismas reglas que api/cache.py) ───────────
+-- Las filas raw no se tocan; las implausibles solo no se sirven.
+todas_fuentes as (
+    select
+        listing_uid, fuente, tier,
+        lower(trim(tipo_operacion)) as tipo_operacion,
+        lower(trim(tipo_inmueble))  as tipo_inmueble,
+        precio_cop, precio_usd, area_m2, habitaciones, banos,
+        barrio_raw, barrio_id, direccion_raw, lat, lon, geom,
+        url, fotos, fecha_scraping, dedup_hash, estrato_real,
+        amoblado, antiguedad, amenidades, verificado, administracion
+    from todas_fuentes_raw
+    where area_m2 >= 8
+      and area_m2 <= case when lower(tipo_inmueble) ~ '^(lote|terreno|finca|bodega)'
+                          then 5000000 else 20000 end
+      and (
+          lower(tipo_inmueble) ~ '^(lote|terreno|finca)'
+          or (lower(tipo_operacion) like 'venta%'
+              and precio_cop / area_m2 between 300000 and 60000000)
+          or (lower(tipo_operacion) like 'arriendo%'
+              and precio_cop / area_m2 between 2000 and 400000)
+          or (lower(tipo_operacion) not like 'venta%' and lower(tipo_operacion) not like 'arriendo%')
+      )
+),
+
 -- ── PASO A: Con coordenadas — dedup geoespacial ───────────────────────────────
--- Celdas de ~111m × ~110m (ROUND a 3 decimales en Medellín lat 6.2°).
--- Dentro de cada celda: mismo tipo_op + tipo_inm + hab + área±5m² = mismo inmueble.
+-- Mismo inmueble = mismo tipo_op + tipo_inm + hab + área±5m², a ≤40 m (DBSCAN)
+-- y precio dentro de ~5 % (bucket logarítmico). Reemplaza la grilla fija de
+-- ~111 m, que fusionaba unidades distintas de la misma cuadra.
+geo_cluster as (
+    select
+        t.*,
+        floor(ln(greatest(precio_cop, 1)::float8) / ln(1.05))::int as precio_bucket,
+        st_clusterdbscan(st_transform(geom, 3857), eps := 40, minpoints := 1) over (
+            partition by tipo_operacion, tipo_inmueble, habitaciones,
+                         (round(area_m2::numeric / 5) * 5),
+                         floor(ln(greatest(precio_cop, 1)::float8) / ln(1.05))
+        ) as geo_cid
+    from todas_fuentes t
+    where geom is not null
+),
+
 con_geo as (
     select
         listing_uid, fuente, tier,
@@ -212,41 +254,12 @@ con_geo as (
         url, fotos, fecha_scraping, estrato_real,
         amoblado, antiguedad, amenidades, verificado, administracion,
 
-        min(precio_cop) over (partition by
-            round(lat::numeric, 3),
-            round(lon::numeric, 3),
-            tipo_operacion,
-            tipo_inmueble,
-            habitaciones,
-            (round(area_m2::numeric / 5) * 5)
-        ) as precio_min_cluster,
-
-        max(precio_cop) over (partition by
-            round(lat::numeric, 3),
-            round(lon::numeric, 3),
-            tipo_operacion,
-            tipo_inmueble,
-            habitaciones,
-            (round(area_m2::numeric / 5) * 5)
-        ) as precio_max_cluster,
-
-        count(*) over (partition by
-            round(lat::numeric, 3),
-            round(lon::numeric, 3),
-            tipo_operacion,
-            tipo_inmueble,
-            habitaciones,
-            (round(area_m2::numeric / 5) * 5)
-        ) as n_duplicados,
+        min(precio_cop) over w as precio_min_cluster,
+        max(precio_cop) over w as precio_max_cluster,
+        count(*)        over w as n_duplicados,
 
         row_number() over (
-            partition by
-                round(lat::numeric, 3),
-                round(lon::numeric, 3),
-                tipo_operacion,
-                tipo_inmueble,
-                habitaciones,
-                (round(area_m2::numeric / 5) * 5)
+            w
             order by
                 case tier
                     when 'agencia_premium' then 1
@@ -257,8 +270,11 @@ con_geo as (
                 fecha_scraping desc nulls last
         ) as _rn
 
-    from todas_fuentes
-    where geom is not null
+    from geo_cluster
+    window w as (
+        partition by tipo_operacion, tipo_inmueble, habitaciones,
+                     (round(area_m2::numeric / 5) * 5), precio_bucket, geo_cid
+    )
 ),
 
 -- ── PASO B: Sin coordenadas — dedup por hash o clave sintética ───────────────

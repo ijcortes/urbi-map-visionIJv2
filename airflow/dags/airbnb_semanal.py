@@ -21,6 +21,8 @@ import sys
 from datetime import datetime, timedelta
 
 from airflow import DAG
+
+from _schedule import cron_or_none as _sched
 from airflow.operators.bash import BashOperator
 from airflow.operators.python import PythonOperator
 
@@ -42,7 +44,7 @@ default_args = {
 with DAG(
     dag_id="airbnb_semanal",
     description="Fetch AirROI + dbt Airbnb metrics + score corto plazo",
-    schedule_interval="0 8 * * 0",  # domingo 08:00 UTC = 03:00 COT
+    schedule_interval=_sched("0 8 * * 0"),  # domingo 08:00 UTC = 03:00 COT
     start_date=datetime(2024, 1, 7),
     catchup=False,
     default_args=default_args,

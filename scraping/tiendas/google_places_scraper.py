@@ -39,6 +39,9 @@ import requests
 from dotenv import load_dotenv
 
 _ROOT = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(_ROOT))
+from scraping.utils.cost_ledger import BudgetExceeded, charge  # noqa: E402
+
 load_dotenv(_ROOT / ".env.local")
 load_dotenv(_ROOT / ".env")
 
@@ -247,6 +250,11 @@ def scrape_barrio_categoria(barrio: dict, types: list[str], retries: int = 4) ->
         "rankPreference": "POPULARITY",
     }
     for attempt in range(retries):
+        try:
+            charge("google_places", "places:searchNearby", 0.032)
+        except BudgetExceeded as e:
+            print(f"  [BUDGET] {e} — deteniendo")
+            raise
         try:
             r = requests.post(BASE_URL, headers=headers, json=body, timeout=20)
             if r.status_code != 200:
