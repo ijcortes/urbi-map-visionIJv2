@@ -112,6 +112,7 @@ export function PhotoGallery({ fotos, titulo, height = 224 }: Props) {
           {/* Close */}
           <button
             onClick={() => setLightbox(false)}
+            aria-label="Cerrar"
             className="absolute top-4 right-4 grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
           >
             <X className="h-5 w-5" />

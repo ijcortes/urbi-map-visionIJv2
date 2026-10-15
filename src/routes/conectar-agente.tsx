@@ -2,7 +2,7 @@ import { seo } from "@/lib/seo";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { auth } from "@/lib/auth";
-import { getToken } from "@/lib/apiClient";
+import { authHeaders, authCredentials } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { ComunidadLayout } from "@/components/comunidad/ComunidadLayout";
 import { K as TOKENS } from "@/design/tokens";
@@ -66,7 +66,8 @@ function ConectarAgentePage() {
 
       const res = await fetch(API_ENDPOINTS.listingsPropiosSolicitudes, {
         method: "POST",
-        headers: { Authorization: `Bearer ${getToken()}` },
+        headers: authHeaders(),
+        credentials: authCredentials,
         body: fd,
       });
 

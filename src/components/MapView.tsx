@@ -241,6 +241,8 @@ export function MapView({
   const pendingFlyRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);  // deep-link flyTo que llegó antes del "load" del mapa
   const lastViewportQueryRef = useRef("");  // dedup identical viewport fetches
   const lastViewportAtRef = useRef(0);
+  // Which barrio array is currently loaded in the "barrios-mls" source (by reference).
+  const barrioSourceDataRef = useRef<unknown>(null);
   const { currency: priceCurrency, trm: priceTrm } = usePriceFormat();
   const priceCurrencyRef = useRef(priceCurrency);
   const priceTrmRef = useRef(priceTrm);
@@ -394,8 +396,10 @@ export function MapView({
       if (!map || !mapLoadedRef.current) return;
 
       // Poblar source con polígonos de barrio (normalmente solo se hace en mapView=listings)
+      // Same barrio list already in the source (the load effect below): skip the
+      // full re-serialisation of every polygon.
       const src = map.getSource("barrios-mls") as mapboxgl.GeoJSONSource | undefined;
-      if (src) {
+      if (src && barrioSourceDataRef.current !== barriosRef.current) {
         const feats = barriosRef.current
           .filter((b) => b.geometry && b.barrio_id < _REAL_ID_MAX)
           .map((b) => ({
@@ -405,6 +409,7 @@ export function MapView({
             properties: { barrio_id: b.barrio_id, nombre: b.nombre ?? "", cd_comuna: b.cd_comuna ?? null },
           }));
         src.setData({ type: "FeatureCollection", features: feats } as GeoJSON.FeatureCollection);
+        barrioSourceDataRef.current = barriosRef.current;
       }
 
       // Mostrar capas de barrio, ocultar fill de comunas
@@ -471,7 +476,8 @@ export function MapView({
         : [[-75.71, 6.07], [-75.46, 6.42]],
       pitch: initPitch,
       bearing: initBearing,
-      antialias: true,
+      // MSAA costs a lot of GPU/battery on phones for little visible gain.
+      antialias: !isMobile,
       cooperativeGestures,
       // Atribución la re-agregamos abajo en modo compacto (ver addControl).
       attributionControl: false,
@@ -494,6 +500,13 @@ export function MapView({
 
     map.on("load", () => {
       map.resize();
+      // Min zoom floor = whatever shows the whole pan box on THIS screen (a fixed 11
+      // could not show the valley on a 360 px phone).
+      try {
+        const b = map.getMaxBounds();
+        const cam = b ? map.cameraForBounds(b, { padding: 0 }) : null;
+        if (cam?.zoom != null) map.setMinZoom(Math.min(map.getMinZoom(), Math.floor(cam.zoom * 10) / 10));
+      } catch { /* keep the static floor */ }
       // Re-encuadra con el tamaño REAL del contenedor (el fitBounds del
       // constructor corre antes de que el layout flex asiente → recorta el sur).
       if (fitValleRef.current) {
@@ -674,6 +687,7 @@ export function MapView({
       // Se controla con minzoom (no con toggles de visibility por cámara): en vista
       // listings las capas quedan visibles y Mapbox las muestra solo desde ese zoom.
       map.addSource("barrios-mls", { type: "geojson", data: EMPTY_FC });
+      barrioSourceDataRef.current = null; // (re)created empty: next load must fill it
       map.addLayer({
         id: "barrios-mls-fill",
         type: "fill",
@@ -912,6 +926,11 @@ export function MapView({
           coords[0] += e.lngLat.lng > coords[0] ? 360 : -360;
         }
         const point = map.project(coords);
+        // Touch has no double-click: open the popup right away instead of waiting 220 ms.
+        if (isMobileRef.current) {
+          onListingClickFromMapRef.current?.(props.id as number, point.x, point.y);
+          return;
+        }
         if (_pendingClick !== null) return;
         _pendingClick = setTimeout(() => {
           _pendingClick = null;
@@ -935,7 +954,9 @@ export function MapView({
 
       // Source starts empty — useEffect([comunasMetrics]) loads static GeoJSON + enriches with API metrics.
 
-      // ── Terreno 3D ────────────────────────────────────────────────────────────
+      // ── Terreno 3D (desktop only: DEM tiles + terrain + fog are the heaviest
+      //    per-frame work on phones and the mobile map is flat anyway) ──────────
+      if (!isMobileRef.current) {
       map.addSource("mapbox-dem", {
         type: "raster-dem",
         url: "mapbox://mapbox.mapbox-terrain-dem-v1",
@@ -950,6 +971,7 @@ export function MapView({
         "space-color": "#FAF8F3",
         "star-intensity": 0,
       });
+      }
 
       // Pulso de markers Pro/agente: halo que crece y se desvanece en loop (~1.4s).
       // Solo animamos cuando la capa está visible (tier de puntos) para no gastar frames.
@@ -1233,7 +1255,7 @@ export function MapView({
     const map = mapRef.current;
     if (!map || !mapLoadedRef.current) return;
     const src = map.getSource("barrios-mls") as mapboxgl.GeoJSONSource | undefined;
-    if (!src) return;
+    if (!src || barrioSourceDataRef.current === barriosRaw) return;
     const feats = (barriosRaw ?? [])
       .filter((b) => b.geometry && b.barrio_id < _REAL_ID_MAX)
       .map((b) => ({
@@ -1243,6 +1265,7 @@ export function MapView({
         properties: { barrio_id: b.barrio_id, nombre: b.nombre ?? "", cd_comuna: b.cd_comuna ?? null },
       }));
     src.setData({ type: "FeatureCollection", features: feats } as GeoJSON.FeatureCollection);
+    barrioSourceDataRef.current = barriosRaw;
   }, [barriosRaw, mapLoaded]);
 
   useEffect(() => {

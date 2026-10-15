@@ -321,3 +321,13 @@ main a, main button { transition: transform .15s ease, box-shadow .15s ease, bac
 @media (prefers-reduced-motion: reduce) {
   .ms-reveal { opacity: 1 !important; transform: none !important; transition: none !important; }
 }
+
+/* Listing drawer open: the map underneath must not take touches/scroll (iOS). */
+body.drawer-open .mapboxgl-canvas-container,
+body.drawer-open .mapboxgl-canvas {
+  pointer-events: none;
+  touch-action: none;
+}
+body.drawer-open {
+  overscroll-behavior: none;
+}

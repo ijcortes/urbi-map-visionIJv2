@@ -73,7 +73,9 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
   const width = Math.min(POPUP_WIDTH, window.innerWidth - 24);
   const left = Math.max(12, (window.innerWidth - panelWidth - width) / 2);
   const posStyle: React.CSSProperties = isMobile
-    ? { left: 8, right: 8, bottom: 12, width: "auto", maxHeight: "72dvh" }
+    // never taller than the space under the header + filter row (short / landscape
+    // phones put the sheet's top over the header after a fly-to)
+    ? { left: 8, right: 8, bottom: 12, width: "auto", maxHeight: "min(72dvh, calc(100dvh - var(--map-header-h, 53px) - 80px))" }
     : { left, top: 72, width, maxHeight: "calc(100dvh - 120px)" };
 
   // Header fields: prefer detail (proper *_display casing), fall back to pin.

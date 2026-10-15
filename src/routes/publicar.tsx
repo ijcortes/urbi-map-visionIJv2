@@ -7,7 +7,7 @@ import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { motion, AnimatePresence } from "framer-motion";
 import { API_ENDPOINTS } from "@/config/api";
-import { apiFetch, getToken } from "@/lib/apiClient";
+import { apiFetch, getToken, authHeaders, authCredentials } from "@/lib/apiClient";
 import { auth } from "@/lib/auth";
 import { MAPBOX_TOKEN } from "@/lib/mapboxToken";
 import { ComunidadLayout } from "@/components/comunidad/ComunidadLayout";
@@ -1657,13 +1657,12 @@ function PublicarPage() {
         fd.append("fotos", p.file);
       }
 
-      const token = getToken();
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const headers: Record<string, string> = authHeaders();
 
       const res = await fetch(API_ENDPOINTS.listingsPropios, {
         method: "POST",
         headers,
+        credentials: authCredentials,
         body: fd,
       });
 

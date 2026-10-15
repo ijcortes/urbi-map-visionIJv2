@@ -7,17 +7,15 @@ import bcrypt
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from api.db import get_pool
-from api.dependencies import JWT_ALGORITHM, JWT_SECRET, get_current_user, token_key
+from api.dependencies import JWT_ALGORITHM, JWT_SECRET, current_token, get_current_user, token_key
 from api.limiter import email_throttle, limiter, login_fail_throttle
 
 _APP_URL = os.getenv("APP_URL", "https://medellinsocial.com")
 
-_bearer = HTTPBearer()
 
 router = APIRouter()
 
@@ -480,13 +478,13 @@ async def update_onboarding_perfil(
 
 @router.post("/logout", status_code=204)
 async def logout(
-    credentials: HTTPAuthorizationCredentials = Depends(_bearer),
+    token: str = Depends(current_token),
     current_user: dict = Depends(get_current_user),
 ):
     pool = get_pool()
     await pool.execute(
         "INSERT INTO token_blacklist (token, usuario_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        token_key(credentials.credentials), current_user["id"],
+        token_key(token), current_user["id"],
     )
 
 
@@ -494,7 +492,7 @@ async def logout(
 @limiter.limit("10/minute")
 async def refresh_token(
     request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(_bearer),
+    token: str = Depends(current_token),
     current_user: dict = Depends(get_current_user),
 ):
     """Exchange a valid token for a fresh 30-day token. Old token is blacklisted."""
@@ -503,7 +501,7 @@ async def refresh_token(
     revoked = await pool.fetchval(
         "INSERT INTO token_blacklist (token, usuario_id) VALUES ($1, $2) "
         "ON CONFLICT DO NOTHING RETURNING id",
-        token_key(credentials.credentials), current_user["id"],
+        token_key(token), current_user["id"],
     )
     if revoked is None:
         raise HTTPException(status_code=401, detail="Token revocado")

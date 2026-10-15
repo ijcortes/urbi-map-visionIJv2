@@ -336,6 +336,7 @@ function TabBarrios({
             {ids.length > 1 && (
               <button
                 onClick={() => setIds((prev) => prev.filter((_, idx) => idx !== i))}
+                aria-label="Quitar"
                 className="text-muted-foreground hover:text-danger"
               >
                 <X className="h-3 w-3" />

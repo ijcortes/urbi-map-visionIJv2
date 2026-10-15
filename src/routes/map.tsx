@@ -725,7 +725,8 @@ function MapPageInner() {
         <button
           onClick={() => { setGlobalSearch(true); setMapView("listings"); }}
           style={{
-            position: "absolute", top: "calc(var(--map-header-h, 53px) + 56px)", left: "50%", transform: "translateX(-50%)",
+            // Mobile: the "Tutorial de la página" pill sits on this row (right side) — go one row lower.
+            position: "absolute", top: isMobile ? "calc(var(--map-header-h, 53px) + 98px)" : "calc(var(--map-header-h, 53px) + 56px)", left: "50%", transform: "translateX(-50%)",
             zIndex: 24, background: "#1e3a5f", color: "#FAF8F3",
             borderRadius: 8, padding: "6px 16px", fontSize: 12, fontWeight: 600,
             border: "none", cursor: "pointer", whiteSpace: "nowrap",

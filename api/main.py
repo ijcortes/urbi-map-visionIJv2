@@ -20,6 +20,8 @@ from api import parametros
 from api.cache import refresh_listings_cache, run_periodic_cache_refresh
 from api.limiter import limiter
 from api.utils.body_limit import BodySizeLimitMiddleware
+from api.utils.session_cookie import SessionCookieMiddleware
+from api.dependencies import auth_cookie_mode
 from api.routers import admin, admin_agentes, afiliados, agency, alertas, asignador, auth, barrios, business, calculadora, comparador, comunidad, comunidad_posts, comunas, embajadores, favoritos, ghl_leads, ghl_webhook, historial, intake, link_review, listings, listings_propios, moderacion, oportunidades, pasantias, realtor, stats, suscripciones, tracking, trm, usuario, visitas, zonas
 
 # Sentry — only active when SENTRY_DSN is set (optional in local/test)
@@ -193,16 +195,17 @@ async def security_headers(request: Request, call_next):
     response.headers.setdefault("Permissions-Policy", "geolocation=(), camera=(), microphone=()")
     return response
 
+app.add_middleware(SessionCookieMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_build_origins(),
-    allow_origin_regex=_build_origin_regex(),
-    # No cookie/session auth anywhere (Bearer JWT only, checked api/dependencies.py) —
-    # allow_credentials=True bought nothing but let any subdomain of these shared,
-    # publicly-registrable platforms make credentialed cross-origin calls.
-    allow_credentials=False,
+    # Cookie mode needs credentialed CORS — then only the explicit origins list,
+    # never a wildcard regex over shared, publicly-registrable platforms.
+    allow_origin_regex=None if auth_cookie_mode() else _build_origin_regex(),
+    # Bearer mode (default): no cookies anywhere, so no credentialed CORS either.
+    allow_credentials=auth_cookie_mode(),
     allow_methods=["*"],
     allow_headers=["*"],
 )

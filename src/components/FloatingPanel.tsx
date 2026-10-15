@@ -2095,6 +2095,7 @@ function LiquiditySection({ n }: { n: Neighborhood }) {
             >
               <button
                 onClick={() => setShowInfo(false)}
+                aria-label="Cerrar"
                 className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground"
               >
                 <X className="h-4 w-4" />

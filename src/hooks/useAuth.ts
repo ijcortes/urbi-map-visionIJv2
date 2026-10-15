@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { apiFetch, clearToken, getToken, setToken } from "@/lib/apiClient";
+import { apiFetch, clearToken, getToken, setToken, authHeaders, authCredentials } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { auth } from "@/lib/auth";
 
@@ -159,6 +159,7 @@ export function useUpdateAuthPerfil() {
 
 export async function logout() {
   const token = getToken();
+  const headers = authHeaders(); // before clearToken(): Bearer mode needs the token
   // Clear local session synchronously first — must not depend on the network.
   clearToken();
   auth.clear();
@@ -166,7 +167,8 @@ export async function logout() {
     try {
       await fetch(API_ENDPOINTS.logout, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers,
+        credentials: authCredentials,
       });
     } catch {
       // best-effort — local session already cleared above

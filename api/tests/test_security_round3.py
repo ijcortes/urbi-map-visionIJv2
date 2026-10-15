@@ -89,3 +89,65 @@ def test_ghl_leads_accepts_any_of_rotated_tokens(monkeypatch):
     with pytest.raises(HTTPException) as e:
         require_ghl_token(req, "new-token-bbbb")
     assert e.value.status_code == 403
+
+
+# ── SEA-21: opt-in HttpOnly cookie sessions ─────────────────────────────────
+
+def _cookie_app(monkeypatch):
+    from fastapi import Depends
+    from api.dependencies import current_token
+    from api.utils.session_cookie import SessionCookieMiddleware
+
+    monkeypatch.setenv("AUTH_COOKIE_MODE", "1")
+    app = FastAPI()
+    app.add_middleware(SessionCookieMiddleware)
+
+    @app.post("/api/v1/auth/login")
+    async def login():
+        return {"token": "tok-123", "user": {}}
+
+    @app.get("/api/v1/who")
+    async def who(tok: str = Depends(current_token)):
+        return {"tok": tok}
+
+    @app.post("/api/v1/write")
+    async def write(tok: str = Depends(current_token)):
+        return {"tok": tok}
+
+    @app.post("/api/v1/auth/logout", status_code=204)
+    async def logout():
+        return None
+
+    return TestClient(app, base_url="https://testserver")
+
+
+def test_cookie_mode_sets_httponly_cookie_and_reads_it(monkeypatch):
+    c = _cookie_app(monkeypatch)
+    r = c.post("/api/v1/auth/login")
+    assert r.json()["token"] == "tok-123"  # Bearer clients keep working
+    sc = r.headers["set-cookie"].lower()
+    assert "ms_session=tok-123" in sc and "httponly" in sc and "secure" in sc and "samesite=lax" in sc
+    assert c.get("/api/v1/who").json() == {"tok": "tok-123"}
+
+
+def test_cookie_mode_writes_need_custom_header(monkeypatch):
+    c = _cookie_app(monkeypatch)
+    c.post("/api/v1/auth/login")
+    assert c.post("/api/v1/write").status_code == 403  # CSRF: plain cross-site form/fetch
+    assert c.post("/api/v1/write", headers={"X-Requested-With": "fetch"}).json() == {"tok": "tok-123"}
+    # Bearer always wins and needs no extra header
+    assert c.post("/api/v1/write", headers={"Authorization": "Bearer other"}).json() == {"tok": "other"}
+
+
+def test_cookie_mode_off_ignores_cookie(monkeypatch):
+    c = _cookie_app(monkeypatch)
+    c.post("/api/v1/auth/login")
+    monkeypatch.setenv("AUTH_COOKIE_MODE", "0")
+    assert c.get("/api/v1/who").status_code == 401
+
+
+def test_logout_clears_cookie(monkeypatch):
+    c = _cookie_app(monkeypatch)
+    c.post("/api/v1/auth/login")
+    r = c.post("/api/v1/auth/logout", headers={"X-Requested-With": "fetch"})
+    assert 'ms_session=""' in r.headers.get("set-cookie", "") or "max-age=0" in r.headers.get("set-cookie", "").lower()

@@ -1036,7 +1036,13 @@ export function ListingDrawer({ listingId, onClose }: Props) {
     if (listingId) {
       const prev = document.body.style.overflow;
       document.body.style.overflow = "hidden";
-      return () => { document.body.style.overflow = prev; };
+      // iOS: the map canvas under the sheet kept receiving touches (pan/zoom behind the
+      // drawer). styles.css turns map pointer events off while this class is set.
+      document.body.classList.add("drawer-open");
+      return () => {
+        document.body.style.overflow = prev;
+        document.body.classList.remove("drawer-open");
+      };
     }
   }, [listingId]);
 
@@ -1586,7 +1592,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                   style={{ touchAction: "none", cursor: "grab" }}
                 >
                   <div className="h-1 w-10 rounded-full bg-[#C9C4B8]" />
-                  <button onClick={onClose} onPointerDown={(e) => e.stopPropagation()} className="absolute right-4 grid h-7 w-7 place-items-center rounded-lg text-[#5B5F5C] transition hover:bg-[#F3F0E8]">
+                  <button onClick={onClose} onPointerDown={(e) => e.stopPropagation()} aria-label="Cerrar" className="absolute right-4 grid h-7 w-7 place-items-center rounded-lg text-[#5B5F5C] transition hover:bg-[#F3F0E8]">
                     <X className="h-4 w-4" />
                   </button>
                 </div>
@@ -1770,7 +1776,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
               </div>
 
               {/* Body: galería full-width arriba, luego 2 columnas (Zillow) */}
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
                 <PhotoGallery fotos={listing?.fotos} titulo={listing?.tipo_inmueble ?? undefined} height={420} />
                 <div className="flex items-start">
                   {/* Columna 1 — información */}

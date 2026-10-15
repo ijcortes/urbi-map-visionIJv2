@@ -4,7 +4,7 @@ import hashlib
 import os
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
 from jwt import PyJWTError
@@ -89,21 +89,66 @@ async def _get_user_from_token(token: str) -> dict:
     return dict(row)
 
 
+# ── Cookie sessions (opt-in) ───────────────────────────────────────────────────
+# AUTH_COOKIE_MODE=1: the JWT also travels in an HttpOnly cookie, so page scripts
+# (and any XSS) cannot read it. Needs the API on the same site as the web app
+# (e.g. api.medellinsocial.com): browsers block third-party cookies, so with the
+# API on *.up.railway.app the cookie would never be sent. Bearer keeps working.
+AUTH_COOKIE_NAME = "ms_session"
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+def auth_cookie_mode() -> bool:
+    return os.getenv("AUTH_COOKIE_MODE", "").strip().lower() in ("1", "true", "yes")
+
+
+def request_token(request: Request, credentials: Optional[HTTPAuthorizationCredentials]) -> Optional[str]:
+    """Bearer header first; otherwise the session cookie (cookie mode only).
+
+    CSRF: a cookie is sent by the browser on its own, so cookie-authenticated
+    writes must carry X-Requested-With. A custom header forces a CORS preflight,
+    which only the configured origins pass."""
+    if credentials is not None:
+        return credentials.credentials
+    if not auth_cookie_mode():
+        return None
+    tok = request.cookies.get(AUTH_COOKIE_NAME)
+    if not tok:
+        return None
+    if request.method not in _SAFE_METHODS and not request.headers.get("x-requested-with"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Falta X-Requested-With")
+    return tok
+
+
+async def current_token(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+) -> str:
+    tok = request_token(request, credentials)
+    if not tok:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token requerido")
+    return tok
+
+
 async def get_current_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
 ) -> dict:
-    if credentials is None:
+    tok = request_token(request, credentials)
+    if not tok:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token requerido")
-    return await _get_user_from_token(credentials.credentials)
+    return await _get_user_from_token(tok)
 
 
 async def get_optional_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
 ) -> Optional[dict]:
-    if credentials is None:
-        return None
     try:
-        return await _get_user_from_token(credentials.credentials)
+        tok = request_token(request, credentials)
+        if not tok:
+            return None
+        return await _get_user_from_token(tok)
     except HTTPException:
         return None
 
