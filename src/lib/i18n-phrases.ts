@@ -2902,4 +2902,8 @@ export const PHRASES: Array<[string, string]> = [
   ["Foto actualizada", "Photo updated"],
   ["Listing asignado", "Listing assigned"],
   ["Visita delegada", "Visit delegated"],
+  // OPS-06: map load failure
+  ["No pudimos cargar el mapa", "We couldn't load the map"],
+  ["Revisa tu conexión e intenta de nuevo.", "Check your connection and try again."],
+  ["Recargar", "Reload"],
 ];

@@ -223,6 +223,9 @@ export function MapView({
   const mapRef = useRef<MapboxMap | null>(null);
   const mapLoadedRef = useRef(false);
   const [mapLoaded, setMapLoaded] = useState(false);
+  // Rejected token (401/403, e.g. URL-restricted) or a style that never loads: the
+  // "load" event never fires — show a real error instead of an endless veil.
+  const [mapFailed, setMapFailed] = useState(false);
   const isMobile = useIsMobile();
   const [legendOpen, setLegendOpen] = useState(false);
   const [showVolverValle, setShowVolverValle] = useState(false);  // /map: botón "Volver al Valle" al drillear
@@ -498,7 +501,19 @@ export function MapView({
     ro.observe(containerRef.current!);
     requestAnimationFrame(() => map.resize());
 
+    const failTimer = setTimeout(() => { if (!mapLoadedRef.current) setMapFailed(true); }, 20_000);
+    map.on("error", (e) => {
+      const status = (e as unknown as { error?: { status?: number } }).error?.status;
+      if (!mapLoadedRef.current && (status === 401 || status === 403)) {
+        console.error("[mapbox] token rejected (", status, ") — check VITE_MAPBOX_TOKEN and its URL restrictions");
+        setMapFailed(true);
+      }
+    });
+    map.once("remove", () => clearTimeout(failTimer));
+
     map.on("load", () => {
+      clearTimeout(failTimer);
+      setMapFailed(false);
       map.resize();
       // Min zoom floor = whatever shows the whole pan box on THIS screen (a fixed 11
       // could not show the valley on a 360 px phone).
@@ -1442,7 +1457,22 @@ export function MapView({
 
       {/* Loading veil — claro (matchea el mapa cargado, no un void negro), fade-out
           al estar listo. z-[1] → bajo el navbar/filtros (chrome queda visible). */}
-      <LoadingVeil label="el mapa" show={!mapLoaded} className="absolute z-[1]" />
+      <LoadingVeil label="el mapa" show={!mapLoaded && !mapFailed} className="absolute z-[1]" />
+      {mapFailed && !mapLoaded && (
+        <div role="alert" className="absolute inset-0 z-[2] grid place-items-center bg-background px-6 text-center">
+          <div className="max-w-sm rounded-xl border border-border bg-surface p-6">
+            <h2 className="font-display text-lg font-semibold">No pudimos cargar el mapa</h2>
+            <p className="mt-2 text-sm text-muted-foreground">Revisa tu conexión e intenta de nuevo.</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 rounded-lg px-4 py-2 text-sm font-semibold text-white"
+              style={{ background: "#0F8A4F" }}
+            >
+              Recargar
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Leyenda tipos de inmueble — pill que despliega la card (desktop + móvil) */}
       {mapView === "listings" && (

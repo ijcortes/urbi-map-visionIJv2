@@ -135,12 +135,11 @@ const FRAME_SRC = [
   'https://www.youtube-nocookie.com', 'https://player.vimeo.com',
 ].join(' ');
 
-// Enforced: only directives that cannot break rendering (clickjacking / plugin / base-tag).
-// Our own pages are not meant to be framed (embed.ts only governs outbound iframes).
-const CSP_ENFORCED = "frame-ancestors 'self'; object-src 'none'; base-uri 'self'";
-// Report-only: the full policy. Inline scripts are required by TanStack Start hydration and the
-// <html lang> bootstrap, hence 'unsafe-inline'. Promote to enforced once the console is clean.
-const CSP_REPORT_ONLY = [
+// Full policy, ENFORCED (CSP_ENFORCE=0 falls back to report-only). Checked in a real browser
+// with live map tiles, home, map, agentes, eventos, comparador and negocios: 0 violations.
+// Inline scripts are required by TanStack Start hydration and the <html lang> bootstrap,
+// hence 'unsafe-inline' (nonces would need SSR support); every other source is allow-listed.
+const CSP_FULL = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' https://accounts.google.com https://apis.google.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.mapbox.com https://accounts.google.com",
@@ -157,6 +156,9 @@ const CSP_REPORT_ONLY = [
   "base-uri 'self'",
   'report-uri /csp-report',
 ].join('; ');
+const CSP_ENFORCE = process.env.CSP_ENFORCE !== '0';
+// Minimum always enforced, even in report-only mode: clickjacking / plugins / base-tag.
+const CSP_MINIMUM = "frame-ancestors 'self'; object-src 'none'; base-uri 'self'";
 
 function baseHeaders(res) {
   res.setHeader('X-Build-Id', BUILD.build);
@@ -166,8 +168,12 @@ function baseHeaders(res) {
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self), payment=()');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups'); // Google sign-in popup
-  res.setHeader('Content-Security-Policy', CSP_ENFORCED);
-  res.setHeader('Content-Security-Policy-Report-Only', CSP_REPORT_ONLY);
+  if (CSP_ENFORCE) {
+    res.setHeader('Content-Security-Policy', CSP_FULL);
+  } else {
+    res.setHeader('Content-Security-Policy', CSP_MINIMUM);
+    res.setHeader('Content-Security-Policy-Report-Only', CSP_FULL);
+  }
 }
 
 // ── Compression ──────────────────────────────────────────────────────────────

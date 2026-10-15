@@ -151,3 +151,25 @@ def test_logout_clears_cookie(monkeypatch):
     c.post("/api/v1/auth/login")
     r = c.post("/api/v1/auth/logout", headers={"X-Requested-With": "fetch"})
     assert 'ms_session=""' in r.headers.get("set-cookie", "") or "max-age=0" in r.headers.get("set-cookie", "").lower()
+
+
+# ── SEA-24: every admin route is gated by require_admin ─────────────────────
+
+def _dep_calls(dependant):
+    out = set()
+    for d in dependant.dependencies:
+        out.add(d.call)
+        out |= _dep_calls(d)
+    return out
+
+
+def test_every_admin_route_requires_admin():
+    from fastapi.routing import APIRoute
+    from api.routers import admin, admin_agentes, moderacion
+    from api.routers.admin import require_admin
+
+    # The three routers main.py mounts under /api/v1/admin.
+    routes = [r for m in (admin, admin_agentes, moderacion) for r in m.router.routes if isinstance(r, APIRoute)]
+    assert len(routes) > 20  # sanity: we are really looking at the admin API
+    missing = [f"{sorted(r.methods)} {r.path}" for r in routes if require_admin not in _dep_calls(r.dependant)]
+    assert missing == []
