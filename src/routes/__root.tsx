@@ -1,3 +1,4 @@
+import { OG_IMAGE, SITE_URL } from "@/lib/seo";
 import { Outlet, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { Link } from "@tanstack/react-router";
 import { useEffect } from "react";
@@ -34,7 +35,8 @@ const BUILD_ID = (import.meta.env.VITE_BUILD_ID as string | undefined) ?? "dev";
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { staleTime: 5 * 60 * 1000, retry: 1 },
+    // 2 min (was 5): with the API's own HTTP cache on top, data looked 5-10 min stale.
+    queries: { staleTime: 2 * 60 * 1000, retry: 1, refetchOnWindowFocus: true },
   },
 });
 
@@ -134,9 +136,14 @@ export const Route = createRootRoute({
       { name: "google", content: "notranslate" },
       { property: "og:title", content: "Medellín Social · Where Smart Investors Meet Local Culture" },
       { property: "og:description", content: "Real estate intelligence meets local culture in Medellín and the Aburrá Valley." },
-      { property: "og:image", content: "https://urbidata.co/og-image.png" },
-      { name: "twitter:image", content: "https://urbidata.co/og-image.png" },
-      { property: "og:url", content: "https://urbidata.co" },
+      { property: "og:image", content: OG_IMAGE },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
+      { name: "twitter:image", content: OG_IMAGE },
+      { property: "og:url", content: SITE_URL },
+      { property: "og:site_name", content: "Medellín Social" },
+      { property: "og:locale", content: "es_CO" },
+      { property: "og:locale:alternate", content: "en_US" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],

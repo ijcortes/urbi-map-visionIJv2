@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { API_BASE_URL } from '@/config/api'
@@ -9,12 +10,7 @@ import { Wordmark } from "@/components/Wordmark";
 
 export const Route = createFileRoute('/suscribirse')({
   component: SuscribirsePage,
-  head: () => ({
-    meta: [
-      { title: 'Suscribirte gratis · Medellín Social' },
-      { name: 'description', content: 'Únete gratis. Deals exclusivos, eventos locales y las historias de tu barrio.' },
-    ],
-  }),
+  head: () => seo({ title: "Suscríbete · Medellín Social", description: "Recibe el boletín de tu barrio: nuevos inmuebles, eventos y noticias.", path: "/suscribirse" }),
 })
 
 const K = TOKENS;

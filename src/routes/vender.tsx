@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { formatMoney } from "@/lib/format";
 import { useState, useEffect } from "react";
@@ -17,16 +18,7 @@ import { K as TOKENS } from "@/design/tokens";
 
 export const Route = createFileRoute("/vender")({
   component: VenderRoot,
-  head: () => ({
-    meta: [
-      { title: "Vender o Arrendar · Medellín Social" },
-      {
-        name: "description",
-        content:
-          "Publica tu propiedad en Medellín Social. Llega a compradores locales e inversores extranjeros con datos reales del mercado.",
-      },
-    ],
-  }),
+  head: () => seo({ title: "Vende tu inmueble · Medellín Social", description: "Recibe una estimación de precio con datos reales del barrio y conecta con un agente de tu zona.", path: "/vender" }),
 });
 
 function VenderRoot() {

@@ -62,6 +62,70 @@ function originOf(u) {
 const API_ORIGIN =
   originOf(process.env.API_ORIGIN || process.env.VITE_API_URL || '') ||
   'https://medellinsocial-api.up.railway.app';
+// Public canonical origin (sitemap, robots, canonical links). Same value the build
+// gets as VITE_SITE_URL.
+const SITE_URL = (process.env.SITE_URL || process.env.VITE_SITE_URL || 'https://medellinsocial.com').replace(/\/+$/, '');
+
+// Indexable public pages (keep in sync with src/lib/seo.ts SITE_PAGES).
+const SITEMAP_PATHS = [
+  '/', '/map', '/planes', '/agentes', '/comunidad', '/vender', '/publicar', '/simulador',
+  '/calculadora', '/comparador', '/real-estate', '/blog', '/stores', '/suscribirse',
+  '/pasantias', '/afiliado', '/embajador', '/planes/listing-member', '/planes/featured-realtor',
+  '/planes/hot-spot', '/planes/deal',
+];
+const ROBOTS_TXT = [
+  'User-agent: *',
+  'Allow: /',
+  'Disallow: /panel-x9k2',
+  'Disallow: /admin',
+  'Disallow: /perfil',
+  'Disallow: /mis-propiedades',
+  'Disallow: /solicitudes',
+  'Disallow: /realtor/',
+  'Disallow: /onboarding',
+  'Disallow: /reset-password',
+  'Disallow: /verify-email',
+  'Disallow: /login/verificar',
+  `Sitemap: ${SITE_URL}/sitemap.xml`,
+  '',
+].join('\n');
+function sitemapXml() {
+  const urls = SITEMAP_PATHS.map((p) => `  <url><loc>${SITE_URL}${p === '/' ? '/' : p}</loc></url>`).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
+}
+
+// CSP violation reports (report-only policy): logged in one line each, capped so a
+// noisy page or a hostile client cannot flood the logs.
+const CSP_REPORT_MAX_BYTES = 16 * 1024;
+const CSP_REPORTS_PER_MIN = 60;
+let cspWindowStart = 0;
+let cspInWindow = 0;
+async function handleCspReport(req, res) {
+  const now = Date.now();
+  if (now - cspWindowStart > 60_000) { cspWindowStart = now; cspInWindow = 0; }
+  let size = 0;
+  const chunks = [];
+  for await (const c of req) {
+    size += c.length;
+    if (size > CSP_REPORT_MAX_BYTES) break;
+    chunks.push(c);
+  }
+  if (size <= CSP_REPORT_MAX_BYTES && ++cspInWindow <= CSP_REPORTS_PER_MIN) {
+    try {
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      const reports = Array.isArray(body) ? body.map((r) => r.body || r) : [body['csp-report'] || body];
+      for (const r of reports) {
+        const directive = r['violated-directive'] || r.effectiveDirective || r['effective-directive'];
+        const blocked = r['blocked-uri'] || r.blockedURL || r['blocked-url'];
+        const doc = r['document-uri'] || r.documentURL || r['document-url'];
+        console.warn(`[csp] ${directive} blocked=${String(blocked).slice(0, 200)} page=${String(doc).slice(0, 200)}`);
+      }
+    } catch { /* malformed report: ignore */ }
+  }
+  res.statusCode = 204;
+  res.end();
+}
+
 const SENTRY_ORIGIN = 'https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io';
 // Hosts allowed in <iframe> = src/lib/embed.ts EMBED_HOSTS (+ the embed URLs they rewrite to).
 const FRAME_SRC = [
@@ -91,6 +155,7 @@ const CSP_REPORT_ONLY = [
   "frame-ancestors 'self'",
   "object-src 'none'",
   "base-uri 'self'",
+  'report-uri /csp-report',
 ].join('; ');
 
 function baseHeaders(res) {
@@ -210,6 +275,16 @@ createServer(async (req, res) => {
   }
   if (url.pathname === '/version') {
     return sendJson(res, 200, { build: BUILD.build, builtAt: BUILD.builtAt, startedAt: STARTED_AT });
+  }
+  if (url.pathname === '/csp-report' && req.method === 'POST') {
+    return handleCspReport(req, res);
+  }
+  if (url.pathname === '/robots.txt' || url.pathname === '/sitemap.xml') {
+    baseHeaders(res);
+    const robots = url.pathname === '/robots.txt';
+    res.setHeader('Content-Type', robots ? MIME['.txt'] : MIME['.xml']);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    return res.end(robots ? ROBOTS_TXT : sitemapXml());
   }
 
   try {

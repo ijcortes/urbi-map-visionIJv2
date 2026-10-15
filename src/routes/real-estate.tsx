@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute } from '@tanstack/react-router'
 import { formatMoney } from "@/lib/format";
 import { useQuery } from '@tanstack/react-query'
@@ -10,12 +11,7 @@ import { K as TOKENS } from "@/design/tokens";
 
 export const Route = createFileRoute('/real-estate')({
   component: RealEstateRoot,
-  head: () => ({
-    meta: [
-      { title: 'Mercado Inmobiliario · Valle de Aburrá · Medellín Social' },
-      { name: 'description', content: '54,000+ propiedades. Datos reales. Compra, arrienda e invierte en el Valle de Aburrá con los mejores agentes locales.' },
-    ],
-  }),
+  head: () => seo({ title: "Real estate en Medellín · Medellín Social", description: "Inteligencia inmobiliaria para invertir en Medellín y el Valle de Aburrá.", path: "/real-estate" }),
 })
 
 function RealEstateRoot() {

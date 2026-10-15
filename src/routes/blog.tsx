@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute } from '@tanstack/react-router'
 import { numberLocale } from "@/lib/format";
 import { useQuery } from '@tanstack/react-query'
@@ -11,12 +12,7 @@ import { K as TOKENS } from "@/design/tokens";
 
 export const Route = createFileRoute('/blog')({
   component: BlogPage,
-  head: () => ({
-    meta: [
-      { title: 'Blog del Barrio · Medellín Social' },
-      { name: 'description', content: 'Historias, noticias y voces de tu comunidad. Contenido de embajadores y vecinos de Medellín.' },
-    ],
-  }),
+  head: () => seo({ title: "Blog del Barrio · Medellín Social", description: "Historias, noticias y voces de tu comunidad. Contenido de embajadores y vecinos de Medellín.", path: "/blog" }),
 })
 
 const K = TOKENS;

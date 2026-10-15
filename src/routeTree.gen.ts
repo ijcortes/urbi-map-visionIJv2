@@ -9,173 +9,53 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as VerifyEmailRouteImport } from './routes/verify-email'
-import { Route as VenderRouteImport } from './routes/vender'
-import { Route as SuscribirseRouteImport } from './routes/suscribirse'
-import { Route as StoresRouteImport } from './routes/stores'
-import { Route as SolicitudesRouteImport } from './routes/solicitudes'
-import { Route as SimuladorRouteImport } from './routes/simulador'
-import { Route as ResetPasswordRouteImport } from './routes/reset-password'
-import { Route as RegisterRouteImport } from './routes/register'
-import { Route as RealEstateRouteImport } from './routes/real-estate'
-import { Route as PublicarRouteImport } from './routes/publicar'
-import { Route as PlanesRouteImport } from './routes/planes'
-import { Route as PerfilRouteImport } from './routes/perfil'
-import { Route as PasantiasRouteImport } from './routes/pasantias'
-import { Route as OnboardingRouteImport } from './routes/onboarding'
-import { Route as MisPropiedadesRouteImport } from './routes/mis-propiedades'
-import { Route as MapRouteImport } from './routes/map'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
-import { Route as EmbajadorRouteImport } from './routes/embajador'
-import { Route as ConectarAgenteRouteImport } from './routes/conectar-agente'
-import { Route as ComunidadRouteImport } from './routes/comunidad'
-import { Route as ComparadorRouteImport } from './routes/comparador'
-import { Route as CalculadoraRouteImport } from './routes/calculadora'
-import { Route as BlogRouteImport } from './routes/blog'
-import { Route as AgentesRouteImport } from './routes/agentes'
-import { Route as AfiliadoRouteImport } from './routes/afiliado'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as PanelX9k2IndexRouteImport } from './routes/panel-x9k2/index'
-import { Route as SuscripcionExitoRouteImport } from './routes/suscripcion/exito'
-import { Route as SuscripcionCanceladaRouteImport } from './routes/suscripcion/cancelada'
-import { Route as RealtorDashboardRouteImport } from './routes/realtor/dashboard'
-import { Route as RealtorAgencyDashboardRouteImport } from './routes/realtor/agency-dashboard'
-import { Route as RealtorAcceptInviteRouteImport } from './routes/realtor/accept-invite'
-import { Route as PlanesListingMemberRouteImport } from './routes/planes_.listing-member'
-import { Route as PlanesHotSpotRouteImport } from './routes/planes_.hot-spot'
-import { Route as PlanesFeaturedRealtorRouteImport } from './routes/planes_.featured-realtor'
-import { Route as PlanesDealRouteImport } from './routes/planes_.deal'
-import { Route as NegociosUnirseRouteImport } from './routes/negocios/unirse'
-import { Route as LoginVerificarRouteImport } from './routes/login_.verificar'
-import { Route as LocalBusinessBarrio_slugRouteImport } from './routes/local-business/$barrio_slug'
-import { Route as ListingIdRouteImport } from './routes/listing.$id'
-import { Route as EventosBarrio_slugRouteImport } from './routes/eventos/$barrio_slug'
+import { Route as AfiliadoRouteImport } from './routes/afiliado'
+import { Route as AgentesRouteImport } from './routes/agentes'
+import { Route as BlogRouteImport } from './routes/blog'
+import { Route as CalculadoraRouteImport } from './routes/calculadora'
+import { Route as ComparadorRouteImport } from './routes/comparador'
+import { Route as ComunidadRouteImport } from './routes/comunidad'
+import { Route as ConectarAgenteRouteImport } from './routes/conectar-agente'
+import { Route as EmbajadorRouteImport } from './routes/embajador'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as MapRouteImport } from './routes/map'
+import { Route as MisPropiedadesRouteImport } from './routes/mis-propiedades'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as PasantiasRouteImport } from './routes/pasantias'
+import { Route as PerfilRouteImport } from './routes/perfil'
+import { Route as PlanesRouteImport } from './routes/planes'
+import { Route as PublicarRouteImport } from './routes/publicar'
+import { Route as RealEstateRouteImport } from './routes/real-estate'
+import { Route as RegisterRouteImport } from './routes/register'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as SimuladorRouteImport } from './routes/simulador'
+import { Route as SolicitudesRouteImport } from './routes/solicitudes'
+import { Route as StoresRouteImport } from './routes/stores'
+import { Route as SuscribirseRouteImport } from './routes/suscribirse'
+import { Route as VenderRouteImport } from './routes/vender'
+import { Route as VerifyEmailRouteImport } from './routes/verify-email'
 import { Route as AgentesRegistroRouteImport } from './routes/agentes_.registro'
+import { Route as EventosBarrio_slugRouteImport } from './routes/eventos/$barrio_slug'
+import { Route as ListingIdRouteImport } from './routes/listing.$id'
+import { Route as LocalBusinessBarrio_slugRouteImport } from './routes/local-business/$barrio_slug'
+import { Route as LoginVerificarRouteImport } from './routes/login_.verificar'
+import { Route as NegociosUnirseRouteImport } from './routes/negocios/unirse'
+import { Route as PanelX9k2IndexRouteImport } from './routes/panel-x9k2/index'
+import { Route as PlanesDealRouteImport } from './routes/planes_.deal'
+import { Route as PlanesFeaturedRealtorRouteImport } from './routes/planes_.featured-realtor'
+import { Route as PlanesHotSpotRouteImport } from './routes/planes_.hot-spot'
+import { Route as PlanesListingMemberRouteImport } from './routes/planes_.listing-member'
+import { Route as RealtorAcceptInviteRouteImport } from './routes/realtor/accept-invite'
+import { Route as RealtorAgencyDashboardRouteImport } from './routes/realtor/agency-dashboard'
+import { Route as RealtorDashboardRouteImport } from './routes/realtor/dashboard'
+import { Route as SuscripcionCanceladaRouteImport } from './routes/suscripcion/cancelada'
+import { Route as SuscripcionExitoRouteImport } from './routes/suscripcion/exito'
 
-const VerifyEmailRoute = VerifyEmailRouteImport.update({
-  id: '/verify-email',
-  path: '/verify-email',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const VenderRoute = VenderRouteImport.update({
-  id: '/vender',
-  path: '/vender',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SuscribirseRoute = SuscribirseRouteImport.update({
-  id: '/suscribirse',
-  path: '/suscribirse',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const StoresRoute = StoresRouteImport.update({
-  id: '/stores',
-  path: '/stores',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SolicitudesRoute = SolicitudesRouteImport.update({
-  id: '/solicitudes',
-  path: '/solicitudes',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SimuladorRoute = SimuladorRouteImport.update({
-  id: '/simulador',
-  path: '/simulador',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ResetPasswordRoute = ResetPasswordRouteImport.update({
-  id: '/reset-password',
-  path: '/reset-password',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RegisterRoute = RegisterRouteImport.update({
-  id: '/register',
-  path: '/register',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RealEstateRoute = RealEstateRouteImport.update({
-  id: '/real-estate',
-  path: '/real-estate',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PublicarRoute = PublicarRouteImport.update({
-  id: '/publicar',
-  path: '/publicar',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PlanesRoute = PlanesRouteImport.update({
-  id: '/planes',
-  path: '/planes',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PerfilRoute = PerfilRouteImport.update({
-  id: '/perfil',
-  path: '/perfil',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PasantiasRoute = PasantiasRouteImport.update({
-  id: '/pasantias',
-  path: '/pasantias',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OnboardingRoute = OnboardingRouteImport.update({
-  id: '/onboarding',
-  path: '/onboarding',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MisPropiedadesRoute = MisPropiedadesRouteImport.update({
-  id: '/mis-propiedades',
-  path: '/mis-propiedades',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MapRoute = MapRouteImport.update({
-  id: '/map',
-  path: '/map',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
-  id: '/forgot-password',
-  path: '/forgot-password',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const EmbajadorRoute = EmbajadorRouteImport.update({
-  id: '/embajador',
-  path: '/embajador',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ConectarAgenteRoute = ConectarAgenteRouteImport.update({
-  id: '/conectar-agente',
-  path: '/conectar-agente',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ComunidadRoute = ComunidadRouteImport.update({
-  id: '/comunidad',
-  path: '/comunidad',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ComparadorRoute = ComparadorRouteImport.update({
-  id: '/comparador',
-  path: '/comparador',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CalculadoraRoute = CalculadoraRouteImport.update({
-  id: '/calculadora',
-  path: '/calculadora',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const BlogRoute = BlogRouteImport.update({
-  id: '/blog',
-  path: '/blog',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AgentesRoute = AgentesRouteImport.update({
-  id: '/agentes',
-  path: '/agentes',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AfiliadoRoute = AfiliadoRouteImport.update({
@@ -183,69 +63,144 @@ const AfiliadoRoute = AfiliadoRouteImport.update({
   path: '/afiliado',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const AgentesRoute = AgentesRouteImport.update({
+  id: '/agentes',
+  path: '/agentes',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PanelX9k2IndexRoute = PanelX9k2IndexRouteImport.update({
-  id: '/panel-x9k2/',
-  path: '/panel-x9k2/',
+const BlogRoute = BlogRouteImport.update({
+  id: '/blog',
+  path: '/blog',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SuscripcionExitoRoute = SuscripcionExitoRouteImport.update({
-  id: '/suscripcion/exito',
-  path: '/suscripcion/exito',
+const CalculadoraRoute = CalculadoraRouteImport.update({
+  id: '/calculadora',
+  path: '/calculadora',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SuscripcionCanceladaRoute = SuscripcionCanceladaRouteImport.update({
-  id: '/suscripcion/cancelada',
-  path: '/suscripcion/cancelada',
+const ComparadorRoute = ComparadorRouteImport.update({
+  id: '/comparador',
+  path: '/comparador',
   getParentRoute: () => rootRouteImport,
 } as any)
-const RealtorDashboardRoute = RealtorDashboardRouteImport.update({
-  id: '/realtor/dashboard',
-  path: '/realtor/dashboard',
+const ComunidadRoute = ComunidadRouteImport.update({
+  id: '/comunidad',
+  path: '/comunidad',
   getParentRoute: () => rootRouteImport,
 } as any)
-const RealtorAgencyDashboardRoute = RealtorAgencyDashboardRouteImport.update({
-  id: '/realtor/agency-dashboard',
-  path: '/realtor/agency-dashboard',
+const ConectarAgenteRoute = ConectarAgenteRouteImport.update({
+  id: '/conectar-agente',
+  path: '/conectar-agente',
   getParentRoute: () => rootRouteImport,
 } as any)
-const RealtorAcceptInviteRoute = RealtorAcceptInviteRouteImport.update({
-  id: '/realtor/accept-invite',
-  path: '/realtor/accept-invite',
+const EmbajadorRoute = EmbajadorRouteImport.update({
+  id: '/embajador',
+  path: '/embajador',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PlanesListingMemberRoute = PlanesListingMemberRouteImport.update({
-  id: '/planes_/listing-member',
-  path: '/planes/listing-member',
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PlanesHotSpotRoute = PlanesHotSpotRouteImport.update({
-  id: '/planes_/hot-spot',
-  path: '/planes/hot-spot',
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PlanesFeaturedRealtorRoute = PlanesFeaturedRealtorRouteImport.update({
-  id: '/planes_/featured-realtor',
-  path: '/planes/featured-realtor',
+const MapRoute = MapRouteImport.update({
+  id: '/map',
+  path: '/map',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PlanesDealRoute = PlanesDealRouteImport.update({
-  id: '/planes_/deal',
-  path: '/planes/deal',
+const MisPropiedadesRoute = MisPropiedadesRouteImport.update({
+  id: '/mis-propiedades',
+  path: '/mis-propiedades',
   getParentRoute: () => rootRouteImport,
 } as any)
-const NegociosUnirseRoute = NegociosUnirseRouteImport.update({
-  id: '/negocios/unirse',
-  path: '/negocios/unirse',
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LoginVerificarRoute = LoginVerificarRouteImport.update({
-  id: '/login_/verificar',
-  path: '/login/verificar',
+const PasantiasRoute = PasantiasRouteImport.update({
+  id: '/pasantias',
+  path: '/pasantias',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PerfilRoute = PerfilRouteImport.update({
+  id: '/perfil',
+  path: '/perfil',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlanesRoute = PlanesRouteImport.update({
+  id: '/planes',
+  path: '/planes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PublicarRoute = PublicarRouteImport.update({
+  id: '/publicar',
+  path: '/publicar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RealEstateRoute = RealEstateRouteImport.update({
+  id: '/real-estate',
+  path: '/real-estate',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RegisterRoute = RegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SimuladorRoute = SimuladorRouteImport.update({
+  id: '/simulador',
+  path: '/simulador',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SolicitudesRoute = SolicitudesRouteImport.update({
+  id: '/solicitudes',
+  path: '/solicitudes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StoresRoute = StoresRouteImport.update({
+  id: '/stores',
+  path: '/stores',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SuscribirseRoute = SuscribirseRouteImport.update({
+  id: '/suscribirse',
+  path: '/suscribirse',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VenderRoute = VenderRouteImport.update({
+  id: '/vender',
+  path: '/vender',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VerifyEmailRoute = VerifyEmailRouteImport.update({
+  id: '/verify-email',
+  path: '/verify-email',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentesRegistroRoute = AgentesRegistroRouteImport.update({
+  id: '/agentes_/registro',
+  path: '/agentes/registro',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EventosBarrio_slugRoute = EventosBarrio_slugRouteImport.update({
+  id: '/eventos/$barrio_slug',
+  path: '/eventos/$barrio_slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ListingIdRoute = ListingIdRouteImport.update({
+  id: '/listing/$id',
+  path: '/listing/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LocalBusinessBarrio_slugRoute =
@@ -254,19 +209,64 @@ const LocalBusinessBarrio_slugRoute =
     path: '/local-business/$barrio_slug',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ListingIdRoute = ListingIdRouteImport.update({
-  id: '/listing/$id',
-  path: '/listing/$id',
+const LoginVerificarRoute = LoginVerificarRouteImport.update({
+  id: '/login_/verificar',
+  path: '/login/verificar',
   getParentRoute: () => rootRouteImport,
 } as any)
-const EventosBarrio_slugRoute = EventosBarrio_slugRouteImport.update({
-  id: '/eventos/$barrio_slug',
-  path: '/eventos/$barrio_slug',
+const NegociosUnirseRoute = NegociosUnirseRouteImport.update({
+  id: '/negocios/unirse',
+  path: '/negocios/unirse',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AgentesRegistroRoute = AgentesRegistroRouteImport.update({
-  id: '/agentes_/registro',
-  path: '/agentes/registro',
+const PanelX9k2IndexRoute = PanelX9k2IndexRouteImport.update({
+  id: '/panel-x9k2/',
+  path: '/panel-x9k2/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlanesDealRoute = PlanesDealRouteImport.update({
+  id: '/planes_/deal',
+  path: '/planes/deal',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlanesFeaturedRealtorRoute = PlanesFeaturedRealtorRouteImport.update({
+  id: '/planes_/featured-realtor',
+  path: '/planes/featured-realtor',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlanesHotSpotRoute = PlanesHotSpotRouteImport.update({
+  id: '/planes_/hot-spot',
+  path: '/planes/hot-spot',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlanesListingMemberRoute = PlanesListingMemberRouteImport.update({
+  id: '/planes_/listing-member',
+  path: '/planes/listing-member',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RealtorAcceptInviteRoute = RealtorAcceptInviteRouteImport.update({
+  id: '/realtor/accept-invite',
+  path: '/realtor/accept-invite',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RealtorAgencyDashboardRoute = RealtorAgencyDashboardRouteImport.update({
+  id: '/realtor/agency-dashboard',
+  path: '/realtor/agency-dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RealtorDashboardRoute = RealtorDashboardRouteImport.update({
+  id: '/realtor/dashboard',
+  path: '/realtor/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SuscripcionCanceladaRoute = SuscripcionCanceladaRouteImport.update({
+  id: '/suscripcion/cancelada',
+  path: '/suscripcion/cancelada',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SuscripcionExitoRoute = SuscripcionExitoRouteImport.update({
+  id: '/suscripcion/exito',
+  path: '/suscripcion/exito',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -592,179 +592,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/verify-email': {
-      id: '/verify-email'
-      path: '/verify-email'
-      fullPath: '/verify-email'
-      preLoaderRoute: typeof VerifyEmailRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/vender': {
-      id: '/vender'
-      path: '/vender'
-      fullPath: '/vender'
-      preLoaderRoute: typeof VenderRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/suscribirse': {
-      id: '/suscribirse'
-      path: '/suscribirse'
-      fullPath: '/suscribirse'
-      preLoaderRoute: typeof SuscribirseRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/stores': {
-      id: '/stores'
-      path: '/stores'
-      fullPath: '/stores'
-      preLoaderRoute: typeof StoresRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/solicitudes': {
-      id: '/solicitudes'
-      path: '/solicitudes'
-      fullPath: '/solicitudes'
-      preLoaderRoute: typeof SolicitudesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/simulador': {
-      id: '/simulador'
-      path: '/simulador'
-      fullPath: '/simulador'
-      preLoaderRoute: typeof SimuladorRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/reset-password': {
-      id: '/reset-password'
-      path: '/reset-password'
-      fullPath: '/reset-password'
-      preLoaderRoute: typeof ResetPasswordRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/register': {
-      id: '/register'
-      path: '/register'
-      fullPath: '/register'
-      preLoaderRoute: typeof RegisterRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/real-estate': {
-      id: '/real-estate'
-      path: '/real-estate'
-      fullPath: '/real-estate'
-      preLoaderRoute: typeof RealEstateRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/publicar': {
-      id: '/publicar'
-      path: '/publicar'
-      fullPath: '/publicar'
-      preLoaderRoute: typeof PublicarRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/planes': {
-      id: '/planes'
-      path: '/planes'
-      fullPath: '/planes'
-      preLoaderRoute: typeof PlanesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/perfil': {
-      id: '/perfil'
-      path: '/perfil'
-      fullPath: '/perfil'
-      preLoaderRoute: typeof PerfilRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/pasantias': {
-      id: '/pasantias'
-      path: '/pasantias'
-      fullPath: '/pasantias'
-      preLoaderRoute: typeof PasantiasRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/onboarding': {
-      id: '/onboarding'
-      path: '/onboarding'
-      fullPath: '/onboarding'
-      preLoaderRoute: typeof OnboardingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/mis-propiedades': {
-      id: '/mis-propiedades'
-      path: '/mis-propiedades'
-      fullPath: '/mis-propiedades'
-      preLoaderRoute: typeof MisPropiedadesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/map': {
-      id: '/map'
-      path: '/map'
-      fullPath: '/map'
-      preLoaderRoute: typeof MapRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/forgot-password': {
-      id: '/forgot-password'
-      path: '/forgot-password'
-      fullPath: '/forgot-password'
-      preLoaderRoute: typeof ForgotPasswordRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/embajador': {
-      id: '/embajador'
-      path: '/embajador'
-      fullPath: '/embajador'
-      preLoaderRoute: typeof EmbajadorRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/conectar-agente': {
-      id: '/conectar-agente'
-      path: '/conectar-agente'
-      fullPath: '/conectar-agente'
-      preLoaderRoute: typeof ConectarAgenteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/comunidad': {
-      id: '/comunidad'
-      path: '/comunidad'
-      fullPath: '/comunidad'
-      preLoaderRoute: typeof ComunidadRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/comparador': {
-      id: '/comparador'
-      path: '/comparador'
-      fullPath: '/comparador'
-      preLoaderRoute: typeof ComparadorRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/calculadora': {
-      id: '/calculadora'
-      path: '/calculadora'
-      fullPath: '/calculadora'
-      preLoaderRoute: typeof CalculadoraRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/blog': {
-      id: '/blog'
-      path: '/blog'
-      fullPath: '/blog'
-      preLoaderRoute: typeof BlogRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/agentes': {
-      id: '/agentes'
-      path: '/agentes'
-      fullPath: '/agentes'
-      preLoaderRoute: typeof AgentesRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/afiliado': {
@@ -774,109 +606,186 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AfiliadoRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/agentes': {
+      id: '/agentes'
+      path: '/agentes'
+      fullPath: '/agentes'
+      preLoaderRoute: typeof AgentesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/panel-x9k2/': {
-      id: '/panel-x9k2/'
-      path: '/panel-x9k2'
-      fullPath: '/panel-x9k2/'
-      preLoaderRoute: typeof PanelX9k2IndexRouteImport
+    '/blog': {
+      id: '/blog'
+      path: '/blog'
+      fullPath: '/blog'
+      preLoaderRoute: typeof BlogRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/suscripcion/exito': {
-      id: '/suscripcion/exito'
-      path: '/suscripcion/exito'
-      fullPath: '/suscripcion/exito'
-      preLoaderRoute: typeof SuscripcionExitoRouteImport
+    '/calculadora': {
+      id: '/calculadora'
+      path: '/calculadora'
+      fullPath: '/calculadora'
+      preLoaderRoute: typeof CalculadoraRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/suscripcion/cancelada': {
-      id: '/suscripcion/cancelada'
-      path: '/suscripcion/cancelada'
-      fullPath: '/suscripcion/cancelada'
-      preLoaderRoute: typeof SuscripcionCanceladaRouteImport
+    '/comparador': {
+      id: '/comparador'
+      path: '/comparador'
+      fullPath: '/comparador'
+      preLoaderRoute: typeof ComparadorRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/realtor/dashboard': {
-      id: '/realtor/dashboard'
-      path: '/realtor/dashboard'
-      fullPath: '/realtor/dashboard'
-      preLoaderRoute: typeof RealtorDashboardRouteImport
+    '/comunidad': {
+      id: '/comunidad'
+      path: '/comunidad'
+      fullPath: '/comunidad'
+      preLoaderRoute: typeof ComunidadRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/realtor/agency-dashboard': {
-      id: '/realtor/agency-dashboard'
-      path: '/realtor/agency-dashboard'
-      fullPath: '/realtor/agency-dashboard'
-      preLoaderRoute: typeof RealtorAgencyDashboardRouteImport
+    '/conectar-agente': {
+      id: '/conectar-agente'
+      path: '/conectar-agente'
+      fullPath: '/conectar-agente'
+      preLoaderRoute: typeof ConectarAgenteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/realtor/accept-invite': {
-      id: '/realtor/accept-invite'
-      path: '/realtor/accept-invite'
-      fullPath: '/realtor/accept-invite'
-      preLoaderRoute: typeof RealtorAcceptInviteRouteImport
+    '/embajador': {
+      id: '/embajador'
+      path: '/embajador'
+      fullPath: '/embajador'
+      preLoaderRoute: typeof EmbajadorRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/planes_/listing-member': {
-      id: '/planes_/listing-member'
-      path: '/planes/listing-member'
-      fullPath: '/planes/listing-member'
-      preLoaderRoute: typeof PlanesListingMemberRouteImport
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/planes_/hot-spot': {
-      id: '/planes_/hot-spot'
-      path: '/planes/hot-spot'
-      fullPath: '/planes/hot-spot'
-      preLoaderRoute: typeof PlanesHotSpotRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/planes_/featured-realtor': {
-      id: '/planes_/featured-realtor'
-      path: '/planes/featured-realtor'
-      fullPath: '/planes/featured-realtor'
-      preLoaderRoute: typeof PlanesFeaturedRealtorRouteImport
+    '/map': {
+      id: '/map'
+      path: '/map'
+      fullPath: '/map'
+      preLoaderRoute: typeof MapRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/planes_/deal': {
-      id: '/planes_/deal'
-      path: '/planes/deal'
-      fullPath: '/planes/deal'
-      preLoaderRoute: typeof PlanesDealRouteImport
+    '/mis-propiedades': {
+      id: '/mis-propiedades'
+      path: '/mis-propiedades'
+      fullPath: '/mis-propiedades'
+      preLoaderRoute: typeof MisPropiedadesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/negocios/unirse': {
-      id: '/negocios/unirse'
-      path: '/negocios/unirse'
-      fullPath: '/negocios/unirse'
-      preLoaderRoute: typeof NegociosUnirseRouteImport
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/login_/verificar': {
-      id: '/login_/verificar'
-      path: '/login/verificar'
-      fullPath: '/login/verificar'
-      preLoaderRoute: typeof LoginVerificarRouteImport
+    '/pasantias': {
+      id: '/pasantias'
+      path: '/pasantias'
+      fullPath: '/pasantias'
+      preLoaderRoute: typeof PasantiasRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/local-business/$barrio_slug': {
-      id: '/local-business/$barrio_slug'
-      path: '/local-business/$barrio_slug'
-      fullPath: '/local-business/$barrio_slug'
-      preLoaderRoute: typeof LocalBusinessBarrio_slugRouteImport
+    '/perfil': {
+      id: '/perfil'
+      path: '/perfil'
+      fullPath: '/perfil'
+      preLoaderRoute: typeof PerfilRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/listing/$id': {
-      id: '/listing/$id'
-      path: '/listing/$id'
-      fullPath: '/listing/$id'
-      preLoaderRoute: typeof ListingIdRouteImport
+    '/planes': {
+      id: '/planes'
+      path: '/planes'
+      fullPath: '/planes'
+      preLoaderRoute: typeof PlanesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/publicar': {
+      id: '/publicar'
+      path: '/publicar'
+      fullPath: '/publicar'
+      preLoaderRoute: typeof PublicarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/real-estate': {
+      id: '/real-estate'
+      path: '/real-estate'
+      fullPath: '/real-estate'
+      preLoaderRoute: typeof RealEstateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/register': {
+      id: '/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof RegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/simulador': {
+      id: '/simulador'
+      path: '/simulador'
+      fullPath: '/simulador'
+      preLoaderRoute: typeof SimuladorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/solicitudes': {
+      id: '/solicitudes'
+      path: '/solicitudes'
+      fullPath: '/solicitudes'
+      preLoaderRoute: typeof SolicitudesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/stores': {
+      id: '/stores'
+      path: '/stores'
+      fullPath: '/stores'
+      preLoaderRoute: typeof StoresRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/suscribirse': {
+      id: '/suscribirse'
+      path: '/suscribirse'
+      fullPath: '/suscribirse'
+      preLoaderRoute: typeof SuscribirseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/vender': {
+      id: '/vender'
+      path: '/vender'
+      fullPath: '/vender'
+      preLoaderRoute: typeof VenderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/verify-email': {
+      id: '/verify-email'
+      path: '/verify-email'
+      fullPath: '/verify-email'
+      preLoaderRoute: typeof VerifyEmailRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agentes_/registro': {
+      id: '/agentes_/registro'
+      path: '/agentes/registro'
+      fullPath: '/agentes/registro'
+      preLoaderRoute: typeof AgentesRegistroRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/eventos/$barrio_slug': {
@@ -886,11 +795,102 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EventosBarrio_slugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/agentes_/registro': {
-      id: '/agentes_/registro'
-      path: '/agentes/registro'
-      fullPath: '/agentes/registro'
-      preLoaderRoute: typeof AgentesRegistroRouteImport
+    '/listing/$id': {
+      id: '/listing/$id'
+      path: '/listing/$id'
+      fullPath: '/listing/$id'
+      preLoaderRoute: typeof ListingIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/local-business/$barrio_slug': {
+      id: '/local-business/$barrio_slug'
+      path: '/local-business/$barrio_slug'
+      fullPath: '/local-business/$barrio_slug'
+      preLoaderRoute: typeof LocalBusinessBarrio_slugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login_/verificar': {
+      id: '/login_/verificar'
+      path: '/login/verificar'
+      fullPath: '/login/verificar'
+      preLoaderRoute: typeof LoginVerificarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/negocios/unirse': {
+      id: '/negocios/unirse'
+      path: '/negocios/unirse'
+      fullPath: '/negocios/unirse'
+      preLoaderRoute: typeof NegociosUnirseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/panel-x9k2/': {
+      id: '/panel-x9k2/'
+      path: '/panel-x9k2'
+      fullPath: '/panel-x9k2/'
+      preLoaderRoute: typeof PanelX9k2IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/planes_/deal': {
+      id: '/planes_/deal'
+      path: '/planes/deal'
+      fullPath: '/planes/deal'
+      preLoaderRoute: typeof PlanesDealRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/planes_/featured-realtor': {
+      id: '/planes_/featured-realtor'
+      path: '/planes/featured-realtor'
+      fullPath: '/planes/featured-realtor'
+      preLoaderRoute: typeof PlanesFeaturedRealtorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/planes_/hot-spot': {
+      id: '/planes_/hot-spot'
+      path: '/planes/hot-spot'
+      fullPath: '/planes/hot-spot'
+      preLoaderRoute: typeof PlanesHotSpotRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/planes_/listing-member': {
+      id: '/planes_/listing-member'
+      path: '/planes/listing-member'
+      fullPath: '/planes/listing-member'
+      preLoaderRoute: typeof PlanesListingMemberRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/realtor/accept-invite': {
+      id: '/realtor/accept-invite'
+      path: '/realtor/accept-invite'
+      fullPath: '/realtor/accept-invite'
+      preLoaderRoute: typeof RealtorAcceptInviteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/realtor/agency-dashboard': {
+      id: '/realtor/agency-dashboard'
+      path: '/realtor/agency-dashboard'
+      fullPath: '/realtor/agency-dashboard'
+      preLoaderRoute: typeof RealtorAgencyDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/realtor/dashboard': {
+      id: '/realtor/dashboard'
+      path: '/realtor/dashboard'
+      fullPath: '/realtor/dashboard'
+      preLoaderRoute: typeof RealtorDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/suscripcion/cancelada': {
+      id: '/suscripcion/cancelada'
+      path: '/suscripcion/cancelada'
+      fullPath: '/suscripcion/cancelada'
+      preLoaderRoute: typeof SuscripcionCanceladaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/suscripcion/exito': {
+      id: '/suscripcion/exito'
+      path: '/suscripcion/exito'
+      fullPath: '/suscripcion/exito'
+      preLoaderRoute: typeof SuscripcionExitoRouteImport
       parentRoute: typeof rootRouteImport
     }
   }

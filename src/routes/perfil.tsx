@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
@@ -32,6 +33,7 @@ import { useFavoritos, useToggleFavorito, useHistorial } from "@/hooks/useUser";
 import { formatCOP } from "@/lib/format";
 
 export const Route = createFileRoute("/perfil")({
+  head: () => seo({ title: "Mi perfil · Medellín Social", description: "Tu cuenta en Medellín Social.", noindex: true }),
   beforeLoad: () => {
     if (typeof window === "undefined") return;
     const raw = localStorage.getItem("medellin-social.user");

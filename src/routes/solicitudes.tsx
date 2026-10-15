@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { formatCOP, formatDate } from "@/lib/format";
 import { useState, useEffect } from "react";
@@ -29,6 +30,7 @@ interface Solicitud {
 }
 
 export const Route = createFileRoute("/solicitudes")({
+  head: () => seo({ title: "Solicitudes · Medellín Social", description: "Solicitudes de tus inmuebles.", noindex: true }),
   component: SolicitudesPage,
 });
 

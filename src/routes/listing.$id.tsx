@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, redirect, Link } from "@tanstack/react-router";
 import { RouteError, RoutePending } from "@/components/RouteStates";
 import { useQuery } from "@tanstack/react-query";
@@ -18,6 +19,7 @@ import { copyText } from "@/lib/clipboard";
 import { OriginalListingLink } from "@/components/OriginalListingLink";
 
 export const Route = createFileRoute("/listing/$id")({
+  head: () => seo({ title: "Inmueble · Medellín Social", description: "Detalle del inmueble: precio, área, barrio, fotos y comparación con el mercado de la zona." }),
   beforeLoad: ({ params }) => {
     throw redirect({ to: "/map", search: { listing: Number(params.id) } });
   },

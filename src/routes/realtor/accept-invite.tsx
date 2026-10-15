@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
@@ -7,9 +8,7 @@ import { Building2, CheckCircle, XCircle } from "@/lib/icons";
 
 export const Route = createFileRoute("/realtor/accept-invite")({
   component: AcceptInvitePage,
-  head: () => ({
-    meta: [{ title: "Invitación de agencia · Medellín Social" }],
-  }),
+  head: () => seo({ title: "Invitación de agencia · Medellín Social", description: "Acepta la invitación de tu agencia.", noindex: true }),
 });
 
 type InviteInfo = { agency_nombre: string; email: string; estado: string };

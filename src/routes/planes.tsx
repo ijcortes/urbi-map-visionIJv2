@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { useState } from "react";
 import { RouteError, RoutePending } from "@/components/RouteStates";
 import { createFileRoute } from "@tanstack/react-router";
@@ -32,6 +33,7 @@ const FAQ = [
 ];
 
 export const Route = createFileRoute("/planes")({
+  head: () => seo({ title: "Planes · Medellín Social", description: "Planes para agentes, negocios y propietarios: publica, destaca tus inmuebles y llega a compradores e inversionistas en Medellín.", path: "/planes" }),
   validateSearch: () => ({}),
   component: PlanesPage,
   errorComponent: RouteError,

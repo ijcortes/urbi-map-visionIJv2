@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { API_BASE_URL } from '@/config/api'
@@ -8,12 +9,7 @@ import { K as TOKENS } from "@/design/tokens";
 
 export const Route = createFileRoute('/embajador')({
   component: EmbajadorPage,
-  head: () => ({
-    meta: [
-      { title: 'Sé Embajador de Barrio · Medellín Social' },
-      { name: 'description', content: 'Sé la voz de tu barrio en Medellín. Conecta negocios y gana comisión recurrente hasta 24 meses.' },
-    ],
-  }),
+  head: () => seo({ title: "Sé Embajador de Barrio · Medellín Social", description: "Sé la voz de tu barrio en Medellín. Conecta negocios y gana comisión recurrente hasta 24 meses.", path: "/embajador" }),
 })
 
 const K = TOKENS;

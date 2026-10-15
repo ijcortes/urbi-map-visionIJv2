@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { useState } from "react";
 import { motion } from "framer-motion";
@@ -6,6 +7,7 @@ import { API_ENDPOINTS } from "@/config/api";
 import { AuthShell } from "./login";
 
 export const Route = createFileRoute("/agentes_/registro")({
+  head: () => seo({ title: "Registro de agentes · Medellín Social", description: "Regístrate como agente inmobiliario en Medellín Social.", path: "/agentes/registro" }),
   beforeLoad: () => {
     if (typeof window === "undefined") return;
     if (!localStorage.getItem("medellin-social.user")) {

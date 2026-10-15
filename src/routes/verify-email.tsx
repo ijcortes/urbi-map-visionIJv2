@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { API_BASE_URL } from "@/config/api";
@@ -5,9 +6,7 @@ import { CheckCircle, XCircle, Loader2, Mail } from "@/lib/icons";
 
 export const Route = createFileRoute("/verify-email")({
   component: VerifyEmailPage,
-  head: () => ({
-    meta: [{ title: "Verificar correo · Medellín Social" }],
-  }),
+  head: () => seo({ title: "Confirma tu correo · Medellín Social", description: "Confirma tu correo para activar tu cuenta.", noindex: true }),
 });
 
 type Step = "loading" | "done" | "error";

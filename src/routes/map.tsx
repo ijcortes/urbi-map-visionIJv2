@@ -1,6 +1,7 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute } from "@tanstack/react-router";
 import { RouteError, RoutePending } from "@/components/RouteStates";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { API_ENDPOINTS } from "@/config/api";
 import { useTarget, type Target } from "@/contexts/TargetContext";
 import { ProfileChipMobile } from "@/components/Navbar";
@@ -11,9 +12,7 @@ import { SegmentGate } from "@/components/SegmentGate";
 import { getStoredSegmento, setStoredSegmento, pruneTiposForSegmento, mapTourReady, type Segmento } from "@/lib/segmento";
 import { MapFilterBar, EMPTY_SHARED_FILTERS, TAB_TIPO_OP, type SharedFilters } from "@/components/MapFilterBar";
 import { MapView } from "@/components/MapView";
-import { FloatingPanel } from "@/components/FloatingPanel";
 import { OpportunitiesPanel } from "@/components/OpportunitiesPanel";
-import { MLSPanel } from "@/components/MLSPanel";
 import type { Neighborhood } from "@/lib/adapters";
 import type { ApiListing } from "@/lib/adapters";
 import { auth } from "@/lib/auth";
@@ -22,7 +21,6 @@ import { useListings, useBarriosRaw, type ListingsApiFilters } from "@/hooks/use
 import { geoSelectionForBarrio } from "@/lib/listingParams";
 import { barrioToNeighborhood, barrioToOption, type BarrioOption } from "@/lib/adapters";
 import { useMemo } from "react";
-import { ListingDrawer } from "@/components/ListingDrawer";
 import { ListingMiniPopup } from "@/components/ListingMiniPopup";
 import { ListingPopup } from "@/components/listing-popup/ListingPopup";
 import { ComparadorBadge } from "@/components/ComparadorBadge";
@@ -31,7 +29,13 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { List, Map as MapIcon } from "@/lib/icons";
 import { AnimatePresence } from "framer-motion";
 
+// Heavy panels load on demand (own chunks) instead of inside the map route chunk.
+const FloatingPanel = lazy(() => import("@/components/FloatingPanel").then((m) => ({ default: m.FloatingPanel })));
+const MLSPanel = lazy(() => import("@/components/MLSPanel").then((m) => ({ default: m.MLSPanel })));
+const ListingDrawer = lazy(() => import("@/components/ListingDrawer").then((m) => ({ default: m.ListingDrawer })));
+
 export const Route = createFileRoute("/map")({
+  head: () => seo({ title: "Mapa de inmuebles y barrios · Medellín Social", description: "Explora apartamentos, casas y locales en venta y arriendo en Medellín y el Valle de Aburrá, con precios por barrio, seguridad y rentabilidad.", path: "/map" }),
   component: MapPage,
   errorComponent: RouteError,
   pendingComponent: RoutePending,
@@ -146,6 +150,10 @@ function MapPageInner() {
 
   // Listing detail modal
   const [listingDetailId, setListingDetailId] = useState<number | null>(null);
+  const [drawerMounted, setDrawerMounted] = useState(false);
+  useEffect(() => {
+    if (listingDetailId != null) setDrawerMounted(true);
+  }, [listingDetailId]);
 
   // Mini popup (single-click on card or map point)
   const [miniPopupData, setMiniPopupData] = useState<{ listing: ApiListing; x: number; y: number } | null>(null);
@@ -731,7 +739,9 @@ function MapPageInner() {
       {/* Vista 1: paneles normales */}
       {mapView === "zonas" && (
         <>
-          <FloatingPanel selected={selected} onClear={() => setSelected(null)} onSelect={setSelected} onGoToMLS={handleGoToMLS} />
+          <Suspense fallback={null}>
+            <FloatingPanel selected={selected} onClear={() => setSelected(null)} onSelect={setSelected} onGoToMLS={handleGoToMLS} />
+          </Suspense>
           <OpportunitiesPanel onSelect={setSelected} perfil={perfil} mostrarOportunidades={mostrarOportunidades} />
         </>
       )}
@@ -742,8 +752,8 @@ function MapPageInner() {
           desmonta el panel entero antes de que su animación interna corra. */}
       <AnimatePresence>
         {mapView === "listings" && panelBarrio && (!isMobile || mobileView === "list") && (
+        <Suspense key="mls-panel" fallback={null}>
         <MLSPanel
-          key="mls-panel"
           barrio={panelBarrio}
           listings={mergedListings}
           total={realTotal}
@@ -770,6 +780,7 @@ function MapPageInner() {
           onBackToComuna={handleBackToCommune}
           onSelectBarrioInComune={handleSelectBarrioInComune}
         />
+        </Suspense>
         )}
       </AnimatePresence>
 
@@ -811,7 +822,12 @@ function MapPageInner() {
       ))}
 
       {/* Listing detail drawer — slide-in (desktop) / bottom sheet (mobile) */}
-      <ListingDrawer listingId={listingDetailId} onClose={closeListingDetail} />
+      {/* Mounted from the first open on (keeps its close animation afterwards). */}
+      {(listingDetailId != null || drawerMounted) && (
+        <Suspense fallback={null}>
+          <ListingDrawer listingId={listingDetailId} onClose={closeListingDetail} />
+        </Suspense>
+      )}
 
       {/* Comparador floating badge */}
       <ComparadorBadge />

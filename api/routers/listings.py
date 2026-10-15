@@ -1447,7 +1447,9 @@ async def get_listings_viewport(
     # Public HTTP caching: ETag over the body + 5-min TTL (cache.py rebuilds hourly).
     body = result.model_dump_json()
     etag = 'W/"' + hashlib.md5(body.encode()).hexdigest() + '"'
-    headers = {"Cache-Control": "private, no-store" if _inc else "public, max-age=300", "ETag": etag}
+    # 60 s fresh + SWR: map data refreshes hourly server-side; 5 min max-age on top of
+    # the client cache made new/removed listings look 5-10 min late.
+    headers = {"Cache-Control": "private, no-store" if _inc else "public, max-age=60, stale-while-revalidate=240", "ETag": etag}
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
     # Send the already-serialized body directly — no json.loads + JSONResponse

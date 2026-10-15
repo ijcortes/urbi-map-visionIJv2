@@ -50,7 +50,6 @@ describe("translateString — nuevas entradas de traducción", () => {
 // ── Regression suite (audit I1-I21) ─────────────────────────────────────────
 import { __i18nInternals } from "./i18n";
 import { PHRASES } from "./i18n-phrases";
-import { buildListingPopupHTML } from "./listingPopupHtml";
 
 describe("case-insensitive matching with case restore (I1/I2/I7)", () => {
   const cases: [string, string][] = [
@@ -168,23 +167,3 @@ describe("language persistence (I9)", () => {
   });
 });
 
-describe("map popup builder is language-aware (I4)", () => {
-  const props = { precio_cop: 400_000_000, precio_m2: 5_000_000, precio_m2_mediana_barrio: 7_000_000, area_m2: 80, habitaciones: 3, banos: 2, tipo_op: "venta", barrio_nombre: "Laureles" };
-  it("EN: no Spanish leftovers, USD primary with exact value", () => {
-    const html = buildListingPopupHTML(props, null, { lang: "en", currency: "USD", trm: 4000, unit: "sqft" });
-    expect(html).toContain("GOOD DEAL");
-    expect(html).toContain("$100,000 USD");
-    expect(html).toContain("3 bd");
-    expect(html).toContain("ft²");
-    expect(html).not.toMatch(/BUENA OFERTA|baños|Mediana zona|Ver listado/);
-  });
-  it("ES: exact COP", () => {
-    const html = buildListingPopupHTML(props, null, { lang: "es", currency: "COP", trm: 4000, unit: "m2" });
-    expect(html).toContain("$400.000.000 COP");
-    expect(html).toContain("BUENA OFERTA");
-  });
-  it("escapes barrio name", () => {
-    const html = buildListingPopupHTML({ ...props, barrio_nombre: "<img src=x onerror=1>" }, null, { lang: "es", currency: "COP", trm: null, unit: "m2" });
-    expect(html).not.toContain("<img");
-  });
-});

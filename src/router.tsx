@@ -1,13 +1,14 @@
 import { useEffect } from "react";
-import { createRouter, useRouter } from "@tanstack/react-router";
+import { createRouter, useRouter, type ErrorComponentProps } from "@tanstack/react-router";
 import { AlertTriangle } from "@/lib/icons";
 import { routeTree } from "./routeTree.gen";
 import { captureError } from "@/lib/sentry";
 
 const STALE_CHUNK_RE = /dynamically imported module|Importing a module script failed|error loading dynamically imported module/i;
 
-function DefaultErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+function DefaultErrorComponent({ error: raw, reset }: ErrorComponentProps) {
   const router = useRouter();
+  const error = raw instanceof Error ? raw : new Error(String(raw));
 
   useEffect(() => {
     // A lazy chunk that 404s after a deploy: reload once to get the new build instead of a dead end.
@@ -22,7 +23,8 @@ function DefaultErrorComponent({ error, reset }: { error: Error; reset: () => vo
       } catch { /* storage blocked */ }
     }
     captureError(error);
-  }, [error]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `error` is derived from `raw`
+  }, [raw]);
 
   return (
     <div className="paper-theme grid min-h-screen place-items-center bg-background px-4">

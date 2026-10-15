@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { auth } from "@/lib/auth";
@@ -34,6 +35,7 @@ const FAQ = [
 ];
 
 export const Route = createFileRoute("/planes_/listing-member")({
+  head: () => seo({ title: "Listing Member · Medellín Social", description: "Publica tus inmuebles con visibilidad prioritaria en el mapa de Medellín Social.", path: "/planes/listing-member" }),
   component: ListingMemberPage,
 });
 

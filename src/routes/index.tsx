@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute } from '@tanstack/react-router'
 import { numberLocale } from "@/lib/format";
 import { useState, useCallback, useRef } from 'react'
@@ -18,12 +19,7 @@ import { K as TOKENS } from "@/design/tokens";
 
 export const Route = createFileRoute('/')({
   component: HomePage,
-  head: () => ({
-    meta: [
-      { title: 'Medellín Social · Tu Ciudad. Tu Barrio. Tu Historia.' },
-      { name: 'description', content: 'Eventos, negocios y cultura local en Medellín y el Valle de Aburrá.' },
-    ],
-  }),
+  head: () => seo({ title: "Medellín Social · Tu Ciudad. Tu Barrio. Tu Historia.", description: "Eventos, negocios y cultura local en Medellín y el Valle de Aburrá.", path: "/" }),
 })
 
 const K = TOKENS;

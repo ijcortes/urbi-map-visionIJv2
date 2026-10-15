@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { RouteError, RoutePending } from "@/components/RouteStates";
 import { useState } from "react";
@@ -18,9 +19,7 @@ export const Route = createFileRoute("/realtor/agency-dashboard")({
     if (!raw) throw redirect({ to: "/login" });
   },
   component: AgencyDashboardPage,
-  head: () => ({
-    meta: [{ title: "Dashboard Agencia · Medellín Social" }],
-  }),
+  head: () => seo({ title: "Panel de agencia · Medellín Social", description: "Gestiona los agentes de tu agencia.", noindex: true }),
 });
 
 // ── Types ──────────────────────────────────────────────────────────────────────

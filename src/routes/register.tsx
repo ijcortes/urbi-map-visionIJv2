@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useRegister, useResendVerification } from "@/hooks/useAuth";
@@ -5,6 +6,7 @@ import { AuthShell, Field, ErrorBanner, AuthButton, inputStyle } from "./login";
 import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 
 export const Route = createFileRoute("/register")({
+  head: () => seo({ title: "Crear cuenta · Medellín Social", description: "Crea tu cuenta gratis en Medellín Social.", path: "/register" }),
   component: RegisterPage,
 });
 

@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { API_BASE_URL } from '@/config/api'
@@ -7,12 +8,7 @@ import { K as TOKENS } from "@/design/tokens";
 
 export const Route = createFileRoute('/afiliado')({
   component: AfiliadoPage,
-  head: () => ({
-    meta: [
-      { title: 'Programa de Afiliados · Medellín Social' },
-      { name: 'description', content: 'Vende un producto que los negocios de Medellín realmente quieren. Comisión recurrente hasta 24 meses.' },
-    ],
-  }),
+  head: () => seo({ title: "Programa de Afiliados · Medellín Social", description: "Vende un producto que los negocios de Medellín realmente quieren. Comisión recurrente hasta 24 meses.", path: "/afiliado" }),
 })
 
 const K = TOKENS;

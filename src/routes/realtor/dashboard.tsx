@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { RouteError, RoutePending } from "@/components/RouteStates";
 import { useEffect, useMemo, useState } from "react";
@@ -49,9 +50,7 @@ export const Route = createFileRoute("/realtor/dashboard")({
     if (!raw) throw redirect({ to: "/login" });
   },
   component: RealtorDashboardPage,
-  head: () => ({
-    meta: [{ title: "Dashboard · Realtor · Medellín Social" }],
-  }),
+  head: () => seo({ title: "Panel del agente · Medellín Social", description: "Tus leads, zonas y propiedades.", noindex: true }),
 });
 
 // ── Tabs ───────────────────────────────────────────────────────────────────────

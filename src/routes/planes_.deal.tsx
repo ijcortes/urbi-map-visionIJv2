@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { auth } from "@/lib/auth";
@@ -37,6 +38,7 @@ const FAQ = [
 ];
 
 export const Route = createFileRoute("/planes_/deal")({
+  head: () => seo({ title: "Deal · Medellín Social", description: "Promociona una oferta de tu negocio a vecinos y visitantes de tu barrio en Medellín.", path: "/planes/deal" }),
   component: DealPage,
 });
 

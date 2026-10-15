@@ -2,11 +2,13 @@
 //   - `npm run dev`   → import.meta.env.DEV → local API
 //   - `npm run build` → prod bundle         → Railway API
 //   - VITE_API_URL (en .env.local o build ARG de Railway) overridea ambos.
+// Prod has no baked-in host: a build without VITE_API_URL (the Docker build already
+// refuses that) must not silently point some other environment at production.
 const API_BASE_URL =
-  (import.meta.env.VITE_API_URL as string | undefined) ??
+  (import.meta.env.VITE_API_URL as string | undefined) ||
   (import.meta.env.DEV
     ? "http://localhost:8011/api/v1"   // API local corre en 8011 (8001 lo secuestra Cursor)
-    : "https://medellinsocial-api.up.railway.app/api/v1");
+    : (console.error("VITE_API_URL no definido en el build — usando /api/v1 del mismo origen"), "/api/v1"));
 
 export const API_ENDPOINTS = {
   // Auth

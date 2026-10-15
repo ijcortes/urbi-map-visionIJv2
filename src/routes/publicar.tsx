@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useTrm } from "@/hooks/useTrm";
 import { formatMoney } from "@/lib/format";
@@ -14,15 +15,7 @@ import { K as TOKENS } from "@/design/tokens";
 
 export const Route = createFileRoute("/publicar")({
   component: PublicarRoot,
-  head: () => ({
-    meta: [
-      { title: "Publicar propiedad · Medellín Social" },
-      {
-        name: "description",
-        content: "Publica tu propiedad en el MLS de Medellín Social en 5 pasos.",
-      },
-    ],
-  }),
+  head: () => seo({ title: "Publica tu inmueble · Medellín Social", description: "Publica tu apartamento, casa o local gratis y llega a compradores e inversionistas en Medellín.", path: "/publicar" }),
 });
 
 function PublicarRoot() {

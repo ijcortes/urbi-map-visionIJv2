@@ -352,7 +352,9 @@ export function useBarriosRaw(perfil?: string) {
       const patched = apiData.map((b) => {
         const key = geoKey(b.nombre ?? "", b.municipio ?? "");
         apiKeys.add(key);
-        const cd_comuna = _comunaMap.get(key) ?? null;
+        // GeoJSON wins when it knows the barrio; otherwise keep the API value (was
+        // overwritten with null, dropping the comuna of every barrio missing there).
+        const cd_comuna = _comunaMap.get(key) ?? b.cd_comuna ?? null;
         const comuna = _nombreComunaMap.get(key) ?? b.comuna;
         if (b.geometry) return { ...b, cd_comuna, comuna };
         return { ...b, geometry: geoLookup.get(key) ?? null, cd_comuna, comuna };

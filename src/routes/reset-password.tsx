@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { motion } from "framer-motion";
@@ -11,6 +12,7 @@ const searchSchema = z.object({
 });
 
 export const Route = createFileRoute("/reset-password")({
+  head: () => seo({ title: "Nueva contraseña · Medellín Social", description: "Elige una nueva contraseña.", noindex: true }),
   validateSearch: searchSchema,
   component: ResetPasswordPage,
 });

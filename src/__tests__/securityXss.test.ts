@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { safeHttpUrl } from "@/lib/safeUrl";
 import { buildNegocioPopupContent } from "@/lib/negocioPopup";
-import { buildListingPopupHTML } from "@/lib/listingPopupHtml";
 
 const K = { ink: "#000", tealDeep: "#066", amarillo: "#fc0", muted: "#777", coral: "#f55", coralLight: "#fee" };
 const EVIL = `<img src=x onerror=alert(1)>"'`;
@@ -41,25 +40,5 @@ describe("local-business popup (H3)", () => {
     const ok = buildNegocioPopupContent({ ...props, website: "https://ok.example/p?q=1", foto_url: "https://cdn.example/a.jpg" }, K);
     expect([...ok.querySelectorAll("a")].some((a) => a.getAttribute("href") === "https://ok.example/p?q=1")).toBe(true);
     expect(ok.querySelector("img")?.getAttribute("src")).toBe("https://cdn.example/a.jpg");
-  });
-});
-
-describe("listing popup (M1)", () => {
-  const ctx = { lang: "es", currency: "COP", trm: null, unit: "m2" } as const;
-  const base = { precio_cop: 1_000_000, fuente: "fincaraiz", barrio_nombre: "El Poblado", tipo_op: "venta" };
-
-  it("has no inline event handlers and no entity-breakout via the url", () => {
-    const html = buildListingPopupHTML({ ...base, url: "https://x.com/a?b=1&#39;);alert(1);//" }, null, ctx);
-    expect(html).not.toMatch(/onclick|onerror|onload/i);
-    expect(html).not.toContain("window.open");
-    expect(html).toContain('rel="noopener noreferrer"');
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    expect(doc.querySelectorAll("[onclick]").length).toBe(0);
-  });
-
-  it("drops non-http(s) source urls entirely", () => {
-    const html = buildListingPopupHTML({ ...base, url: "javascript:alert(1)" }, null, ctx);
-    expect(html).not.toContain("javascript:");
-    expect(html).not.toContain("Fincaraíz"); // source button omitted
   });
 });

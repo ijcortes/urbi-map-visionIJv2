@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -31,6 +32,7 @@ const BUDGET_USD: Record<Budget, string> = {
 const INVESTOR_STEPS = 6;
 
 export const Route = createFileRoute("/onboarding")({
+  head: () => seo({ title: "Bienvenido · Medellín Social", description: "Configura tu perfil de inversión.", noindex: true }),
   component: OnboardingPage,
 });
 

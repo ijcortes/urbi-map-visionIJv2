@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { auth } from "@/lib/auth";
@@ -68,6 +69,7 @@ const FAQ = [
 ];
 
 export const Route = createFileRoute("/planes_/hot-spot")({
+  head: () => seo({ title: "Hot Spot · Medellín Social", description: "Destaca tu negocio en el mapa y en la comunidad de tu barrio.", path: "/planes/hot-spot" }),
   component: HotSpotPage,
 });
 

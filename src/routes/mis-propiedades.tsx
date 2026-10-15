@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -10,6 +11,7 @@ import { SiteNavbar } from "@/components/SiteNavbar";
 import { K as TOKENS } from "@/design/tokens";
 
 export const Route = createFileRoute("/mis-propiedades")({
+  head: () => seo({ title: "Mis propiedades · Medellín Social", description: "Gestiona tus inmuebles publicados.", noindex: true }),
   component: MisPropiedades,
 });
 

@@ -6,6 +6,7 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import { MAPBOX_TOKEN } from "@/lib/mapboxToken";
 import { isMobileWidth, isTabletWidth, MOBILE_QUERY } from "@/lib/breakpoints";
 import { buildViewportParams, viewportCacheKey, type ListingQueryFilters } from "@/lib/listingParams";
+
 import { usePriceFormat } from "@/hooks/usePriceFormat";
 import type { Segmento } from "@/lib/segmento";
 import { toast } from "sonner";
@@ -32,6 +33,9 @@ import {
   setScoreThresholds,
   type ScorePaletteId,
 } from "@/config/mapColors";
+
+const VIEWPORT_REFRESH_MS = 2 * 60 * 1000;
+
 type Props = {
   onSelect: (n: Neighborhood) => void;
   selectedId: number | null;
@@ -176,7 +180,7 @@ function featureCentroid(feat: mapboxgl.MapboxGeoJSONFeature): [number, number] 
   return [c.lat, c.lng];
 }
 
-// Popup HTML builder lives in @/lib/listingPopupHtml (pure, lang/currency-aware).
+// Listing popups are the React <ListingPopup> (no HTML-string builder).
 
 export function MapView({
   onSelect,
@@ -236,6 +240,7 @@ export function MapView({
   const flattenSkipRef = useRef(false);  // skip listings-toggle pitch easeTo when a zone fit drives it
   const pendingFlyRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);  // deep-link flyTo que llegó antes del "load" del mapa
   const lastViewportQueryRef = useRef("");  // dedup identical viewport fetches
+  const lastViewportAtRef = useRef(0);
   const { currency: priceCurrency, trm: priceTrm } = usePriceFormat();
   const priceCurrencyRef = useRef(priceCurrency);
   const priceTrmRef = useRef(priceTrm);
@@ -1128,8 +1133,12 @@ export function MapView({
         price: { currency: priceCurrencyRef.current, trm: priceTrmRef.current },
       });
       const key = viewportCacheKey(params, zone);
-      if (key === lastViewportQueryRef.current) return;
+      // Same query within 2 min = skip; older = refetch (the dedupe used to pin a
+      // view's data until a filter/pan changed, however long the tab stayed open).
+      const now = Date.now();
+      if (key === lastViewportQueryRef.current && now - lastViewportAtRef.current < VIEWPORT_REFRESH_MS) return;
       lastViewportQueryRef.current = key;
+      lastViewportAtRef.current = now;
 
       ctrl?.abort();
       ctrl = new AbortController();

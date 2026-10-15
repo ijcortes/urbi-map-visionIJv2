@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { motion } from "framer-motion";
@@ -6,6 +7,7 @@ import { API_ENDPOINTS } from "@/config/api";
 import { AuthShell } from "./login";
 
 export const Route = createFileRoute("/forgot-password")({
+  head: () => seo({ title: "Recuperar contraseña · Medellín Social", description: "Recupera el acceso a tu cuenta.", noindex: true }),
   component: ForgotPasswordPage,
 });
 

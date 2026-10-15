@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { auth } from "@/lib/auth";
@@ -8,6 +9,7 @@ import { K as TOKENS } from "@/design/tokens";
 const K = TOKENS;
 
 export const Route = createFileRoute("/suscripcion/exito")({
+  head: () => seo({ title: "Suscripción activa · Medellín Social", description: "Tu suscripción quedó activa.", noindex: true }),
   validateSearch: (s: Record<string, unknown>) => ({
     plan: (s.plan as string) ?? "",
   }),

@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useLogin, useMagicLinkRequest } from "@/hooks/useAuth";
@@ -7,6 +8,7 @@ import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 import { K as TOKENS } from "@/design/tokens";
 
 export const Route = createFileRoute("/login")({
+  head: () => seo({ title: "Ingresar · Medellín Social", description: "Ingresa a tu cuenta de Medellín Social.", path: "/login" }),
   component: LoginPage,
 });
 

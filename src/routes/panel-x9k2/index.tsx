@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { formatMoney } from "@/lib/format";
 import { useEffect, useState } from "react";
@@ -24,12 +25,12 @@ import { K as TOKENS } from "@/design/tokens";
 // 1) require_admin (email allowlist + JWT) 2) audit log inmutable 3) re-auth por
 // password en mutaciones críticas. El redirect de AdminPanel es UX, no seguridad.
 export const Route = createFileRoute("/panel-x9k2/")({
+  head: () => seo({ title: "Admin · Medellín Social", description: "Panel de administración.", noindex: true }),
   beforeLoad: () => {
     if (typeof window === "undefined") return;
     if (!localStorage.getItem("medellin-social.user") || !getToken()) throw redirect({ to: "/login" });
   },
   component: AdminPanel,
-  head: () => ({ meta: [{ title: "Panel · Medellín Social" }] }),
 });
 
 const K = TOKENS;

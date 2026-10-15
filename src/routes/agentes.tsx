@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { formatMoney } from "@/lib/format";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -12,6 +13,7 @@ import { K as TOKENS } from "@/design/tokens";
 type AgentesSearch = { agente?: string };
 
 export const Route = createFileRoute("/agentes")({
+  head: () => seo({ title: "Agentes inmobiliarios · Medellín Social", description: "Encuentra agentes inmobiliarios verificados por zona en Medellín y el Valle de Aburrá.", path: "/agentes" }),
   validateSearch: (s: Record<string, unknown>): AgentesSearch => ({
     agente: typeof s.agente === "string" ? s.agente : undefined,
   }),

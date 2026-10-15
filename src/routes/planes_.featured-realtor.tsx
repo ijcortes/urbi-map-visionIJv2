@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { auth } from "@/lib/auth";
@@ -50,6 +51,7 @@ const FAQ = [
 ];
 
 export const Route = createFileRoute("/planes_/featured-realtor")({
+  head: () => seo({ title: "Featured Realtor · Medellín Social", description: "Sé el agente destacado de tu zona y recibe los contactos de compradores e inversionistas.", path: "/planes/featured-realtor" }),
   component: FeaturedRealtorPage,
 });
 

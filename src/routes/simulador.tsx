@@ -1,3 +1,4 @@
+import { seo } from "@/lib/seo";
 import { createFileRoute, redirect, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -64,12 +65,7 @@ const searchSchema = z.object({
 });
 
 export const Route = createFileRoute("/simulador")({
-  head: () => ({
-    meta: [
-      { title: "Simulador de Inversión · Medellin Social" },
-      { name: "description", content: "Simula el retorno de tu inversión inmobiliaria en Medellín. Calcula yield real, flujo de caja y ROI a 20 años." },
-    ],
-  }),
+  head: () => seo({ title: "Simulador de inversión · Medellín Social", description: "Simula la rentabilidad de un inmueble en Medellín: renta corta, media y larga, con datos reales del barrio.", path: "/simulador" }),
   validateSearch: searchSchema,
   beforeLoad: () => {
     if (typeof window === "undefined") return;

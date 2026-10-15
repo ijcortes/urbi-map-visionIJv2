@@ -7,7 +7,7 @@
       <stop offset="100%" stop-color="#0a0e1a" stop-opacity="0"/>
     </radialGradient>
   </defs>
-  <text x="80" y="260" font-family="Inter, sans-serif" font-size="72" font-weight="700" fill="white">Urbi<tspan fill="#00d4ff">data</tspan></text>
-  <text x="80" y="340" font-family="Inter, sans-serif" font-size="32" fill="#9ca3af">Invierte en Medellín con datos reales</text>
-  <text x="80" y="410" font-family="Inter, sans-serif" font-size="24" fill="#4b5563">Yields · Seguridad · Valorización · Conectividad</text>
+  <text x="80" y="260" font-family="Inter, Helvetica, Arial, sans-serif" font-size="72" font-weight="700" fill="white">Medellín <tspan fill="#00d4ff">Social</tspan></text>
+  <text x="80" y="340" font-family="Inter, Helvetica, Arial, sans-serif" font-size="32" fill="#9ca3af">Invierte en Medellín con datos reales</text>
+  <text x="80" y="410" font-family="Inter, Helvetica, Arial, sans-serif" font-size="24" fill="#4b5563">Yields · Seguridad · Valorización · Comunidad</text>
 </svg>
