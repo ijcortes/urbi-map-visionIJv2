@@ -47,26 +47,18 @@ const ALL_STEPS: TourStep[] = [
   {
     title: { es: "Elige tu barrio", en: "Choose your barrio" },
     body: {
-      es: "Elige un barrio y toda la página se ajusta a él: sus noticias, eventos y negocios.",
-      en: "Pick a barrio and the whole page follows it: its news, events and businesses.",
+      es: "Elige un barrio y vas directo a su página.",
+      en: "Pick a barrio and go straight to its page.",
     },
     selector: '[data-tour="barrio-select"]',
   },
   {
-    title: { es: "El mapa de inicio", en: "The home map" },
+    title: { es: "Explora tu barrio", en: "Explore your barrio" },
     body: {
-      es: "Toca una zona en el mapa y decide qué ver: Barrios (inmuebles) o Comunidad (eventos y negocios).",
-      en: "Tap an area on the map and decide what to see: Barrios (real estate) or Community (events and businesses).",
+      es: "Toca una comuna en el mapa (o en la lista) y entras a su página: embajador, eventos, propiedades y negocios.",
+      en: "Tap a comuna on the map (or the list) to open its page: ambassador, events, listings and businesses.",
     },
-    selector: '[data-tour="home-hero-map"]',
-  },
-  {
-    title: { es: "Trending en tu barrio", en: "Trending in your barrio" },
-    body: {
-      es: "Lo más destacado del barrio que elegiste, noticias y eventos, siempre a la mano.",
-      en: "The best of the barrio you picked, news and events, always within reach.",
-    },
-    selector: '[data-tour="home-trending"]',
+    selector: '[data-tour="home-explorar"]',
   },
   {
     title: { es: "Lo último del barrio", en: "Latest from the barrio" },
@@ -157,7 +149,9 @@ export function HomeTourModal({ isMobile }: { isMobile: boolean }) {
   const finish = () => {
     setShow(false);
     setRect(null);
-    localStorage.setItem(LS_KEY, "true");
+    try { localStorage.setItem(LS_KEY, "true"); } catch { /* storage blocked */ }
+    // El último paso deja la página scrolleada a mitad (real estate) — volver arriba.
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const replay = () => {

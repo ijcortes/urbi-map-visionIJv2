@@ -105,6 +105,10 @@ type Props = {
   // de comuna (/map?cd_comuna=...) espera esto para seleccionar la zona como un
   // click real post-load, evitando la carrera con los efectos gated por mapLoaded.
   onReady?: () => void;
+  // Página de barrio: encuadra y resalta UNA comuna/municipio (resto en gris,
+  // nombre fijo). Mapa estático: sin drill al click (lo maneja onComunaClick).
+  focusComuna?: { cd: number | null; municipio: string | null } | null;
+  onComunaClick?: (cd: number | null, nombre: string, isMunicipio: boolean) => void;
 };
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -218,6 +222,8 @@ export function MapView({
   bearing,
   fitValle = false,
   onReady,
+  focusComuna = null,
+  onComunaClick,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapboxMap | null>(null);
@@ -230,6 +236,8 @@ export function MapView({
   const [legendOpen, setLegendOpen] = useState(false);
   const [showVolverValle, setShowVolverValle] = useState(false);  // /map: botón "Volver al Valle" al drillear
   const staticFeaturesRef = useRef<GeoJSON.Feature[] | null>(null);
+  const onComunaClickRef = useRef(onComunaClick);
+  useEffect(() => { onComunaClickRef.current = onComunaClick; }, [onComunaClick]);
   // In-flight guard: mapLoaded + comunasMetrics can both change on initial
   // load, firing the effect below twice before the first fetch resolves and
   // sets staticFeaturesRef — without this, every comunas_*.geojson (up to
@@ -320,6 +328,21 @@ export function MapView({
 
   // ── Helpers de navegación ────────────────────────────────────────────────────
 
+  function markSelectedComuna(map: MapboxMap, featureId: number | null) {
+    if (selectedComunaIdRef.current != null && selectedComunaIdRef.current !== featureId) {
+      map.setFeatureState({ source: "comunas", id: selectedComunaIdRef.current }, { selected: false });
+    }
+    if (featureId != null) map.setFeatureState({ source: "comunas", id: featureId }, { selected: true });
+    selectedComunaIdRef.current = featureId;
+    const none = ["==", ["id"], -1] as mapboxgl.FilterSpecification;
+    if (map.getLayer("comunas-dim")) {
+      map.setFilter("comunas-dim", featureId == null ? none : ["!=", ["id"], featureId]);
+    }
+    if (map.getLayer("comuna-selected-label")) {
+      map.setFilter("comuna-selected-label", featureId == null ? none : ["==", ["id"], featureId]);
+    }
+  }
+
   function switchToComunas(map: MapboxMap, speed = 0.9) {
     map.setLayoutProperty("comunas-fill",  "visibility", "visible");
     map.setLayoutProperty("comunas-line",  "visibility", "visible");
@@ -341,10 +364,7 @@ export function MapView({
     }
     viewLevelRef.current = "comunas";
     activeComunaRef.current = null;
-    if (selectedComunaIdRef.current != null) {
-      map.setFeatureState({ source: "comunas", id: selectedComunaIdRef.current }, { selected: false });
-      selectedComunaIdRef.current = null;
-    }
+    markSelectedComuna(map, null);
     lastComunaBoundsRef.current = null;
     onViewLevelChangeRef.current?.("comunas", null);
   }
@@ -642,6 +662,37 @@ export function MapView({
         },
       });
 
+      // Comuna elegida (Ken, 23-oct): el resto queda en gris — se puede seguir
+      // clickeando — y el nombre de la elegida queda fijo y grande aunque el
+      // cursor no esté encima. Filtros vacíos hasta que haya selección.
+      map.addLayer({
+        id: "comunas-dim",
+        type: "fill",
+        source: "comunas",
+        filter: ["==", ["id"], -1],
+        paint: { "fill-color": "#6B6F76", "fill-opacity": 0.38 },
+      });
+      map.addLayer({
+        id: "comuna-selected-label",
+        type: "symbol",
+        source: "comunas-labels",
+        filter: ["==", ["id"], -1],
+        layout: {
+          "text-field": ["get", "nombre"],
+          "text-size": isMobile ? 15 : 20,
+          "text-font": ["DIN Pro Bold", "Arial Unicode MS Bold"],
+          "text-letter-spacing": 0.1,
+          "text-transform": "uppercase",
+          "text-allow-overlap": true,
+          "text-ignore-placement": true,
+        },
+        paint: {
+          "text-color": "#CE1126",
+          "text-halo-color": "#FFFFFF",
+          "text-halo-width": 2.5,
+        },
+      });
+
       // ── Hover: Comunas ─────────────────────────────────────────────────────
       let hoverComunaId: number | null = null;
       const comunaPopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, offset: 8, className: "urbi-dark-tip" });
@@ -682,18 +733,17 @@ export function MapView({
         const cd = f.properties?.cd_comuna as number;
         const nombre = (f.properties?.nombre ?? "").toString();
         const isMunicipio = f.properties?.is_municipio === true;
+        if (onComunaClickRef.current) {
+          onComunaClickRef.current(isMunicipio ? null : cd, nombre, isMunicipio);
+          return;
+        }
         // queryRenderedFeatures clips geometry to the tile under the cursor → use the
         // full source feature (by nombre) so we fit the WHOLE zone, not a fragment.
         const full = staticFeaturesRef.current?.find((sf) => (sf.properties?.nombre ?? "") === nombre);
         const bounds = featureBounds((full ?? f) as mapboxgl.MapboxGeoJSONFeature);
         // Resalta el contorno de la comuna clickeada — usa f.id (no `cd`, que es
         // undefined en municipios) para calzar con la key que usa el hover arriba.
-        const featureId = f.id as number;
-        if (selectedComunaIdRef.current != null && selectedComunaIdRef.current !== featureId) {
-          map.setFeatureState({ source: "comunas", id: selectedComunaIdRef.current }, { selected: false });
-        }
-        map.setFeatureState({ source: "comunas", id: featureId }, { selected: true });
-        selectedComunaIdRef.current = featureId;
+        markSelectedComuna(map, f.id as number);
         lastComunaBoundsRef.current = bounds;
         switchToBarrios(map, cd, nombre, bounds, isMunicipio ? nombre : null);
       });
@@ -1075,6 +1125,32 @@ export function MapView({
     }
     staticFeaturesPromiseRef.current.then(enrichAndRender);
   }, [comunasMetrics, mapLoaded]);
+
+  // ── Página de barrio: foco estático en una comuna ─────────────────────────
+  const focusCd = focusComuna?.cd ?? null;
+  const focusMuni = focusComuna?.municipio ?? null;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded || (focusCd == null && !focusMuni)) return;
+    let cancelled = false;
+    const apply = (features: GeoJSON.Feature[]) => {
+      if (cancelled) return;
+      const feat = features.find((f) =>
+        focusCd != null
+          ? f.properties?.cd_comuna === focusCd
+          : (f.properties?.nombre ?? "").toString().toUpperCase() === focusMuni!.toUpperCase());
+      if (!feat) return;
+      const id = (feat.properties?.cd_comuna as number | null) ?? (feat.id as number);
+      markSelectedComuna(map, id);
+      map.fitBounds(featureBounds(feat as mapboxgl.MapboxGeoJSONFeature), {
+        padding: 24, pitch: 0, bearing: 0, duration: 0,
+      });
+    };
+    if (staticFeaturesRef.current) apply(staticFeaturesRef.current);
+    else staticFeaturesPromiseRef.current?.then(apply);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapLoaded, focusCd, focusMuni, comunasMetrics]);
 
   // ── Vista 1 ↔ Vista 2: toggle capas (solo depende de mapView) ──────────────
   useEffect(() => {

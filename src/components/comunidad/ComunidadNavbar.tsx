@@ -143,6 +143,9 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
     const sections = ['eventos', 'local-business']
     if (sections.includes(parts[0])) {
       window.location.href = `/${parts[0]}/${newSlug}`
+    } else if (parts.length === 0 || parts[0] === 'barrio') {
+      // Home no cambia según el barrio (Ken, 23-oct): elegir uno lleva a su página.
+      window.location.href = newSlug === 'todos' ? '/' : `/barrio/${newSlug}`
     } else {
       setBarrioSlug(newSlug)
     }

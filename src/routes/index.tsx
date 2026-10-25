@@ -1,8 +1,7 @@
-import { Name, useT } from "@/lib/i18n";
+import { AutoTranslate, Name, useT } from "@/lib/i18n";
 import { seo } from "@/lib/seo";
-import { createFileRoute } from '@tanstack/react-router'
-import { numberLocale } from "@/lib/format";
-import { useState, useCallback, useRef } from 'react'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { useState, useCallback } from 'react'
 import { MapView } from '@/components/MapView'
 import { ComunidadLayout } from '@/components/comunidad/ComunidadLayout'
 import { useBarrio, BARRIOS, type Barrio } from '@/components/comunidad/BarrioContext'
@@ -10,9 +9,7 @@ import { useIsMobile } from '@/hooks/use-mobile'
 import { useDeals } from '@/hooks/useDeals'
 import { useDirectorio } from '@/hooks/useDirectorio'
 import { useNoticias } from '@/hooks/useNoticias'
-import { useEventosTop } from '@/hooks/useEventosTop'
 import { useEventosSemana } from '@/hooks/useEventosSemana'
-import { EventCardRow } from '@/components/comunidad/EventCard'
 import { HomeTourModal } from '@/components/HomeTourModal'
 import { API_ENDPOINTS } from '@/config/api'
 import { safeHref } from '@/lib/utils'
@@ -92,87 +89,6 @@ function comunaRep(cd: number | null, municipio: string | null): Barrio | undefi
     ?? (municipio ? BARRIOS.find((b) => b.municipio_nombre?.toUpperCase() === municipio.toUpperCase()) : undefined)
 }
 
-type PickedComuna = { nombre: string; slug: string; lat: number; lon: number; cd: number | null; municipio: string | null }
-
-function HeroOverlay({ comuna, onClose, t }: {
-  comuna: PickedComuna
-  onClose: () => void
-  t: (es: string, en: string) => string
-}) {
-  // "Listings" entra a los listings de ESTA comuna (cd_comuna / municipio), no a un
-  // barrio. zoom=12 = tier comuna en /map (>=13 re-scopea a un solo barrio).
-  const geo = comuna.municipio
-    ? `municipio=${encodeURIComponent(comuna.municipio)}`
-    : `cd_comuna=${comuna.cd}`
-  const listingsHref = `/map?${geo}&nombre=${encodeURIComponent(comuna.nombre)}&lat=${comuna.lat.toFixed(5)}&lng=${comuna.lon.toFixed(5)}&zoom=12`
-
-  const actions = [
-    { href: listingsHref,                       icon: '🏠', bg: K.azulLight,  label: t('Listings', 'Listings'),   sub: t('Propiedades en venta y arriendo', 'Homes for sale and rent') },
-    { href: `/local-business/${comuna.slug}`,   icon: '🏪', bg: K.tealLight,  label: t('Negocios', 'Businesses'), sub: t('Comercios y servicios locales', 'Local shops and services') },
-    { href: `/eventos/${comuna.slug}`,          icon: '📅', bg: K.coralLight, label: t('Eventos', 'Events'),      sub: t('Qué hacer esta semana', 'What to do this week') },
-  ]
-
-  return (
-    <div style={{
-      position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
-      width: 'min(340px, calc(100% - 32px))',
-      background: K.paper, borderRadius: 16, overflow: 'hidden', zIndex: 10,
-      border: `1px solid ${K.line}`,
-      boxShadow: '0 18px 48px rgba(17,20,24,.28), 0 2px 8px rgba(17,20,24,.10)',
-    }}>
-      {/* Firma: franja tricolor Colombia (misma identidad que logo/favicon). */}
-      <div style={{ display: 'flex', height: 4 }} aria-hidden>
-        <div style={{ flex: 1, background: K.amarillo }} />
-        <div style={{ flex: 1, background: K.azul }} />
-        <div style={{ flex: 1, background: K.rojo }} />
-      </div>
-
-      <div style={{ padding: '13px 15px 14px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 11 }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '1.4px', textTransform: 'uppercase', color: K.teal, marginBottom: 3 }}>
-              {t('Explora la comuna', 'Explore the comuna')}
-            </div>
-            <div style={{ fontFamily: K.serif, fontWeight: 800, fontSize: 21, lineHeight: 1.08, color: K.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              <Name>{comuna.nombre}</Name>
-            </div>
-          </div>
-          <button onClick={onClose} aria-label={t('Cerrar', 'Close')} style={{
-            background: K.surface, border: 'none', color: K.muted, cursor: 'pointer',
-            fontSize: 17, lineHeight: 1, width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>×</button>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {actions.map((a) => (
-            <a key={a.label} href={a.href} className="comuna-action-row" style={{
-              display: 'flex', alignItems: 'center', gap: 11, padding: '9px 10px', borderRadius: 11,
-              textDecoration: 'none', color: K.ink,
-            }}>
-              <span style={{
-                width: 34, height: 34, borderRadius: 9, background: a.bg, flexShrink: 0,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16,
-              }}>{a.icon}</span>
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block', fontWeight: 700, fontSize: 14, color: K.ink }}>{a.label}</span>
-                <span style={{ display: 'block', fontSize: 11.5, color: K.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.sub}</span>
-              </span>
-              <span className="comuna-action-chev" style={{ color: K.tertiary, fontSize: 18, flexShrink: 0, transition: 'transform .14s ease' }}>›</span>
-            </a>
-          ))}
-        </div>
-      </div>
-
-      <style>{`
-        .comuna-action-row { transition: background .14s ease; }
-        .comuna-action-row:hover { background: ${K.surface}; }
-        .comuna-action-row:hover .comuna-action-chev { transform: translateX(2px); color: ${K.ink}; }
-      `}</style>
-    </div>
-  )
-}
-
 function SecTitle({ children, link, linkLabel }: { children: string; link?: string; linkLabel?: string }) {
   return (
     <div style={{ marginBottom: 24 }}>
@@ -191,57 +107,8 @@ function SecTitle({ children, link, linkLabel }: { children: string; link?: stri
   )
 }
 
-function SideHead({ children }: { children: string }) {
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 8,
-      fontSize: '.72rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.1em',
-      color: K.tealDeep, borderBottom: `2px solid ${K.teal}`, paddingBottom: 8, margin: '0 0 12px',
-    }}>
-      <span style={{ width: 7, height: 7, borderRadius: '50%', background: K.coral, flexShrink: 0 }} />
-      {children}
-    </div>
-  )
-}
-
-// Fuente sin foto propia → chip de color por fuente en vez de link plano,
-// misma fila (thumb 56x56 + texto) que EventCardRow para que ambas listas
-// del panel "Trading" luzcan como una sola arquitectura.
-function NoticiaRow({ noticia, last = false }: { noticia: { id: number; titulo: string; url: string; fuente: string | null; fecha_publicacion: string | null }; last?: boolean }) {
-  const fecha = noticia.fecha_publicacion
-    ? new Date(noticia.fecha_publicacion).toLocaleDateString(numberLocale(), { day: 'numeric', month: 'short' })
-    : null
-  return (
-    <a href={noticia.url} target="_blank" rel="noopener noreferrer" style={{
-      display: 'flex', gap: 12, alignItems: 'flex-start',
-      paddingBottom: 12, marginBottom: 12,
-      borderBottom: last ? 'none' : `1px solid ${K.line}`,
-      textDecoration: 'none',
-    }}>
-      <div style={{
-        width: 56, height: 56, borderRadius: 10, flexShrink: 0,
-        background: `linear-gradient(135deg, ${K.tealDeep}, ${K.teal})`,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem',
-      }}>
-        📰
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <h4 style={{
-          fontFamily: K.serif, fontWeight: 600, fontSize: 13.5, color: K.ink, lineHeight: 1.3, margin: '0 0 4px',
-          overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const,
-        }}>
-          {noticia.titulo}
-        </h4>
-        <p style={{ fontSize: 11, color: K.muted, margin: 0, textTransform: 'uppercase', letterSpacing: '.02em', fontWeight: 600 }}>
-          {noticia.fuente === 'el_colombiano' ? 'El Colombiano' : (noticia.fuente ?? 'Medellín')}{fecha ? ` · ${fecha}` : ''}
-        </p>
-      </div>
-    </a>
-  )
-}
-
 function HomeContent() {
-  const { barrio, lang, setBarrioSlug } = useBarrio()
+  const { barrio, lang } = useBarrio()
   const isMobile = useIsMobile()
   const t = useT()
   const catLabel = (cat: string) => (lang === 'es' ? CATEGORIA_LABELS : CATEGORIA_LABELS_EN)[cat] ?? cat
@@ -271,125 +138,121 @@ function HomeContent() {
     }
   }, [nombre, email, barrio.barrio_id])
 
-  const [pickedComuna, setPickedComuna] = useState<PickedComuna | null>(null)
-  const returnToComunasRef = useRef<((speed?: number) => void) | null>(null)
+  const navigate = useNavigate()
+  // Click en comuna/municipio del mapa → su página de barrio (Ken, 23-oct: el home
+  // no cambia según el barrio; cada barrio tiene su propia página).
+  const handleComunaClick = useCallback((cd: number | null, nombre: string) => {
+    const rep = comunaRep(cd, cd == null ? nombre : null)
+    if (rep) navigate({ to: '/barrio/$slug', params: { slug: rep.slug } })
+  }, [navigate])
 
-  // Click en comuna/municipio del mapa → tarjeta con sus 3 accesos (listings /
-  // negocios / eventos de ESA comuna). Sin paso intermedio de elegir barrio: no
-  // tenemos datos lo bastante segmentados para filtrar por barrio todavía.
-  const handleComunaSelect = useCallback((level: 'comunas' | 'barrios', _nombre: string | null, municipio?: string | null, cd?: number | null) => {
-    if (level !== 'barrios') return // "comunas" = volver al valle; ignorar
-    const rep = comunaRep(cd ?? null, municipio ?? null)
-    if (!rep || rep.lat == null || rep.lon == null) return // comuna sin representante (sin datos) → no-op
-    setPickedComuna({
-      nombre: rep.nombre, slug: rep.slug, lat: rep.lat, lon: rep.lon,
-      cd: rep.cd_comuna ?? null, municipio: rep.municipio_nombre ?? null,
-    })
-    setBarrioSlug(rep.slug) // filtra deals/directorio/eventos de toda la página en vivo
-  }, [setBarrioSlug])
-
-  const handleOverlayClose = useCallback(() => {
-    setPickedComuna(null)
-    returnToComunasRef.current?.() // zoom-out de vuelta al valle
-  }, [])
-
-  const isTodos  = barrio.slug === 'todos'
-  const noBarrio = !barrio.barrio_id && !isTodos
-
-  // Comuna de Medellín: filtra deals/directorio/noticias por TODA la comuna
-  // (cd_comuna), no por el barrio representante. Valle (sin cd_comuna) → municipio.
-  const comunaFilter = isTodos ? null : (barrio.cd_comuna ?? null)
-  const barrioFilter = isTodos ? null : (barrio.barrio_id ?? null)
-  const municipioFilter = isTodos ? undefined : barrio.municipio_nombre
+  // Home = todo el valle, siempre (cada barrio tiene su propia página).
+  const comunaFilter = null
+  const barrioFilter = null
+  const municipioFilter = undefined
 
   const { data: noticias   = [], isLoading: noticiasLoading } = useNoticias(4, barrioFilter, municipioFilter, comunaFilter)
   const { data: deals      = [], isLoading: dealsLoading }  = useDeals(1, barrioFilter, municipioFilter, comunaFilter)
   const { data: directorio = [], isLoading: dirLoading }    = useDirectorio(1, barrioFilter, municipioFilter, comunaFilter)
   // Eventos ya expanden a la comuna del barrio_id vía raw.barrios.comuna — sin cambio.
-  const { data: eventosTop = [] }                           = useEventosTop(barrioFilter, municipioFilter, 3)
   const { data: eventosSemana = [] }                        = useEventosSemana(barrioFilter, municipioFilter, 4)
 
   return (
     <>
       <HomeTourModal isMobile={isMobile} />
 
-      {/* ── HERO — mapa /map (comunas → barrios, sin listings) + Trading en tu barrio ── */}
-      <section style={{ padding: isMobile ? '20px 16px' : '32px 26px' }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'center', gap: 24 }}>
-          <div
-            data-tour="home-hero-map"
-            style={{
-              position: 'relative', overflow: 'hidden', borderRadius: 16,
-              width: isMobile ? '100%' : '60%', height: isMobile ? '42vh' : '58vh', minHeight: isMobile ? 280 : 380,
-              boxShadow: '0 8px 30px rgba(20,32,29,.12)',
-            }}
-          >
-            <MapView
-              mapView="zonas"
-              selectedId={null}
-              onSelect={() => {}}
-              onViewLevelChange={handleComunaSelect}
-              returnToComunasRef={returnToComunasRef}
-              cooperativeGestures={isMobile}
-              // ponytail: constante por breakpoint, no medida en vivo — alcanza pa
-              // que la tarjeta de barrio_action (la más alta) no tape la zona
-              // recién centrada. Si el overlay crece mucho, medir con ResizeObserver.
-              bottomInset={isMobile ? 180 : 140}
-              // fitBounds Bello↔La Estrella (simétrico) + mapa PLANO: pitch/bearing 0
-              // → los polígonos extremos quedan equidistantes del borde y el valle
-              // siempre centrado, sin distorsión del tilt.
-              fitValle
-              pitch={0}
-              bearing={0}
-            />
-            {pickedComuna && (
-              <HeroOverlay comuna={pickedComuna} onClose={handleOverlayClose} t={t} />
-            )}
+      {/* ── HERO — splash estilo revista (Ken, 23-oct): imagen grande + qué es ── */}
+      <section style={{ padding: isMobile ? '12px 12px 0' : '22px 26px 0' }}>
+        <div style={{
+          position: 'relative', maxWidth: 1240, margin: '0 auto', borderRadius: isMobile ? 18 : 26, overflow: 'hidden',
+          minHeight: isMobile ? 460 : 560, display: 'flex', alignItems: 'flex-end',
+          backgroundImage: `linear-gradient(180deg, rgba(17,20,24,.05) 0%, rgba(17,20,24,.35) 45%, rgba(17,20,24,.88) 100%), url('https://images.unsplash.com/photo-1697082390861-9f5186b44431?auto=format&fit=crop&w=1800&q=80')`,
+          backgroundSize: 'cover', backgroundPosition: 'center 40%',
+          boxShadow: '0 20px 60px rgba(17,20,24,.22)',
+        }}>
+          <div style={{ display: 'flex', height: 6, position: 'absolute', top: 0, left: 0, right: 0 }} aria-hidden>
+            <div style={{ flex: 2, background: K.amarillo }} /><div style={{ flex: 1, background: K.azul }} /><div style={{ flex: 1, background: K.rojo }} />
           </div>
-
-          <div data-tour="home-trending" style={{
-            width: isMobile ? '100%' : '40%', minWidth: 0, height: isMobile ? 'auto' : '58vh', minHeight: isMobile ? 200 : 380,
-            border: `1px solid ${K.line}`, borderRadius: 16, padding: '20px 22px',
-            background: K.paper, display: 'flex', flexDirection: 'column', overflowY: 'auto',
-          }}>
-            <h2 style={{ fontFamily: K.serif, fontWeight: 800, fontSize: '1.15rem', color: K.ink, margin: '0 0 4px' }}>
-              {t('Trending en tu barrio', 'Trending in your barrio')}
-            </h2>
-            <p style={{ color: K.muted, fontSize: '.88rem', margin: '0 0 16px' }}>
-              {t(`Lo más importante en ${barrio.nombre} ahora mismo.`, `The most important thing in ${barrio.nombre} right now.`)}
+          <div style={{ padding: isMobile ? '28px 20px 30px' : '56px 56px 54px', color: '#fff', maxWidth: 860 }}>
+            <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 800, letterSpacing: '.18em', textTransform: 'uppercase', background: K.amarillo, color: K.ink, padding: '6px 12px', borderRadius: 999, marginBottom: 18 }}>
+              {t('La revista de tu barrio', 'Your neighborhood magazine')}
+            </span>
+            <h1 style={{ fontFamily: K.serif, fontWeight: 900, fontSize: 'clamp(2.3rem, 7vw, 4.8rem)', lineHeight: .98, letterSpacing: '-2px', margin: '0 0 18px' }}>
+              {t('Medellín, barrio por barrio.', 'Medellín, one barrio at a time.')}
+            </h1>
+            <p style={{ fontSize: isMobile ? '1.02rem' : '1.2rem', lineHeight: 1.55, color: 'rgba(255,255,255,.88)', margin: '0 0 26px', maxWidth: 640 }}>
+              {t(
+                'Eventos, lugares para vivir, negocios 5 estrellas con descuento y las historias de la gente que hace cada barrio. Todo lo local, en un solo lugar.',
+                'Events, places to live, discounted 5-star businesses and the stories of the people who make each barrio. Everything local, in one place.',
+              )}
             </p>
-
-            {/* Noticias — últimas, ya cargadas arriba en la página */}
-            <SideHead>{t('Noticias', 'News')}</SideHead>
-            <div style={{ marginBottom: 20 }}>
-              {noticias.length === 0 ? (
-                <p style={{ color: K.muted, fontSize: '.82rem' }}>{t('Sin noticias por ahora.', 'No news right now.')}</p>
-              ) : noticias.slice(0, 3).map((n, i, arr) => (
-                <NoticiaRow key={n.id ?? i} noticia={n} last={i === arr.length - 1} />
-              ))}
-            </div>
-
-            {/* Eventos destacados — solo los patrocinados/featured */}
-            <SideHead>{t('Eventos destacados', 'Featured events')}</SideHead>
-            <div>
-              {eventosTop.length === 0 ? (
-                <p style={{ color: K.muted, fontSize: '.82rem' }}>{t('Sin eventos destacados por ahora.', 'No featured events right now.')}</p>
-              ) : eventosTop.map((evt, i, arr) => (
-                <EventCardRow key={evt.id} evento={evt} last={i === arr.length - 1} />
-              ))}
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <a href="#subscribe" style={{ background: K.rojo, color: '#fff', fontWeight: 800, padding: '14px 26px', borderRadius: 999, textDecoration: 'none' }}>
+                {t('Suscríbete gratis', 'Subscribe free')}
+              </a>
+              <a href="#explorar" style={{ background: 'rgba(255,255,255,.14)', border: '1px solid rgba(255,255,255,.4)', color: '#fff', fontWeight: 800, padding: '14px 26px', borderRadius: 999, textDecoration: 'none', backdropFilter: 'blur(6px)' }}>
+                {t('Explora tu barrio ↓', 'Explore your barrio ↓')}
+              </a>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ── NO BARRIO ─────────────────────────────────── */}
-      {noBarrio && (
-        <div style={{ maxWidth: 1200, margin: '48px auto', padding: '0 26px', textAlign: 'center' }}>
-          <p style={{ fontFamily: K.serif, fontSize: '1.4rem', color: K.muted }}>
-            {t(`Próximamente en ${barrio.nombre}.`, `Coming soon to ${barrio.nombre}.`)}
-          </p>
+      {/* ── QUÉ ES / POR QUÉ / PARA QUIÉN ── */}
+      <section style={{ padding: isMobile ? '36px 16px 8px' : '64px 26px 16px' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: isMobile ? 22 : 36 }}>
+          {[
+            { n: '01', h: t('Qué es', 'What it is'), p: t('Una guía viva de Medellín y el Valle de Aburrá, organizada por barrio y contada por quienes viven en él.', 'A living guide to Medellín and the Aburrá Valley, organized by barrio and told by the people who live there.') },
+            { n: '02', h: t('Por qué es distinto', 'Why it’s different'), p: t('Cada barrio tiene su embajador, sus eventos, sus propiedades y sus negocios de confianza con ofertas solo para vecinos.', 'Every barrio has its own ambassador, events, listings and trusted businesses with offers just for neighbors.') },
+            { n: '03', h: t('Para quién', 'Who it’s for'), p: t('Para locales, expats y quienes buscan su próximo hogar o inversión en la ciudad de la eterna primavera.', 'For locals, expats and anyone looking for their next home or investment in the City of Eternal Spring.') },
+          ].map((x) => (
+            <div key={x.n} style={{ borderTop: `3px solid ${K.ink}`, paddingTop: 16 }}>
+              <div style={{ fontFamily: K.serif, fontWeight: 900, fontSize: '1rem', color: K.rojo, marginBottom: 6 }}>{x.n}</div>
+              <h2 style={{ fontFamily: K.serif, fontWeight: 900, fontSize: '1.55rem', margin: '0 0 8px', color: K.ink, letterSpacing: '-.4px' }}>{x.h}</h2>
+              <p style={{ color: K.muted, lineHeight: 1.6, margin: 0 }}>{x.p}</p>
+            </div>
+          ))}
         </div>
-      )}
+      </section>
+
+      {/* ── EXPLORA TU BARRIO — mapa a media página + lista; cada uno abre su página ── */}
+      <section id="explorar" data-tour="home-explorar" style={{ padding: isMobile ? '36px 16px' : '64px 26px' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+          <SecTitle>{t('Explora tu barrio', 'Explore your barrio')}</SecTitle>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 24, alignItems: 'stretch' }}>
+            <div data-tour="home-hero-map" style={{
+              position: 'relative', overflow: 'hidden', borderRadius: 16,
+              // Caja vertical en desktop (Ken: "more vertically oriented") — el valle es alto.
+              height: isMobile ? '48vh' : 'min(70vh, 640px)', minHeight: isMobile ? 300 : 460,
+              boxShadow: '0 8px 30px rgba(20,32,29,.12)',
+            }}>
+              <MapView
+                mapView="zonas"
+                selectedId={null}
+                onSelect={() => {}}
+                onComunaClick={(cd, nombre) => handleComunaClick(cd, nombre)}
+                cooperativeGestures={isMobile}
+                fitValle
+                pitch={0}
+                bearing={0}
+              />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, alignContent: 'start' }}>
+              {BARRIOS.filter((b) => b.slug !== 'todos').map((b) => (
+                <a key={b.slug} href={`/barrio/${b.slug}`} className="barrio-tile" style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                  padding: '12px 14px', borderRadius: 12, background: K.paper, border: `1px solid ${K.line}`,
+                  textDecoration: 'none', color: K.ink, fontWeight: 700, fontSize: '.95rem',
+                }}>
+                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><Name>{b.nombre}</Name></span>
+                  <span style={{ color: K.rojo }}>→</span>
+                </a>
+              ))}
+            </div>
+          </div>
+          <style>{`.barrio-tile { transition: transform .12s ease, border-color .12s ease; } .barrio-tile:hover { transform: translateY(-1px); border-color: ${K.ink}; }`}</style>
+        </div>
+      </section>
 
       {/* ── SECCIÓN 1 — LO ÚLTIMO DEL BARRIO ─────────── */}
       <section data-tour="home-noticias" className="section-padding" style={{ padding: isMobile ? '28px 16px 20px' : '72px 26px 56px', borderBottom: `1px solid ${K.line}` }}>
@@ -429,7 +292,7 @@ function HomeContent() {
                   color: K.ink, lineHeight: 1.3, margin: '0 0 6px',
                   display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
                 }}>
-                  {n.titulo}
+                  <AutoTranslate text={n.titulo} />
                 </h3>
                 {!isMobile && n.fecha_publicacion && (
                   <span style={{ fontFamily: K.manrope, fontSize: 11, color: K.muted, letterSpacing: '.2px' }}>
