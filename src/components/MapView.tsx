@@ -1153,7 +1153,6 @@ export function MapView({
     if (staticFeaturesRef.current) apply(staticFeaturesRef.current);
     else staticFeaturesPromiseRef.current?.then(apply);
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapLoaded, focusCd, focusMuni, comunasMetrics]);
 
   // ── Vista 1 ↔ Vista 2: toggle capas (solo depende de mapView) ──────────────

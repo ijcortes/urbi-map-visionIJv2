@@ -73,3 +73,7 @@ test_simulador_resultado.json
 *:Zone.Identifier
 *.original.geojson
 Caddyfile.bak
+
+# QC diario (Playwright)
+qc-report/
+test-results/
