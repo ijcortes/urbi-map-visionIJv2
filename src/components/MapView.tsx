@@ -78,6 +78,9 @@ type Props = {
   onViewportListingsChange?: (listings: ApiListing[]) => void;
   onViewportLoadingChange?: (loading: boolean) => void;
   highlightedListingId?: number | null;
+  // Hover en una card de la lista → pin temporal en el mapa sin mover la cámara
+  // (aunque el punto esté dentro de un cluster).
+  hoverPoint?: { lat: number; lng: number } | null;
   flyToListingRef?: React.MutableRefObject<((lat: number, lng: number, zoom?: number) => void) | null>;
   onListingClickFromMap?: (id: number, screenX: number, screenY: number) => void;
   onListingDoubleClickFromMap?: (id: number) => void;
@@ -209,6 +212,7 @@ export function MapView({
   onViewportLoadingChange,
   paused = false,
   highlightedListingId,
+  hoverPoint = null,
   flyToListingRef,
   onListingClickFromMap,
   onListingDoubleClickFromMap,
@@ -1407,6 +1411,27 @@ export function MapView({
       );
     }
   }, [highlightedListingId]);
+
+  // ── Pin de hover (card de la lista → dónde queda en el mapa) ────────────────
+  const hoverMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const hoverLat = hoverPoint?.lat ?? null;
+  const hoverLng = hoverPoint?.lng ?? null;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+    if (hoverLat == null || hoverLng == null) {
+      hoverMarkerRef.current?.remove();
+      return;
+    }
+    if (!hoverMarkerRef.current) {
+      const el = document.createElement("div");
+      el.setAttribute("aria-hidden", "true");
+      el.style.cssText = "width:22px;height:22px;border-radius:50%;background:#CE1126;border:3px solid #fff;box-shadow:0 0 0 6px rgba(206,17,38,.25),0 4px 12px rgba(0,0,0,.35);pointer-events:none;";
+      hoverMarkerRef.current = new mapboxgl.Marker({ element: el });
+    }
+    hoverMarkerRef.current.setLngLat([hoverLng, hoverLat]).addTo(map);
+  }, [hoverLat, hoverLng, mapLoaded]);
+  useEffect(() => () => { hoverMarkerRef.current?.remove(); }, []);
 
   // ── Opacidad diferenciada por barrio activo ──────────────────────────────────
   useEffect(() => {

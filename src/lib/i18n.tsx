@@ -219,12 +219,21 @@ function readCookieLang(): Lang | null {
   return m ? parseLang(decodeURIComponent(m[1])) : null;
 }
 
+// Sin elección guardada: el idioma del navegador decide (Ken, 23-oct — la mayoría
+// de la audiencia es extranjera). Cualquier "es-*" → es; el resto → en.
+function browserLang(): Lang {
+  if (typeof navigator === "undefined") return "es";
+  const prefs = navigator.languages?.length ? navigator.languages : [navigator.language];
+  const first = (prefs[0] ?? "es").toLowerCase();
+  return first.startsWith("es") ? "es" : "en";
+}
+
 export function readStoredLang(): Lang {
   if (typeof window === "undefined") return "es";
   try {
-    return parseLang(window.localStorage.getItem(KEY)) ?? readCookieLang() ?? "es";
+    return parseLang(window.localStorage.getItem(KEY)) ?? readCookieLang() ?? browserLang();
   } catch {
-    return readCookieLang() ?? "es";
+    return readCookieLang() ?? browserLang();
   }
 }
 

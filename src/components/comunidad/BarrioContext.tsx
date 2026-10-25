@@ -1,3 +1,4 @@
+import { readStoredLang } from '@/lib/i18n'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 
 export interface Barrio {
@@ -57,7 +58,7 @@ export function BarrioProvider({ children, initialSlug }: { children: ReactNode;
   const [barrio, setBarrio] = useState<Barrio>(initial)
   const [lang, setLangState] = useState<'es' | 'en'>(() => {
     if (typeof window === 'undefined') return 'es'
-    return (localStorage.getItem('medellin-social.lang') as 'es' | 'en') ?? 'es'
+    return readStoredLang() // misma regla que el resto del sitio (guardado → navegador)
   })
 
   function setLang(l: 'es' | 'en') {

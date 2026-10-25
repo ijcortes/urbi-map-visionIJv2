@@ -1111,6 +1111,37 @@ function AmenidadesPanel({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+// Cada pop-up de filtro lleva "Aplicar" y "Cerrar" (Ken, 23-oct): antes había que
+// clickear afuera para cerrarlo y ese click caía en el mapa y cambiaba la búsqueda.
+// Los filtros ya se aplican en vivo; "Aplicar" confirma y cierra.
+function PanelShell({ innerRef, style, onDone, en, children }: {
+  innerRef: React.RefObject<HTMLDivElement | null>;
+  style: React.CSSProperties;
+  onDone: () => void;
+  en: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div ref={innerRef} style={style}>
+      {children}
+      <div style={{
+        position: "sticky", bottom: 0, display: "flex", gap: 8, marginTop: 6,
+        background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 8,
+        boxShadow: "0 -4px 12px rgba(0,0,0,0.06)",
+      }}>
+        <button type="button" onClick={onDone} data-i18n-skip
+          style={{ flex: 1, minHeight: 36, borderRadius: 8, background: C.white, color: C.ink, border: `1px solid ${C.border}`, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+          {en ? "Close" : "Cerrar"}
+        </button>
+        <button type="button" onClick={onDone} data-i18n-skip
+          style={{ flex: 2, minHeight: 36, borderRadius: 8, background: C.teal, color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+          {en ? "Apply" : "Aplicar"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function MapFilterBar({
   activeTab, onTabChange, filters, onFiltersChange, onResetAll, allBarrios, onBarrioNavigate, onBarrioClear,
   activeComunaCd, activeMunicipio, onComunaSelect,
@@ -1131,6 +1162,8 @@ export function MapFilterBar({
     onFiltersChange({ precioMax: cop });
   });
   const [open, setOpen] = useState<DropdownId | null>(null);
+  const openRef = useRef<DropdownId | null>(null);
+  openRef.current = open;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mobileMore, setMobileMore] = useState(false);
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
@@ -1198,7 +1231,16 @@ export function MapFilterBar({
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (!barRef.current?.contains(t) && !dropdownRef.current?.contains(t)) close();
+      if (!barRef.current?.contains(t) && !dropdownRef.current?.contains(t)) {
+        // Un click afuera con un pop-up abierto SOLO lo cierra: se traga ese click
+        // para que no llegue al mapa (antes seleccionaba otra zona y cambiaba la búsqueda).
+        if (openRef.current) {
+          const swallow = (ev: MouseEvent) => { ev.stopPropagation(); ev.preventDefault(); };
+          window.addEventListener("click", swallow, { capture: true, once: true });
+          setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 400);
+        }
+        close();
+      }
       if (!searchRef.current?.contains(t)) setSearchOpen(false);
     };
     document.addEventListener("mousedown", handler);
@@ -1797,25 +1839,25 @@ export function MapFilterBar({
     switch (open) {
       case "precio":
         return (
-          <div ref={dropdownRef} style={wrapStyle}>
+          <PanelShell innerRef={dropdownRef} style={wrapStyle} onDone={close} en={lang === "en"}>
             <PrecioPanel filters={filters} isRent={isRent} onChange={onFiltersChange} onClose={close} lang={lang} fmtPrice={pf.formatPriceCompact} minField={precioMinField} maxField={precioMaxField} currency={pf.currency} />
-          </div>
+          </PanelShell>
         );
       case "habBanos":
         return (
-          <div ref={dropdownRef} style={wrapStyle}>
+          <PanelShell innerRef={dropdownRef} style={wrapStyle} onDone={close} en={lang === "en"}>
             <HabBanosPanel filters={filters} onChange={onFiltersChange} />
-          </div>
+          </PanelShell>
         );
       case "tipo":
         return (
-          <div ref={dropdownRef} style={wrapStyle}>
+          <PanelShell innerRef={dropdownRef} style={wrapStyle} onDone={close} en={lang === "en"}>
             <TipoPanel filters={filters} onChange={onFiltersChange} />
-          </div>
+          </PanelShell>
         );
       case "amenidades":
         return (
-          <div ref={dropdownRef} style={wrapStyle}>
+          <PanelShell innerRef={dropdownRef} style={wrapStyle} onDone={close} en={lang === "en"}>
             <AmenidadesPanel
               current={[...(filters.amenidades ?? []), ...(filters.amoblado ? ["amoblado"] : [])]}
               onChange={(keys) => {
@@ -1825,7 +1867,7 @@ export function MapFilterBar({
               }}
               onClose={close}
             />
-          </div>
+          </PanelShell>
         );
       case "filtros": {
         const tiempoOpts = isRent
@@ -1853,7 +1895,7 @@ export function MapFilterBar({
             ];
 
         return (
-          <div ref={dropdownRef} style={wrapStyle}>
+          <PanelShell innerRef={dropdownRef} style={wrapStyle} onDone={close} en={lang === "en"}>
             <div style={{ ...panelBase, minWidth: 300 }}>
               <span style={{ ...labelSm, fontSize: 13, fontWeight: 700, marginBottom: 16 }}>
                 Filtros
@@ -2029,7 +2071,7 @@ export function MapFilterBar({
                 </button>
               </div>
             </div>
-          </div>
+          </PanelShell>
         );
       }
       default:
