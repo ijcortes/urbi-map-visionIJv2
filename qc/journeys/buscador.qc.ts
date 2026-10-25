@@ -6,11 +6,13 @@ import { openClean, dismissOverlays, pickSegment, API } from "./_helpers";
 const TIPOS = ["apartamento", "casa", "local"];
 
 test.describe("buscador de propiedades", () => {
-  test("mapa carga y muestra listings de una comuna", async ({ page }) => {
+  test("mapa carga y muestra listings de una comuna", async ({ page, isMobile }) => {
     const check = await openClean(page, "/map?cd_comuna=14&nombre=El%20Poblado&zoom=12");
     await dismissOverlays(page);
     await pickSegment(page);
     await expect(page.locator(".mapboxgl-canvas").first()).toBeVisible();
+    // En celular la lista está detrás del botón "Lista".
+    if (isMobile) await page.getByRole("button", { name: /^(Lista|List)$/ }).click();
     await expect(page.locator('[data-tour="listing-card"]').first()).toBeVisible({ timeout: 30_000 });
     check();
   });

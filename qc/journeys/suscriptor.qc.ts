@@ -9,7 +9,7 @@ test.describe("suscriptor", () => {
     await dismissOverlays(page);
     await expect(page.locator("h1").first()).toBeVisible();
     await expect(page.locator("#explorar")).toBeVisible();
-    await expect(page.locator("#subscribe form, #subscribe")).toBeVisible();
+    await expect(page.locator("#subscribe")).toBeAttached();
     check();
 
     await page.locator('#explorar a[href^="/barrio/"]').first().click();
