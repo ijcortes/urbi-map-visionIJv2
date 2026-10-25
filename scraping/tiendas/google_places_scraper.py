@@ -16,6 +16,9 @@ Run:
   # Top 20 barrios (default — within free tier)
   python scraping/tiendas/google_places_scraper.py
 
+  # Cobertura pareja: 3 barrios por comuna/municipio (~$16 USD) — recomendado
+  python scraping/tiendas/google_places_scraper.py --por-comuna 3
+
   # Full Valle de Aburrá
   python scraping/tiendas/google_places_scraper.py --all
 
@@ -183,6 +186,45 @@ def get_top_barrios(conn, limit: int = 20) -> list[dict]:
     ]
 
 
+def get_barrios_por_comuna(conn, por_comuna: int = 3) -> list[dict]:
+    """N barrios por comuna de Medellín y por municipio del Valle (Ken, 23-oct).
+
+    El default (top por listings) concentra casi todo en El Poblado y deja el
+    resto del mapa de negocios vacío. Acá cada comuna/municipio aporta sus N
+    barrios más grandes, así el directorio cubre toda la ciudad.
+    Costo: ~(16 comunas + 5 municipios) × 3 × 8 cats ≈ 500 req ≈ $16 USD.
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""
+            WITH zonas AS (
+                SELECT b.id, b.nombre, b.municipio, b.geometry,
+                       COALESCE(bc.cd_comuna::text, b.municipio)       AS zona,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY COALESCE(bc.cd_comuna::text, b.municipio)
+                           ORDER BY ST_Area(b.geometry::geography) DESC
+                       )                                                AS rk
+                FROM raw.barrios b
+                LEFT JOIN analytics.barrios_cd bc ON bc.barrio_id = b.id
+                WHERE b.excluir_inversion = FALSE
+                  AND b.geometry IS NOT NULL
+                  AND b.municipio = ANY(%s)
+            )
+            SELECT id AS barrio_id, nombre, municipio, zona,
+                   ST_Y(ST_Centroid(geometry)) AS lat,
+                   ST_X(ST_Centroid(geometry)) AS lon,
+                   LEAST(1500, GREATEST(300, SQRT(ST_Area(geometry::geography) / PI())::int)) AS radio
+            FROM zonas
+            WHERE rk <= %s
+            ORDER BY zona, rk
+        """, (VALLE_ABURRA, por_comuna))
+        rows = [dict(r) for r in cur.fetchall()]
+    return [
+        {**r, "lat": float(r["lat"]), "lon": float(r["lon"])}
+        for r in rows
+        if not any(r["nombre"].upper().startswith(p) for p in _SKIP_PREFIXES)
+    ]
+
+
 def load_barrios_from_db(
     conn,
     municipios: list[str] | None = None,
@@ -327,6 +369,7 @@ def run(
     nombre_filtro: str | None = None,
     top: int | None = 20,
     all_valle: bool = False,
+    por_comuna: int | None = None,
     resume: bool = False,
     dry_run: bool = False,
 ) -> int:
@@ -341,6 +384,8 @@ def run(
     try:
         if barrios_override:
             barrios = barrios_override
+        elif por_comuna:
+            barrios = get_barrios_por_comuna(conn, por_comuna=por_comuna)
         elif municipios or nombre_filtro or all_valle:
             barrios = load_barrios_from_db(conn, municipios=municipios, nombre_filtro=nombre_filtro)
         else:
@@ -395,6 +440,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Google Places scraper — tiendas Valle de Aburrá")
     parser.add_argument("--all",       action="store_true", help="Todos los barrios Valle de Aburrá (~$153 USD)")
     parser.add_argument("--top",       type=int, default=20, help="Top N barrios por actividad (default: 20)")
+    parser.add_argument("--por-comuna", type=int, metavar="N", help="N barrios por comuna/municipio, cobertura pareja (~$16 USD con N=3)")
     parser.add_argument("--municipio", help="Filtrar por municipio (ej: MEDELLIN, ENVIGADO)")
     parser.add_argument("--barrio",    help="Filtrar por nombre de barrio (substring, ej: 'Poblado')")
     parser.add_argument("--categoria", help="Filtrar por categoria")
@@ -417,6 +463,7 @@ if __name__ == "__main__":
         categorias=cats_sel,
         top=args.top,
         all_valle=args.all,
+        por_comuna=args.por_comuna,
         resume=args.resume,
         dry_run=args.test,
     )
