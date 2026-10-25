@@ -1131,11 +1131,18 @@ export function MapView({
   }, [comunasMetrics, mapLoaded]);
 
   // ── Página de barrio: foco estático en una comuna ─────────────────────────
-  const focusCd = focusComuna?.cd ?? null;
-  const focusMuni = focusComuna?.municipio ?? null;
+  // /map también: la comuna que viene filtrada (deep-link o dropdown) queda
+  // resaltada igual que con un click, pero sin re-encuadrar la cámara.
+  const fitFocus = focusComuna != null;
+  const focusCd = focusComuna?.cd ?? mlsCdComuna ?? null;
+  const focusMuni = focusComuna ? (focusComuna.municipio ?? null) : (mlsCdComuna == null ? (mlsMunicipio ?? null) : null);
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapLoaded || (focusCd == null && !focusMuni)) return;
+    if (!map || !mapLoaded) return;
+    if (focusCd == null && !focusMuni) {
+      if (!fitFocus && mapView === "listings") markSelectedComuna(map, null);
+      return;
+    }
     let cancelled = false;
     const apply = (features: GeoJSON.Feature[]) => {
       if (cancelled) return;
@@ -1146,6 +1153,7 @@ export function MapView({
       if (!feat) return;
       const id = (feat.properties?.cd_comuna as number | null) ?? (feat.id as number);
       markSelectedComuna(map, id);
+      if (!fitFocus) return;
       map.fitBounds(featureBounds(feat as mapboxgl.MapboxGeoJSONFeature), {
         padding: 24, pitch: 0, bearing: 0, duration: 0,
       });
@@ -1153,7 +1161,8 @@ export function MapView({
     if (staticFeaturesRef.current) apply(staticFeaturesRef.current);
     else staticFeaturesPromiseRef.current?.then(apply);
     return () => { cancelled = true; };
-  }, [mapLoaded, focusCd, focusMuni, comunasMetrics]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapLoaded, focusCd, focusMuni, fitFocus, mapView, comunasMetrics]);
 
   // ── Vista 1 ↔ Vista 2: toggle capas (solo depende de mapView) ──────────────
   useEffect(() => {

@@ -301,15 +301,15 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
                 >
                   <optgroup label="── Medellín ──" style={{ color: K.ink, background: '#fff' }}>
                     {medellin.map(b => (
-                      <option key={b.slug} value={b.slug} style={{ color: K.ink, background: '#fff' }}>
-                        <Name>{b.nombre}</Name>
+                      <option key={b.slug} value={b.slug} data-i18n-skip style={{ color: K.ink, background: '#fff' }}>
+                        {b.nombre}
                       </option>
                     ))}
                   </optgroup>
                   <optgroup label="── Valle de Aburrá ──" style={{ color: K.ink, background: '#fff' }}>
                     {valleAbura.map(b => (
-                      <option key={b.slug} value={b.slug} style={{ color: K.ink, background: '#fff' }}>
-                        <Name>{b.nombre}</Name>
+                      <option key={b.slug} value={b.slug} data-i18n-skip style={{ color: K.ink, background: '#fff' }}>
+                        {b.nombre}
                       </option>
                     ))}
                   </optgroup>
@@ -488,15 +488,15 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
               >
                 <optgroup label="── Medellín ──" style={{ color: K.ink, background: '#fff' }}>
                   {medellin.map(b => (
-                    <option key={b.slug} value={b.slug} style={{ color: K.ink, background: '#fff' }}>
-                      <Name>{b.nombre}</Name>
+                    <option key={b.slug} value={b.slug} data-i18n-skip style={{ color: K.ink, background: '#fff' }}>
+                      {b.nombre}
                     </option>
                   ))}
                 </optgroup>
                 <optgroup label="── Valle de Aburrá ──" style={{ color: K.ink, background: '#fff' }}>
                   {valleAbura.map(b => (
-                    <option key={b.slug} value={b.slug} style={{ color: K.ink, background: '#fff' }}>
-                      <Name>{b.nombre}</Name>
+                    <option key={b.slug} value={b.slug} data-i18n-skip style={{ color: K.ink, background: '#fff' }}>
+                      {b.nombre}
                     </option>
                   ))}
                 </optgroup>

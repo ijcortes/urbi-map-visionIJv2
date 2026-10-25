@@ -14,6 +14,7 @@ import { HomeTourModal } from '@/components/HomeTourModal'
 import { API_ENDPOINTS } from '@/config/api'
 import { safeHref } from '@/lib/utils'
 import { K as TOKENS } from "@/design/tokens";
+import { CATEGORIA_LABELS, CATEGORIA_LABELS_EN } from "@/lib/categoriasNegocio";
 
 export const Route = createFileRoute('/')({
   component: HomePage,
@@ -21,38 +22,6 @@ export const Route = createFileRoute('/')({
 })
 
 const K = TOKENS;
-
-const CATEGORIA_LABELS: Record<string, string> = {
-  brunch: 'Brunch',
-  cena: 'Restaurante',
-  gimnasios: 'Gimnasio',
-  masajes_spa: 'Spa & Wellness',
-  medicos: 'Salud',
-  cafes: 'Café',
-  bares: 'Bar',
-  yoga: 'Yoga',
-  dentistas: 'Dental',
-  peluquerias: 'Estética',
-  almuerzo: 'Almuerzo',
-  estetica: 'Estética',
-  panaderia: 'Panadería',
-}
-
-const CATEGORIA_LABELS_EN: Record<string, string> = {
-  brunch: 'Brunch',
-  cena: 'Restaurant',
-  gimnasios: 'Gym',
-  masajes_spa: 'Spa & Wellness',
-  medicos: 'Health',
-  cafes: 'Café',
-  bares: 'Bar',
-  yoga: 'Yoga',
-  dentistas: 'Dental',
-  peluquerias: 'Beauty',
-  almuerzo: 'Lunch',
-  estetica: 'Beauty',
-  panaderia: 'Bakery',
-}
 
 const CATEGORIA_COLORS: Record<string, string> = {
   bares: '#111418',
@@ -173,7 +142,7 @@ function HomeContent() {
           <div style={{ display: 'flex', height: 6, position: 'absolute', top: 0, left: 0, right: 0 }} aria-hidden>
             <div style={{ flex: 2, background: K.amarillo }} /><div style={{ flex: 1, background: K.azul }} /><div style={{ flex: 1, background: K.rojo }} />
           </div>
-          <div style={{ padding: isMobile ? '28px 20px 30px' : '56px 56px 54px', color: '#fff', maxWidth: 860 }}>
+          <div data-i18n-skip style={{ padding: isMobile ? '28px 20px 30px' : '56px 56px 54px', color: '#fff', maxWidth: 860 }}>
             <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 800, letterSpacing: '.18em', textTransform: 'uppercase', background: K.amarillo, color: K.ink, padding: '6px 12px', borderRadius: 999, marginBottom: 18 }}>
               {t('La revista de tu barrio', 'Your neighborhood magazine')}
             </span>
@@ -200,7 +169,7 @@ function HomeContent() {
 
       {/* ── QUÉ ES / POR QUÉ / PARA QUIÉN ── */}
       <section style={{ padding: isMobile ? '36px 16px 8px' : '64px 26px 16px' }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: isMobile ? 22 : 36 }}>
+        <div data-i18n-skip style={{ maxWidth: 1200, margin: '0 auto', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: isMobile ? 22 : 36 }}>
           {[
             { n: '01', h: t('Qué es', 'What it is'), p: t('Una guía viva de Medellín y el Valle de Aburrá, organizada por barrio y contada por quienes viven en él.', 'A living guide to Medellín and the Aburrá Valley, organized by barrio and told by the people who live there.') },
             { n: '02', h: t('Por qué es distinto', 'Why it’s different'), p: t('Cada barrio tiene su embajador, sus eventos, sus propiedades y sus negocios de confianza con ofertas solo para vecinos.', 'Every barrio has its own ambassador, events, listings and trusted businesses with offers just for neighbors.') },

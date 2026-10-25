@@ -1,4 +1,4 @@
-import { readStoredLang } from '@/lib/i18n'
+import { useLang } from '@/lib/i18n'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 
 export interface Barrio {
@@ -56,15 +56,10 @@ const BarrioCtx = createContext<BarrioCtx | null>(null)
 export function BarrioProvider({ children, initialSlug }: { children: ReactNode; initialSlug?: string }) {
   const initial = BARRIOS.find(b => b.slug === initialSlug) ?? BARRIOS[0]
   const [barrio, setBarrio] = useState<Barrio>(initial)
-  const [lang, setLangState] = useState<'es' | 'en'>(() => {
-    if (typeof window === 'undefined') return 'es'
-    return readStoredLang() // misma regla que el resto del sitio (guardado → navegador)
-  })
-
-  function setLang(l: 'es' | 'en') {
-    localStorage.setItem('medellin-social.lang', l)
-    setLangState(l)
-  }
+  // Un solo idioma para todo el sitio: el de LanguageProvider (SSR = es, cliente =
+  // guardado → navegador, sin desajuste de hidratación). Antes este contexto tenía
+  // su propia copia en localStorage que podía no coincidir con la del resto.
+  const { lang, setLang } = useLang()
 
   useEffect(() => {
     const found = BARRIOS.find(b => b.slug === initialSlug)

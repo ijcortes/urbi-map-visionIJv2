@@ -1114,17 +1114,19 @@ function AmenidadesPanel({
 // Cada pop-up de filtro lleva "Aplicar" y "Cerrar" (Ken, 23-oct): antes había que
 // clickear afuera para cerrarlo y ese click caía en el mapa y cambiaba la búsqueda.
 // Los filtros ya se aplican en vivo; "Aplicar" confirma y cierra.
-function PanelShell({ innerRef, style, onDone, en, children }: {
+function PanelShell({ innerRef, style, onDone, en, children, footer = true }: {
   innerRef: React.RefObject<HTMLDivElement | null>;
   style: React.CSSProperties;
   onDone: () => void;
   en: boolean;
   children: React.ReactNode;
+  /** false = el panel ya trae su propio "Aplicar" (precio, amenidades). */
+  footer?: boolean;
 }) {
   return (
     <div ref={innerRef} style={style}>
       {children}
-      <div style={{
+      {footer && <div style={{
         position: "sticky", bottom: 0, display: "flex", gap: 8, marginTop: 6,
         background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 8,
         boxShadow: "0 -4px 12px rgba(0,0,0,0.06)",
@@ -1137,7 +1139,7 @@ function PanelShell({ innerRef, style, onDone, en, children }: {
           style={{ flex: 2, minHeight: 36, borderRadius: 8, background: C.teal, color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
           {en ? "Apply" : "Aplicar"}
         </button>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -1839,7 +1841,7 @@ export function MapFilterBar({
     switch (open) {
       case "precio":
         return (
-          <PanelShell innerRef={dropdownRef} style={wrapStyle} onDone={close} en={lang === "en"}>
+          <PanelShell footer={false} innerRef={dropdownRef} style={wrapStyle} onDone={close} en={lang === "en"}>
             <PrecioPanel filters={filters} isRent={isRent} onChange={onFiltersChange} onClose={close} lang={lang} fmtPrice={pf.formatPriceCompact} minField={precioMinField} maxField={precioMaxField} currency={pf.currency} />
           </PanelShell>
         );
@@ -1857,7 +1859,7 @@ export function MapFilterBar({
         );
       case "amenidades":
         return (
-          <PanelShell innerRef={dropdownRef} style={wrapStyle} onDone={close} en={lang === "en"}>
+          <PanelShell footer={false} innerRef={dropdownRef} style={wrapStyle} onDone={close} en={lang === "en"}>
             <AmenidadesPanel
               current={[...(filters.amenidades ?? []), ...(filters.amoblado ? ["amoblado"] : [])]}
               onChange={(keys) => {

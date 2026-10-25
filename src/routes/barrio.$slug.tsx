@@ -16,6 +16,7 @@ import { API_BASE_URL } from '@/config/api'
 import { seo } from '@/lib/seo'
 import { safeHref } from '@/lib/utils'
 import { K } from "@/design/tokens";
+import { categoriaLabel } from "@/lib/categoriasNegocio";
 
 // Página de barrio (Ken, call 23-oct). Una sola página que se llena según la
 // comuna elegida. Orden: embajador + historia clave + historias → eventos →
@@ -118,7 +119,7 @@ function Section({ id, kicker, title, children, tone = 'paper', action }: {
   return (
     <section id={id} style={{ background: tone === 'surface' ? K.surface : 'transparent', borderTop: `1px solid ${K.line}`, padding: isMobile ? '32px 16px' : '56px 26px' }}>
       <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 22 }}>
+        <div data-i18n-skip style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 22 }}>
           <div>
             <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.14em', textTransform: 'uppercase', color: K.rojo, marginBottom: 6 }}>{kicker}</div>
             <h2 style={{ fontFamily: K.serif, fontWeight: 900, fontSize: 'clamp(1.5rem, 4vw, 2.2rem)', letterSpacing: '-.5px', color: K.ink, margin: 0, lineHeight: 1.05 }}>{title}</h2>
@@ -137,7 +138,7 @@ const pill = (bg: string, fg: string) => ({
 })
 
 function Empty({ children }: { children: ReactNode }) {
-  return <p style={{ color: K.muted, fontSize: '.92rem', margin: 0, padding: '18px 0' }}>{children}</p>
+  return <p data-i18n-skip style={{ color: K.muted, fontSize: '.92rem', margin: 0, padding: '18px 0' }}>{children}</p>
 }
 
 function ImgBox({ src, alt, height, fallback }: { src: string | null | undefined; alt: string; height: number; fallback: string }) {
@@ -218,7 +219,7 @@ function BarrioPage({ slug }: { slug: string }) {
     <>
       {/* ── 1. Embajador + historia clave (hero) ── */}
       <section style={{ padding: isMobile ? '20px 16px 32px' : '36px 26px 56px' }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+        <div data-i18n-skip style={{ maxWidth: 1200, margin: '0 auto' }}>
           <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.16em', textTransform: 'uppercase', color: K.muted, marginBottom: 8 }}>
             {t('Tu barrio', 'Your neighborhood')}
           </div>
@@ -404,7 +405,7 @@ function BarrioPage({ slug }: { slug: string }) {
               <button key={c ?? 'all'} type="button" onClick={() => setCat(c)} style={{
                 padding: '7px 14px', borderRadius: 999, border: `1px solid ${cat === c ? K.ink : K.line}`,
                 background: cat === c ? K.ink : '#fff', color: cat === c ? '#fff' : K.ink, fontWeight: 700, fontSize: '.82rem', cursor: 'pointer',
-              }}>{c ?? t('Todos', 'All')}</button>
+              }} data-i18n-skip>{c ? categoriaLabel(c, lang) : t('Todos', 'All')}</button>
             ))}
           </div>
         )}
@@ -429,7 +430,7 @@ function BarrioPage({ slug }: { slug: string }) {
                   <div style={{ padding: '10px 12px 12px' }}>
                     <div style={{ fontWeight: 800 }}><Name>{n.nombre}</Name></div>
                     <div style={{ fontSize: '.84rem', color: K.muted }}>
-                      {n.rating_google != null ? `★ ${n.rating_google.toFixed(1)} · ` : ''}{n.categoria}
+                      {n.rating_google != null ? `★ ${n.rating_google.toFixed(1)} · ` : ''}{categoriaLabel(n.categoria, lang)}
                     </div>
                   </div>
                 </div>
