@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { translateString } from "./i18n";
 
 // Cobertura EN de los textos que salían en español (filtros, navbar, popups).
@@ -158,12 +158,25 @@ describe("language persistence (I9)", () => {
   it("reads localStorage synchronously and validates", () => {
     localStorage.setItem("medellin-social.lang", "en");
     expect(__i18nInternals.readStoredLang()).toBe("en");
+    // Valor inválido → idioma del navegador (jsdom: en-US).
     localStorage.setItem("medellin-social.lang", "fr");
-    expect(__i18nInternals.readStoredLang()).toBe("es");
+    expect(__i18nInternals.readStoredLang()).toBe("en");
     localStorage.removeItem("medellin-social.lang");
     document.cookie = "medellin-social.lang=en; path=/";
     expect(__i18nInternals.readStoredLang()).toBe("en");
     document.cookie = "medellin-social.lang=; path=/; max-age=0";
+  });
+
+  it("sin idioma guardado usa el del navegador", () => {
+    localStorage.removeItem("medellin-social.lang");
+    const spy = vi.spyOn(navigator, "languages", "get");
+    spy.mockReturnValue(["es-CO", "en"]);
+    expect(__i18nInternals.readStoredLang()).toBe("es");
+    spy.mockReturnValue(["en-US"]);
+    expect(__i18nInternals.readStoredLang()).toBe("en");
+    spy.mockReturnValue(["pt-BR"]);
+    expect(__i18nInternals.readStoredLang()).toBe("en");
+    spy.mockRestore();
   });
 });
 
