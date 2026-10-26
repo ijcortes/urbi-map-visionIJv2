@@ -33,6 +33,10 @@ jobs:
           QC_BASE_URL: ${{ vars.QC_BASE_URL }}
           QC_API_URL: ${{ vars.QC_API_URL }}
           QC_SUBMIT: ${{ vars.QC_SUBMIT }}
+          QC_GHL_FORMS: ${{ vars.QC_GHL_FORMS }}
+          QC_TEST_PHONE: ${{ vars.QC_TEST_PHONE }}
+          GHL_PRIVATE_TOKEN: ${{ secrets.GHL_PRIVATE_TOKEN }}
+          GHL_LOCATION_ID: ${{ secrets.GHL_LOCATION_ID }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:

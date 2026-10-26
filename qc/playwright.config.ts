@@ -4,8 +4,9 @@ import { defineConfig, devices } from "@playwright/test";
 // completo en el sitio real una vez al día y reporta si algo se rompe.
 //   QC_BASE_URL   sitio a probar (default: producción)
 //   QC_API_URL    API (default: la de producción en Railway)
-//   QC_SUBMIT=1   también envía formularios de prueba (quedan en moderación,
-//                 marcados "[QC-TEST]"). Apagado por defecto para no ensuciar datos.
+//   QC_SUBMIT=1   también envía formularios de prueba: el artículo queda en
+//                 moderación y los formularios de GHL se verifican y se borran
+//                 (ver journeys/ghl.qc.ts). Apagado por defecto.
 // Archivos *.qc.ts (no *.spec.ts) para que vitest no los levante.
 export default defineConfig({
   testDir: "./journeys",

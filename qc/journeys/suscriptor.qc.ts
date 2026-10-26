@@ -30,13 +30,11 @@ test.describe("suscriptor", () => {
     }
   });
 
-  test("envía suscripción, evento y artículo de prueba", async ({ request }) => {
+  // La suscripción vive en GHL (ver ghl.qc.ts). Acá solo el artículo, que queda
+  // en la cola de moderación del sitio.
+  test("envía un artículo de prueba a moderación", async ({ request }) => {
     test.skip(!SUBMIT, "QC_SUBMIT apagado");
     const stamp = Date.now();
-    const sub = await request.post(`${API()}/usuario/suscribirse`, {
-      data: { nombre: `${QC_TAG} suscriptor`, email: `qc+${stamp}@medellinsocial.com`, barrio_id: null },
-    });
-    expect(sub.status(), "suscripción").toBeLessThan(300);
     const post = await request.post(`${API()}/comunidad/posts`, {
       data: { autor_nombre: `${QC_TAG} bot`, autor_email: `qc+${stamp}@medellinsocial.com`,
               titulo: `${QC_TAG} artículo ${stamp}`, cuerpo: "Prueba automática diaria del equipo de QC. No publicar." },

@@ -521,8 +521,35 @@ export function MapView({
     // Improve this map"). Mapbox/OSM exigen mostrarla — compact es el mínimo permitido.
     map.addControl(new mapboxgl.AttributionControl({ compact: true }), "bottom-right");
 
-    const ro = new ResizeObserver(() => map.resize());
+    // Autoajuste al tamaño de la pestaña (Ken, 23-oct: "si la ventana es chica, que
+    // se vea"): además de redimensionar el canvas, re-encuadra lo que el usuario está
+    // mirando — la comuna elegida, o el valle en el hero — cuando la caja cambia.
+    let refitTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastSize = { w: 0, h: 0 };
+    const ro = new ResizeObserver((entries) => {
+      map.resize();
+      const r = entries[0]?.contentRect;
+      if (!r || !mapLoadedRef.current) { if (r) lastSize = { w: r.width, h: r.height }; return; }
+      if (Math.abs(r.width - lastSize.w) < 24 && Math.abs(r.height - lastSize.h) < 24) return;
+      lastSize = { w: r.width, h: r.height };
+      if (refitTimer) clearTimeout(refitTimer);
+      refitTimer = setTimeout(() => {
+        const bounds = lastComunaBoundsRef.current;
+        // Si el usuario hizo zoom adentro de la comuna (mirando calles), respetar su vista.
+        const fitZoom = bounds ? map.cameraForBounds(bounds, { padding: 30 })?.zoom : undefined;
+        const zoomedIn = fitZoom != null && map.getZoom() > Math.min(fitZoom, POLYGON_TIER_ZOOM - 1) + 0.75;
+        if (bounds && !zoomedIn) {
+          map.fitBounds(bounds, {
+            padding: { top: 30, bottom: 30 + bottomInsetRef.current, left: 30, right: 30 },
+            maxZoom: POLYGON_TIER_ZOOM - 1, duration: 300,
+          });
+        } else if (fitValleRef.current) {
+          map.fitBounds(heroFit().bounds, { padding: 28, duration: 300 });
+        }
+      }, 200);
+    });
     ro.observe(containerRef.current!);
+    map.once("remove", () => { if (refitTimer) clearTimeout(refitTimer); });
     requestAnimationFrame(() => map.resize());
 
     const failTimer = setTimeout(() => { if (!mapLoadedRef.current) setMapFailed(true); }, 20_000);
@@ -1153,8 +1180,11 @@ export function MapView({
       if (!feat) return;
       const id = (feat.properties?.cd_comuna as number | null) ?? (feat.id as number);
       markSelectedComuna(map, id);
+      const fb = featureBounds(feat as mapboxgl.MapboxGeoJSONFeature);
+      if (!lastComunaBoundsRef.current) lastComunaBoundsRef.current = fb; // autoajuste al redimensionar
       if (!fitFocus) return;
-      map.fitBounds(featureBounds(feat as mapboxgl.MapboxGeoJSONFeature), {
+      lastComunaBoundsRef.current = fb;
+      map.fitBounds(fb, {
         padding: 24, pitch: 0, bearing: 0, duration: 0,
       });
     };
