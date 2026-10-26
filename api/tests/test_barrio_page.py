@@ -15,11 +15,11 @@ class FakePool:
         self.calls = []
 
     async def fetchrow(self, sql, *args):
-        self.calls.append(("fetchrow", args))
+        self.calls.append(args)
         return self.emb
 
     async def fetch(self, sql, *args):
-        self.calls.append(("fetch", args))
+        self.calls.append(args)
         return self.posts if "comunidad_post" in sql else self.realtors
 
 
@@ -31,18 +31,19 @@ def _client(pool):
     return TestClient(app)
 
 
-def test_requiere_comuna_o_municipio():
-    r = _client(FakePool()).get("/api/v1/comunidad/barrio-page?slug=el-poblado")
-    assert r.status_code == 422
+def test_requiere_zona_valida():
+    c = _client(FakePool())
+    assert c.get("/api/v1/comunidad/barrio-page").status_code == 422
+    assert c.get("/api/v1/comunidad/barrio-page?municipio=Bogota").status_code == 422
 
 
 def test_zona_vacia_devuelve_listas_vacias():
-    r = _client(FakePool()).get("/api/v1/comunidad/barrio-page?slug=el-poblado&cd_comuna=14")
+    r = _client(FakePool()).get("/api/v1/comunidad/barrio-page?cd_comuna=14")
     assert r.status_code == 200
     assert r.json() == {"embajador": None, "historias": [], "realtors": []}
 
 
-def test_arma_la_pagina_y_usa_tag_featured_del_slug():
+def test_arma_la_pagina():
     pool = FakePool(
         emb={"nombre": "Vale", "foto_url": None, "bio": "Local", "video_url": None, "post_id": 7},
         posts=[{"id": 7, "titulo": "Guía", "cuerpo": "Texto largo", "imagen_url": None, "enlace_url": None,
@@ -50,18 +51,16 @@ def test_arma_la_pagina_y_usa_tag_featured_del_slug():
         realtors=[{"id": "a1", "nombre": "Ana", "foto_url": None, "bio": None, "agencia_nombre": "Casa",
                    "rating_promedio": 4.8, "n_resenas": 12}],
     )
-    r = _client(pool).get("/api/v1/comunidad/barrio-page?slug=El-Poblado&cd_comuna=14")
-    body = r.json()
-    assert r.status_code == 200
+    body = _client(pool).get("/api/v1/comunidad/barrio-page?cd_comuna=14").json()
     assert body["embajador"]["nombre"] == "Vale"
     assert body["historias"][0]["destacado"] is True
     assert body["historias"][0]["created_at"].startswith("2026-10-20")
     assert body["realtors"][0]["n_resenas"] == 12
-    posts_call = [c for c in pool.calls if c[0] == "fetch"][0]
-    assert posts_call[1] == (14, None, "featured-el-poblado")
+    assert all(c[0] == "14" for c in pool.calls)
 
 
-def test_municipio_pasa_por_nombre():
+def test_municipio_usa_pseudo_comuna():
     pool = FakePool()
-    _client(pool).get("/api/v1/comunidad/barrio-page?slug=envigado&municipio=ENVIGADO")
-    assert all(c[1][:2] == (None, "ENVIGADO") for c in pool.calls)
+    _client(pool).get("/api/v1/comunidad/barrio-page?municipio=Envigado")
+    assert all(c[0] == "102" for c in pool.calls)
+    assert ("102", "ENVIGADO") in pool.calls

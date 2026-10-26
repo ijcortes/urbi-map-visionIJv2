@@ -102,9 +102,12 @@ function relTime(_m: string, n: string, unit: string): string {
 }
 
 const _tsCache = new Map<string, string>();
+// Strings que useT() ya devolvió en inglés: el pase del diccionario no debe volver
+// a "traducirlas" ("Everything local" → "Everything retail space").
+const _alreadyEn = new Set<string>();
 
 export function translateString(input: string): string {
-  if (!input) return input;
+  if (!input || _alreadyEn.has(input) || _alreadyEn.has(input.trim())) return input;
   const hit = _tsCache.get(input);
   if (hit !== undefined) return hit;
   let out = input.replace(REL_TIME_RE, relTime);
@@ -414,7 +417,12 @@ export function useLang() {
  *   - API enum codes: lib/enumLabels.ts tables. */
 export function useT() {
   const { lang } = useLang();
-  return useCallback((es: string, en: string) => (lang === "en" ? en : es), [lang]);
+  return useCallback((es: string, en: string) => {
+    if (lang !== "en") return es;
+    if (_alreadyEn.size > 4000) _alreadyEn.clear();
+    _alreadyEn.add(en);
+    return en;
+  }, [lang]);
 }
 
 // ── Free on-device translation for free-text (listing descriptions) ──────────

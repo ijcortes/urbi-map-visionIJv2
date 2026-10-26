@@ -1,10 +1,10 @@
-import { AutoTranslate, Name, useT } from "@/lib/i18n";
+import { AutoTranslate, Name, useT, useLang } from "@/lib/i18n";
 import { seo } from "@/lib/seo";
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState, useCallback } from 'react'
 import { MapView } from '@/components/MapView'
 import { ComunidadLayout } from '@/components/comunidad/ComunidadLayout'
-import { useBarrio, BARRIOS, type Barrio } from '@/components/comunidad/BarrioContext'
+import { BARRIOS, comunaRep } from '@/components/comunidad/BarrioContext'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useDeals } from '@/hooks/useDeals'
 import { useDirectorio } from '@/hooks/useDirectorio'
@@ -14,7 +14,7 @@ import { HomeTourModal } from '@/components/HomeTourModal'
 import { API_ENDPOINTS } from '@/config/api'
 import { safeHref } from '@/lib/utils'
 import { K as TOKENS } from "@/design/tokens";
-import { CATEGORIA_LABELS, CATEGORIA_LABELS_EN } from "@/lib/categoriasNegocio";
+import { CATEGORIA_COLORS, CATEGORIA_EMOJI, categoriaNegocioLabel } from "@/lib/categorias_comunidad";
 
 export const Route = createFileRoute('/')({
   component: HomePage,
@@ -22,41 +22,8 @@ export const Route = createFileRoute('/')({
 })
 
 const K = TOKENS;
-
-const CATEGORIA_COLORS: Record<string, string> = {
-  bares: '#111418',
-  brunch: '#F3F0E8',
-  cafes: '#c8a96e',
-  cena: '#2d1b0e',
-  gimnasios: '#0F8A4F',
-  masajes_spa: '#d4a5c9',
-  medicos: '#E6ECF7',
-  dentistas: '#E6ECF7',
-  peluquerias: '#FCE8EA',
-  yoga: '#E7F4EC',
-}
-
-const CATEGORIA_EMOJI: Record<string, string> = {
-  bares: '🍺',
-  brunch: '☕',
-  cafes: '☕',
-  cena: '🍽️',
-  gimnasios: '💪',
-  masajes_spa: '🧖',
-  medicos: '🏥',
-  dentistas: '🦷',
-  peluquerias: '✂️',
-  yoga: '🧘',
-}
-
-// Resuelve la comuna/municipio clickeado en el mapa a su representante en BARRIOS
-// (slug + centroide): comunas de Medellín por cd_comuna, municipios del Valle por
-// nombre. Ese slug es el que ya consumen /eventos, /local-business y el filtro de
-// la home — todos comuna-level, no barrio-level.
-function comunaRep(cd: number | null, municipio: string | null): Barrio | undefined {
-  return (cd != null ? BARRIOS.find((b) => b.cd_comuna === cd) : undefined)
-    ?? (municipio ? BARRIOS.find((b) => b.municipio_nombre?.toUpperCase() === municipio.toUpperCase()) : undefined)
-}
+// El home es siempre todo el valle (cada barrio tiene su propia página).
+const barrio = BARRIOS.find((b) => b.slug === 'todos')!;
 
 function SecTitle({ children, link, linkLabel }: { children: string; link?: string; linkLabel?: string }) {
   return (
@@ -77,10 +44,10 @@ function SecTitle({ children, link, linkLabel }: { children: string; link?: stri
 }
 
 function HomeContent() {
-  const { barrio, lang } = useBarrio()
+  const { lang } = useLang()
   const isMobile = useIsMobile()
   const t = useT()
-  const catLabel = (cat: string) => (lang === 'es' ? CATEGORIA_LABELS : CATEGORIA_LABELS_EN)[cat] ?? cat
+  const catLabel = (cat: string) => categoriaNegocioLabel(cat, lang)
 
   const [nombre, setNombre] = useState('')
   const [email,  setEmail]  = useState('')
@@ -96,7 +63,7 @@ function HomeContent() {
       const res = await fetch(API_ENDPOINTS.suscribirse, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nombre, email, barrio_id: barrio.barrio_id ?? null }),
+        body: JSON.stringify({ nombre, email, barrio_id: null }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       setSuscrito(true)
@@ -105,7 +72,7 @@ function HomeContent() {
     } finally {
       setSuscribiendo(false)
     }
-  }, [nombre, email, barrio.barrio_id])
+  }, [nombre, email])
 
   const navigate = useNavigate()
   // Click en comuna/municipio del mapa → su página de barrio (Ken, 23-oct: el home
@@ -115,16 +82,12 @@ function HomeContent() {
     if (rep) navigate({ to: '/barrio/$slug', params: { slug: rep.slug } })
   }, [navigate])
 
-  // Home = todo el valle, siempre (cada barrio tiene su propia página).
-  const comunaFilter = null
-  const barrioFilter = null
-  const municipioFilter = undefined
 
-  const { data: noticias   = [], isLoading: noticiasLoading } = useNoticias(4, barrioFilter, municipioFilter, comunaFilter)
-  const { data: deals      = [], isLoading: dealsLoading }  = useDeals(1, barrioFilter, municipioFilter, comunaFilter)
-  const { data: directorio = [], isLoading: dirLoading }    = useDirectorio(1, barrioFilter, municipioFilter, comunaFilter)
+  const { data: noticias   = [], isLoading: noticiasLoading } = useNoticias(4)
+  const { data: deals      = [], isLoading: dealsLoading }  = useDeals(1)
+  const { data: directorio = [], isLoading: dirLoading }    = useDirectorio(1)
   // Eventos ya expanden a la comuna del barrio_id vía raw.barrios.comuna — sin cambio.
-  const { data: eventosSemana = [] }                        = useEventosSemana(barrioFilter, municipioFilter, 4)
+  const { data: eventosSemana = [] }                        = useEventosSemana(null, undefined, 4)
 
   return (
     <>
@@ -142,7 +105,7 @@ function HomeContent() {
           <div style={{ display: 'flex', height: 6, position: 'absolute', top: 0, left: 0, right: 0 }} aria-hidden>
             <div style={{ flex: 2, background: K.amarillo }} /><div style={{ flex: 1, background: K.azul }} /><div style={{ flex: 1, background: K.rojo }} />
           </div>
-          <div data-i18n-skip style={{ padding: isMobile ? '28px 20px 30px' : '56px 56px 54px', color: '#fff', maxWidth: 860 }}>
+          <div style={{ padding: isMobile ? '28px 20px 30px' : '56px 56px 54px', color: '#fff', maxWidth: 860 }}>
             <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 800, letterSpacing: '.18em', textTransform: 'uppercase', background: K.amarillo, color: K.ink, padding: '6px 12px', borderRadius: 999, marginBottom: 18 }}>
               {t('La revista de tu barrio', 'Your neighborhood magazine')}
             </span>
@@ -169,7 +132,7 @@ function HomeContent() {
 
       {/* ── QUÉ ES / POR QUÉ / PARA QUIÉN ── */}
       <section style={{ padding: isMobile ? '36px 16px 8px' : '64px 26px 16px' }}>
-        <div data-i18n-skip style={{ maxWidth: 1200, margin: '0 auto', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: isMobile ? 22 : 36 }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: isMobile ? 22 : 36 }}>
           {[
             { n: '01', h: t('Qué es', 'What it is'), p: t('Una guía viva de Medellín y el Valle de Aburrá, organizada por barrio y contada por quienes viven en él.', 'A living guide to Medellín and the Aburrá Valley, organized by barrio and told by the people who live there.') },
             { n: '02', h: t('Por qué es distinto', 'Why it’s different'), p: t('Cada barrio tiene su embajador, sus eventos, sus propiedades y sus negocios de confianza con ofertas solo para vecinos.', 'Every barrio has its own ambassador, events, listings and trusted businesses with offers just for neighbors.') },
@@ -189,7 +152,7 @@ function HomeContent() {
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
           <SecTitle>{t('Explora tu barrio', 'Explore your barrio')}</SecTitle>
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 24, alignItems: 'stretch' }}>
-            <div data-tour="home-hero-map" style={{
+            <div style={{
               position: 'relative', overflow: 'hidden', borderRadius: 16,
               // Caja vertical en desktop (Ken: "more vertically oriented") — el valle es alto.
               height: isMobile ? '48vh' : 'min(70vh, 640px)', minHeight: isMobile ? 300 : 460,

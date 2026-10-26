@@ -1,20 +1,17 @@
 import { test, expect } from "@playwright/test";
-import { openClean, dismissOverlays, SUBMIT, QC_TAG, API } from "./_helpers";
+import { openClean, SUBMIT, QC_TAG, API } from "./_helpers";
 
 // Agente "suscriptor": entra al home, explora un barrio, busca eventos y
-// (con QC_SUBMIT=1) se suscribe, publica un evento y un artículo.
+// (con QC_SUBMIT=1) manda un artículo. La suscripción vive en GHL (ghl.qc.ts).
 test.describe("suscriptor", () => {
   test("home → barrio → eventos", async ({ page }) => {
-    let check = await openClean(page, "/");
-    await dismissOverlays(page);
+    const check = await openClean(page, "/");
     await expect(page.locator("h1").first()).toBeVisible();
     await expect(page.locator("#explorar")).toBeVisible();
     await expect(page.locator("#subscribe")).toBeAttached();
-    check();
 
     await page.locator('#explorar a[href^="/barrio/"]').first().click();
     await expect(page).toHaveURL(/\/barrio\//);
-    check = await openClean(page, page.url().replace(/^https?:\/\/[^/]+/, ""));
     for (const id of ["#eventos", "#real-estate", "#negocios", "#lo-ultimo"]) {
       await expect(page.locator(id), `sección ${id}`).toBeVisible();
     }
@@ -30,12 +27,11 @@ test.describe("suscriptor", () => {
     }
   });
 
-  // La suscripción vive en GHL (ver ghl.qc.ts). Acá solo el artículo, que queda
-  // en la cola de moderación del sitio.
-  test("envía un artículo de prueba a moderación", async ({ request }) => {
+  // Queda en la cola de moderación del sitio. @api: corre solo en desktop.
+  test("envía un artículo de prueba a moderación @api", async ({ request }) => {
     test.skip(!SUBMIT, "QC_SUBMIT apagado");
     const stamp = Date.now();
-    const post = await request.post(`${API()}/comunidad/posts`, {
+    const post = await request.post(`${API}/comunidad/posts`, {
       data: { autor_nombre: `${QC_TAG} bot`, autor_email: `qc+${stamp}@medellinsocial.com`,
               titulo: `${QC_TAG} artículo ${stamp}`, cuerpo: "Prueba automática diaria del equipo de QC. No publicar." },
     });

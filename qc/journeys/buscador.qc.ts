@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { openClean, dismissOverlays, pickSegment, API } from "./_helpers";
+import { openClean, openMap, API } from "./_helpers";
 
 // Agente "buscador de propiedades": mapa, filtros, tipos de propiedad, detalle
 // de un listing y que su link original siga vivo.
@@ -7,9 +7,7 @@ const TIPOS = ["apartamento", "casa", "local"];
 
 test.describe("buscador de propiedades", () => {
   test("mapa carga y muestra listings de una comuna", async ({ page, isMobile }) => {
-    const check = await openClean(page, "/map?cd_comuna=14&nombre=El%20Poblado&zoom=12");
-    await dismissOverlays(page);
-    await pickSegment(page);
+    const check = await openMap(page);
     await expect(page.locator(".mapboxgl-canvas").first()).toBeVisible();
     // En celular la lista está detrás del botón "Lista".
     if (isMobile) await page.getByRole("button", { name: /^(Lista|List)$/ }).click();
@@ -18,16 +16,16 @@ test.describe("buscador de propiedades", () => {
   });
 
   for (const tipo of TIPOS) {
-    test(`API devuelve listings tipo ${tipo}`, async ({ request }) => {
-      const r = await request.get(`${API()}/listings?cd_comuna=14&tipo_inmueble=${tipo}&limit=5`);
+    test(`API devuelve listings tipo ${tipo} @api`, async ({ request }) => {
+      const r = await request.get(`${API}/listings?cd_comuna=14&tipo_inmueble=${tipo}&limit=5`);
       expect(r.status()).toBe(200);
       const body = await r.json();
       expect(Array.isArray(body.listings)).toBe(true);
     });
   }
 
-  test("detalle de un listing abre y tiene precio", async ({ page, request }) => {
-    const r = await request.get(`${API()}/listings?cd_comuna=14&limit=1`);
+  test("detalle de un listing abre y tiene precio @api", async ({ page, request }) => {
+    const r = await request.get(`${API}/listings?cd_comuna=14&limit=1`);
     const l = (await r.json()).listings?.[0];
     test.skip(!l, "sin listings en El Poblado");
     const check = await openClean(page, `/listing/${l.id}`);
@@ -41,13 +39,11 @@ test.describe("buscador de propiedades", () => {
 
   test("filtro de precio tiene botón Aplicar", async ({ page, isMobile }) => {
     test.skip(isMobile, "en móvil los filtros van en hoja completa");
-    await openClean(page, "/map?cd_comuna=14&nombre=El%20Poblado&zoom=12");
-    await dismissOverlays(page);
-    await pickSegment(page);
-    const pill = page.locator(".map-filter-pill").first();
-    await pill.click();
-    await expect(page.getByRole("button", { name: /Aplicar|Apply/ })).toBeVisible();
-    await page.getByRole("button", { name: /Aplicar|Apply/ }).click();
-    await expect(page.getByRole("button", { name: /Aplicar|Apply/ })).toHaveCount(0);
+    await openMap(page);
+    await page.locator(".map-filter-pill").first().click();
+    const aplicar = page.getByRole("button", { name: /Aplicar|Apply/ });
+    await expect(aplicar).toBeVisible();
+    await aplicar.click();
+    await expect(aplicar).toHaveCount(0);
   });
 });

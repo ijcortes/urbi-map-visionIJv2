@@ -133,7 +133,7 @@ function MapPageInner() {
   const [mapView, setMapView] = useState<"zonas" | "listings">("zonas");
   const [mlsBarrio, setMlsBarrio] = useState<Neighborhood | null>(null);
   const [highlightedListingId, setHighlightedListingId] = useState<number | null>(null);
-  const [hoverPoint, setHoverPoint] = useState<{ lat: number; lng: number } | null>(null);
+  const hoverPinRef = useRef<((p: { lat: number; lng: number } | null) => void) | null>(null);
   const [activeBarrioInComune, setActiveBarrioInComune] = useState<string | null>(null);
   const flyToListingRef = useRef<((lat: number, lng: number, zoom?: number) => void) | null>(null);
   // Deep-link comuna/municipio (botón "Listings" del home) parseado en el mount;
@@ -503,12 +503,8 @@ function MapPageInner() {
   function handleBarrioNavigate(opt: BarrioOption) {
     applyGeoSelection(geoSelectionForBarrio({ cd_comuna: opt.cd_comuna, comuna: opt.comuna, municipio: opt.municipio }));
     const apiBarrio = barriosRaw?.find((b) => b.barrio_id === opt.id);
-    // Sector buscado por su nombre popular ("Ciudad del Río" vive en el barrio oficial
-    // COLOMBIA): mostrar "Ciudad del Río (Colombia)", no solo el nombre oficial.
-    const label = (opt as BarrioOption & { label?: string }).label;
-    const display = label && label.toLowerCase() !== opt.nombre.toLowerCase()
-      ? `${label} (${opt.nombre.charAt(0)}${opt.nombre.slice(1).toLowerCase()})`
-      : null;
+    // Sector buscado por su nombre popular → "Ciudad del Río (Colombia)" (barrioSearch).
+    const display = opt.displayName;
     if (apiBarrio) {
       const n = barrioToNeighborhood(apiBarrio);
       setMlsBarrio(display ? { ...n, nombre: display } : n);
@@ -679,7 +675,7 @@ function MapPageInner() {
           paused={segmentoGate !== "done"}
           onReady={() => setMapReady(true)}
           highlightedListingId={highlightedListingId}
-          hoverPoint={hoverPoint}
+          hoverPinRef={hoverPinRef}
           flyToListingRef={flyToListingRef}
           onListingClickFromMap={handleListingClickFromMap}
           onListingDoubleClickFromMap={handleListingDoubleClickFromMap}
@@ -770,10 +766,7 @@ function MapPageInner() {
           isLoading={mergedLoading}
           onBack={handleBackToZonas}
           onListingSelect={handleListingSelect}
-          onListingHover={(id) => {
-            const l = id == null ? null : mergedListings.find((x) => x.id === id)
-            setHoverPoint(l?.lat && l?.lon ? { lat: l.lat, lng: l.lon } : null)
-          }}
+          onListingHover={(l) => hoverPinRef.current?.(l?.lat && l?.lon ? { lat: l.lat, lng: l.lon } : null)}
           highlightedListingId={highlightedListingId}
           activeBarrioName={activeBarrioInComune}
           onBarrioFilter={handleBarrioFilter}

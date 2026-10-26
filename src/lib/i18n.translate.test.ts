@@ -180,3 +180,15 @@ describe("language persistence (I9)", () => {
   });
 });
 
+
+describe("useT + diccionario", () => {
+  it("no re-traduce lo que useT ya devolvió en inglés", async () => {
+    const { renderHook } = await import("@testing-library/react");
+    const { persistLang, useT: useTHook, LanguageProvider } = await import("./i18n");
+    persistLang("en");
+    const { result } = renderHook(() => useTHook(), { wrapper: LanguageProvider });
+    const en = result.current("Todo lo local, en un solo lugar.", "Everything local, in one place.");
+    expect(translateString(en)).toBe(en);
+    persistLang("es");
+  });
+});

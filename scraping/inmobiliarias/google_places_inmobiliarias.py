@@ -34,7 +34,10 @@ from scraping.tiendas.google_places_scraper import (  # noqa: E402
     API_KEY, get_barrios_por_comuna, get_conn, scrape_barrio_categoria,
 )
 
-TIPOS = ["real_estate_agency"]
+# Solo los campos que usa el CSV: Places factura por el tier más caro pedido.
+FIELD_MASK = ",".join(f"places.{f}" for f in (
+    "id", "displayName", "formattedAddress", "nationalPhoneNumber", "websiteUri", "rating", "userRatingCount",
+))
 # Excluir lo que no es una inmobiliaria con la que se pueda hacer un trato.
 _NO_INMOBILIARIA = ("fiduciaria", "notaria", "banco", "constructora")
 GHL_COLUMNS = ["Company Name", "Phone", "Website", "Address1", "City", "Tags", "Source", "Rating", "Reviews", "Google Place ID", "Zona"]
@@ -61,7 +64,7 @@ def a_fila(p: dict, zona: str, municipio: str) -> dict | None:
     }
 
 
-def run(por_comuna: int, out: Path) -> int:
+def run(por_comuna: int, out: Path) -> None:
     if not API_KEY:
         sys.exit("ERROR: GOOGLE_PLACES_API_KEY not set")
     conn = get_conn()
@@ -73,11 +76,11 @@ def run(por_comuna: int, out: Path) -> int:
 
     filas: dict[str, dict] = {}
     for b in zonas:
-        for p in scrape_barrio_categoria(b, TIPOS):
-            f = a_fila(p, str(b.get("zona", "")), b.get("municipio", ""))
-            if f and f["Google Place ID"] not in filas:
-                filas[f["Google Place ID"]] = f
-        print(f"  {b.get('zona', ''):>12} {b['nombre']:30} → {len(filas)} acumuladas")
+        for p in scrape_barrio_categoria(b, ["real_estate_agency"], field_mask=FIELD_MASK):
+            f = a_fila(p, str(b["zona"]), b["municipio"])
+            if f:
+                filas.setdefault(f["Google Place ID"], f)
+        print(f"  {b['zona']:>12} {b['nombre']:30} → {len(filas)} acumuladas")
 
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", newline="", encoding="utf-8") as fh:
@@ -85,7 +88,6 @@ def run(por_comuna: int, out: Path) -> int:
         w.writeheader()
         w.writerows(sorted(filas.values(), key=lambda f: -(f["Reviews"] or 0)))
     print(f"\n{len(filas)} inmobiliarias → {out}")
-    return len(filas)
 
 
 if __name__ == "__main__":

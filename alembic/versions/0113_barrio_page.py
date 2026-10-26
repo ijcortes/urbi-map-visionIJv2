@@ -1,10 +1,11 @@
-"""feat: página de barrio (Ken, call 23-oct) — embajador por comuna + tags de destacado
+"""feat: página de barrio (Ken, call 23-oct) — reusa embajadores y el destacado con alcance
 
-* public.embajador_perfil       embajador del barrio: foto, bio, video, artículo clave.
-                                Uno activo por comuna (cd_comuna) o municipio del Valle.
-* comunidad_post.tags text[]    "featured-<slug>" marca el artículo destacado de esa
-                                comuna; se cambia quitando/poniendo el tag, el post sigue
-                                en el blog del barrio.
+* public.embajadores + video_url, post_id   el embajador del barrio ya existe (0012);
+                                             solo faltaban su video y su artículo clave.
+* comunidad_post + destacado / destacado_nivel / destacado_zona_codigo
+                                             mismo alcance (barrio | comuna | ciudad) que
+                                             eventos y tiendas (0079), editable con el
+                                             mismo PATCH de admin.
 
 Revision ID: 0113
 Revises: 0112
@@ -19,27 +20,24 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute("""
-        CREATE TABLE IF NOT EXISTS public.embajador_perfil (
-            id          SERIAL PRIMARY KEY,
-            cd_comuna   INTEGER,
-            municipio   VARCHAR,
-            nombre      VARCHAR NOT NULL,
-            foto_url    VARCHAR,
-            bio         TEXT,
-            video_url   VARCHAR,
-            post_id     INTEGER REFERENCES public.comunidad_post(id) ON DELETE SET NULL,
-            activo      BOOLEAN NOT NULL DEFAULT TRUE,
-            created_at  TIMESTAMP DEFAULT NOW(),
-            CONSTRAINT chk_embajador_zona CHECK (cd_comuna IS NOT NULL OR municipio IS NOT NULL)
-        )
+        ALTER TABLE public.embajadores
+            ADD COLUMN IF NOT EXISTS video_url VARCHAR,
+            ADD COLUMN IF NOT EXISTS post_id   INTEGER REFERENCES public.comunidad_post(id) ON DELETE SET NULL
     """)
-    op.execute("CREATE INDEX IF NOT EXISTS ix_embajador_cd ON public.embajador_perfil(cd_comuna) WHERE activo")
-    op.execute("CREATE INDEX IF NOT EXISTS ix_embajador_muni ON public.embajador_perfil(upper(municipio)) WHERE activo")
-    op.execute("ALTER TABLE public.comunidad_post ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}'")
-    op.execute("CREATE INDEX IF NOT EXISTS ix_comunidad_post_tags ON public.comunidad_post USING GIN (tags)")
+    op.execute("""
+        ALTER TABLE public.comunidad_post
+            ADD COLUMN IF NOT EXISTS destacado BOOLEAN NOT NULL DEFAULT FALSE,
+            ADD COLUMN IF NOT EXISTS destacado_nivel VARCHAR
+                CHECK (destacado_nivel IN ('barrio', 'comuna', 'ciudad')),
+            ADD COLUMN IF NOT EXISTS destacado_zona_codigo VARCHAR
+    """)
 
 
 def downgrade() -> None:
-    op.execute("DROP INDEX IF EXISTS public.ix_comunidad_post_tags")
-    op.execute("ALTER TABLE public.comunidad_post DROP COLUMN IF EXISTS tags")
-    op.execute("DROP TABLE IF EXISTS public.embajador_perfil")
+    op.execute("""
+        ALTER TABLE public.comunidad_post
+            DROP COLUMN IF EXISTS destacado_zona_codigo,
+            DROP COLUMN IF EXISTS destacado_nivel,
+            DROP COLUMN IF EXISTS destacado
+    """)
+    op.execute("ALTER TABLE public.embajadores DROP COLUMN IF EXISTS post_id, DROP COLUMN IF EXISTS video_url")

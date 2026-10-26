@@ -274,11 +274,11 @@ def load_barrios_from_db(
     return filtered
 
 
-def scrape_barrio_categoria(barrio: dict, types: list[str], retries: int = 4) -> list[dict]:
+def scrape_barrio_categoria(barrio: dict, types: list[str], retries: int = 4, field_mask: str = FIELD_MASK) -> list[dict]:
     headers = {
         "Content-Type":     "application/json",
         "X-Goog-Api-Key":   API_KEY,
-        "X-Goog-FieldMask": FIELD_MASK,
+        "X-Goog-FieldMask": field_mask,
     }
     body = {
         "includedTypes": types,

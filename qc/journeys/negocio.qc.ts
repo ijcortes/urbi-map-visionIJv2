@@ -17,8 +17,8 @@ test.describe("negocio", () => {
   });
 
   for (const ep of ["business/directorio?ciudad_id=1&cd_comuna=14", "business/deals?ciudad_id=1&cd_comuna=14", "business/planes"]) {
-    test(`API ${ep}`, async ({ request }) => {
-      const r = await request.get(`${API()}/${ep}`);
+    test(`API ${ep} @api`, async ({ request }) => {
+      const r = await request.get(`${API}/${ep}`);
       expect(r.status()).toBe(200);
     });
   }

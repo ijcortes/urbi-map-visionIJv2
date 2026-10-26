@@ -113,6 +113,13 @@ export const CATEGORIA_LABELS: Record<string, string> = {
   parqueaderos: 'Parqueadero', remodelaciones: 'Remodelación',
 }
 
+/** Nombre legible de una categoría de negocio (clave de public.tiendas.categoria). */
+export function categoriaNegocioLabel(cat: string, lang: 'es' | 'en'): string {
+  const c = CATEGORIAS_TIENDAS_MAP[cat]
+  if (c) return lang === 'en' ? c.labelEn : c.label
+  return CATEGORIA_LABELS[cat] ?? cat.replace(/_/g, ' ')
+}
+
 export const CATEGORIA_COLORS: Record<string, string> = {
   bares: '#111418', brunch: '#F3F0E8', cafes: '#c8a96e', cena: '#2d1b0e',
   gimnasios: '#0F8A4F', masajes_spa: '#d4a5c9', medicos: '#E6ECF7',

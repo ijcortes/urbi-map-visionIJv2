@@ -73,19 +73,14 @@ const FALLBACK_ITEMS_EN = [
 ]
 
 export function ComunidadNavbar({ compact = false, hideTicker = false }: { compact?: boolean; hideTicker?: boolean }) {
-  const { barrio, barrios, lang, setLang: setBarrioLang, setBarrioSlug } = useBarrio()
-  const { setLang: setGlobalLang } = useLang()
+  const { barrio, barrios, setBarrioSlug } = useBarrio()
+  const { lang, setLang } = useLang()
   const [today,       setToday]       = useState('')
   const [path,        setPath]        = useState('')
   const [menuAbierto, setMenuAbierto] = useState(false)
   const [reOpen,      setReOpen]      = useState(false)
   const isAgente = useIsAgente()
   const logged = !!auth.get()
-
-  function setLang(l: 'es' | 'en') {
-    setBarrioLang(l)
-    setGlobalLang(l)
-  }
 
   const t = useT()
 

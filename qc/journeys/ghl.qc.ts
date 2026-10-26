@@ -16,6 +16,7 @@ import { SUBMIT, QC_TAG } from "./_helpers";
 // En GHL: los workflows que disparan estos formularios deberían ignorar contactos
 // con email qc+…@medellinsocial.com (o el tag "qc-test") para no mandar mensajes.
 
+// Mismos valores que api/utils/ghl_client.py (_BASE_URL / _VERSION): actualizar ambos.
 const GHL = "https://services.leadconnectorhq.com";
 const TOKEN = process.env.GHL_PRIVATE_TOKEN ?? "";
 const LOCATION = process.env.GHL_LOCATION_ID ?? "";
@@ -33,7 +34,8 @@ async function findContact(request: APIRequestContext, email: string) {
   return (body.contacts ?? []).find((c: { email?: string }) => c.email?.toLowerCase() === email.toLowerCase());
 }
 
-test.describe("formularios GHL", () => {
+// @api en el título: envía un contacto real por formulario → solo en desktop.
+test.describe("formularios GHL @api", () => {
   test.skip(!SUBMIT, "QC_SUBMIT apagado");
   test.skip(!TOKEN || !LOCATION, "faltan GHL_PRIVATE_TOKEN / GHL_LOCATION_ID");
   test.skip(FORMS.length === 0, "QC_GHL_FORMS vacío");
@@ -42,6 +44,8 @@ test.describe("formularios GHL", () => {
     test(`envía y llega a GHL: ${form.nombre}`, async ({ page, request }) => {
       const email = `qc+${form.nombre}-${Date.now()}@medellinsocial.com`;
       await page.goto(form.url, { waitUntil: "domcontentloaded" });
+      // El formulario de GHL se pinta con JS: esperar al campo de email antes de llenar.
+      await page.locator('input[name="email"], input[type="email"]').first().waitFor({ timeout: 20_000 });
 
       const fill = async (sel: string, value: string) => {
         const el = page.locator(sel).first();
@@ -63,11 +67,9 @@ test.describe("formularios GHL", () => {
 
       // GHL tarda unos segundos en crear el contacto.
       let contact: { id: string } | undefined;
-      for (let i = 0; i < 12 && !contact; i++) {
-        await page.waitForTimeout(5_000);
-        contact = await findContact(request, email);
-      }
-      expect(contact, `el contacto ${email} no llegó a GHL en 60s`).toBeTruthy();
+      await expect.poll(async () => (contact = await findContact(request, email)), {
+        message: `el contacto ${email} no llegó a GHL en 60s`, timeout: 60_000, intervals: [1_000, 2_000, 5_000],
+      }).toBeTruthy();
 
       const del = await request.delete(`${GHL}/contacts/${contact!.id}`, { headers });
       expect(del.status(), "borrar contacto de prueba en GHL").toBeLessThan(300);

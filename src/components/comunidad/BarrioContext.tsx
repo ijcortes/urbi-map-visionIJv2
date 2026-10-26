@@ -1,4 +1,3 @@
-import { useLang } from '@/lib/i18n'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 
 export interface Barrio {
@@ -43,11 +42,18 @@ export const BARRIOS: Barrio[] = [
   { slug: 'copacabana',  nombre: 'Copacabana',  barrio_id: null, municipio_nombre: 'COPACABANA',  lat: 6.3500,   lon: -75.5100,  zoom: 13, grupo: 'Valle de Aburrá' },
 ]
 
+// Resuelve la comuna/municipio clickeado en el mapa a su representante en BARRIOS
+// (slug + centroide): comunas de Medellín por cd_comuna, municipios del Valle por
+// nombre. Ese slug es el que ya consumen /eventos, /local-business y el filtro de
+// la home — todos comuna-level, no barrio-level.
+export function comunaRep(cd: number | null, municipio: string | null): Barrio | undefined {
+  return (cd != null ? BARRIOS.find((b) => b.cd_comuna === cd) : undefined)
+    ?? (municipio ? BARRIOS.find((b) => b.municipio_nombre?.toUpperCase() === municipio.toUpperCase()) : undefined)
+}
+
 interface BarrioCtx {
   barrio: Barrio
   barrios: Barrio[]
-  lang: 'es' | 'en'
-  setLang: (l: 'es' | 'en') => void
   setBarrioSlug: (slug: string) => void
 }
 
@@ -56,11 +62,6 @@ const BarrioCtx = createContext<BarrioCtx | null>(null)
 export function BarrioProvider({ children, initialSlug }: { children: ReactNode; initialSlug?: string }) {
   const initial = BARRIOS.find(b => b.slug === initialSlug) ?? BARRIOS[0]
   const [barrio, setBarrio] = useState<Barrio>(initial)
-  // Un solo idioma para todo el sitio: el de LanguageProvider (SSR = es, cliente =
-  // guardado → navegador, sin desajuste de hidratación). Antes este contexto tenía
-  // su propia copia en localStorage que podía no coincidir con la del resto.
-  const { lang, setLang } = useLang()
-
   useEffect(() => {
     const found = BARRIOS.find(b => b.slug === initialSlug)
     if (found && found.slug !== barrio.slug) setBarrio(found)
@@ -72,7 +73,7 @@ export function BarrioProvider({ children, initialSlug }: { children: ReactNode;
   }
 
   return (
-    <BarrioCtx.Provider value={{ barrio, barrios: BARRIOS, lang, setLang, setBarrioSlug }}>
+    <BarrioCtx.Provider value={{ barrio, barrios: BARRIOS, setBarrioSlug }}>
       {children}
     </BarrioCtx.Provider>
   )

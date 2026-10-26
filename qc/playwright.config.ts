@@ -23,6 +23,7 @@ export default defineConfig({
   },
   projects: [
     { name: "desktop", use: { ...devices["Desktop Chrome"] } },
-    { name: "mobile", use: { ...devices["Pixel 7"] } },
+    // Los tests @api no dependen del navegador: solo una vez (desktop).
+    { name: "mobile", use: { ...devices["Pixel 7"] }, grepInvert: /@api/ },
   ],
 });

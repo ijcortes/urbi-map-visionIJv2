@@ -1,4 +1,4 @@
-import { Name, useT } from "@/lib/i18n";
+import { Name, useT, useLang } from "@/lib/i18n";
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useRef, useEffect, type ReactNode } from 'react'
 import mapboxgl from 'mapbox-gl'
@@ -501,7 +501,8 @@ function GroupLabel({ children }: { children: string }) {
 const PANEL_H = 'calc(100vh - 210px)'
 
 function LocalBusinessPage() {
-  const { barrio, barrios, lang } = useBarrio()
+  const { barrio, barrios } = useBarrio()
+  const { lang } = useLang()
   const t = useT()
   const isMobile = useIsMobile()
   const [mobileView, setMobileView] = useState<'list' | 'map'>('map')
