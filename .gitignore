@@ -77,3 +77,4 @@ Caddyfile.bak
 # QC diario (Playwright)
 qc-report/
 test-results/
+exports/
