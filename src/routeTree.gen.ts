@@ -37,6 +37,7 @@ import { Route as SuscribirseRouteImport } from './routes/suscribirse'
 import { Route as VenderRouteImport } from './routes/vender'
 import { Route as VerifyEmailRouteImport } from './routes/verify-email'
 import { Route as AgentesRegistroRouteImport } from './routes/agentes_.registro'
+import { Route as BarrioSlugRouteImport } from './routes/barrio.$slug'
 import { Route as EventosBarrio_slugRouteImport } from './routes/eventos/$barrio_slug'
 import { Route as ListingIdRouteImport } from './routes/listing.$id'
 import { Route as LocalBusinessBarrio_slugRouteImport } from './routes/local-business/$barrio_slug'
@@ -193,6 +194,11 @@ const AgentesRegistroRoute = AgentesRegistroRouteImport.update({
   path: '/agentes/registro',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BarrioSlugRoute = BarrioSlugRouteImport.update({
+  id: '/barrio/$slug',
+  path: '/barrio/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const EventosBarrio_slugRoute = EventosBarrio_slugRouteImport.update({
   id: '/eventos/$barrio_slug',
   path: '/eventos/$barrio_slug',
@@ -299,6 +305,7 @@ export interface FileRoutesByFullPath {
   '/vender': typeof VenderRoute
   '/verify-email': typeof VerifyEmailRoute
   '/agentes/registro': typeof AgentesRegistroRoute
+  '/barrio/$slug': typeof BarrioSlugRoute
   '/eventos/$barrio_slug': typeof EventosBarrio_slugRoute
   '/listing/$id': typeof ListingIdRoute
   '/local-business/$barrio_slug': typeof LocalBusinessBarrio_slugRoute
@@ -344,6 +351,7 @@ export interface FileRoutesByTo {
   '/vender': typeof VenderRoute
   '/verify-email': typeof VerifyEmailRoute
   '/agentes/registro': typeof AgentesRegistroRoute
+  '/barrio/$slug': typeof BarrioSlugRoute
   '/eventos/$barrio_slug': typeof EventosBarrio_slugRoute
   '/listing/$id': typeof ListingIdRoute
   '/local-business/$barrio_slug': typeof LocalBusinessBarrio_slugRoute
@@ -390,6 +398,7 @@ export interface FileRoutesById {
   '/vender': typeof VenderRoute
   '/verify-email': typeof VerifyEmailRoute
   '/agentes_/registro': typeof AgentesRegistroRoute
+  '/barrio/$slug': typeof BarrioSlugRoute
   '/eventos/$barrio_slug': typeof EventosBarrio_slugRoute
   '/listing/$id': typeof ListingIdRoute
   '/local-business/$barrio_slug': typeof LocalBusinessBarrio_slugRoute
@@ -437,6 +446,7 @@ export interface FileRouteTypes {
     | '/vender'
     | '/verify-email'
     | '/agentes/registro'
+    | '/barrio/$slug'
     | '/eventos/$barrio_slug'
     | '/listing/$id'
     | '/local-business/$barrio_slug'
@@ -482,6 +492,7 @@ export interface FileRouteTypes {
     | '/vender'
     | '/verify-email'
     | '/agentes/registro'
+    | '/barrio/$slug'
     | '/eventos/$barrio_slug'
     | '/listing/$id'
     | '/local-business/$barrio_slug'
@@ -527,6 +538,7 @@ export interface FileRouteTypes {
     | '/vender'
     | '/verify-email'
     | '/agentes_/registro'
+    | '/barrio/$slug'
     | '/eventos/$barrio_slug'
     | '/listing/$id'
     | '/local-business/$barrio_slug'
@@ -573,6 +585,7 @@ export interface RootRouteChildren {
   VenderRoute: typeof VenderRoute
   VerifyEmailRoute: typeof VerifyEmailRoute
   AgentesRegistroRoute: typeof AgentesRegistroRoute
+  BarrioSlugRoute: typeof BarrioSlugRoute
   EventosBarrio_slugRoute: typeof EventosBarrio_slugRoute
   ListingIdRoute: typeof ListingIdRoute
   LocalBusinessBarrio_slugRoute: typeof LocalBusinessBarrio_slugRoute
@@ -788,6 +801,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentesRegistroRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/barrio/$slug': {
+      id: '/barrio/$slug'
+      path: '/barrio/$slug'
+      fullPath: '/barrio/$slug'
+      preLoaderRoute: typeof BarrioSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/eventos/$barrio_slug': {
       id: '/eventos/$barrio_slug'
       path: '/eventos/$barrio_slug'
@@ -925,6 +945,7 @@ const rootRouteChildren: RootRouteChildren = {
   VenderRoute: VenderRoute,
   VerifyEmailRoute: VerifyEmailRoute,
   AgentesRegistroRoute: AgentesRegistroRoute,
+  BarrioSlugRoute: BarrioSlugRoute,
   EventosBarrio_slugRoute: EventosBarrio_slugRoute,
   ListingIdRoute: ListingIdRoute,
   LocalBusinessBarrio_slugRoute: LocalBusinessBarrio_slugRoute,

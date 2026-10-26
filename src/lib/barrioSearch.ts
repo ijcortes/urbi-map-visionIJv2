@@ -41,6 +41,7 @@ export function aliasToOption(a: ApiBarrioAlias, allBarrios: BarrioOption[] | un
     ...base,
     label: isAlias ? a.alias : base.nombre,
     hint: isAlias ? `${title(base.nombre)}${a.comuna ? ` · ${title(a.comuna)}` : ""}` : undefined,
+    displayName: isAlias ? `${a.alias} (${title(base.nombre)})` : undefined,
   };
 }
 

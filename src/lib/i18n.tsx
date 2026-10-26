@@ -102,9 +102,12 @@ function relTime(_m: string, n: string, unit: string): string {
 }
 
 const _tsCache = new Map<string, string>();
+// Strings que useT() ya devolvió en inglés: el pase del diccionario no debe volver
+// a "traducirlas" ("Everything local" → "Everything retail space").
+const _alreadyEn = new Set<string>();
 
 export function translateString(input: string): string {
-  if (!input) return input;
+  if (!input || _alreadyEn.has(input) || _alreadyEn.has(input.trim())) return input;
   const hit = _tsCache.get(input);
   if (hit !== undefined) return hit;
   let out = input.replace(REL_TIME_RE, relTime);
@@ -219,12 +222,21 @@ function readCookieLang(): Lang | null {
   return m ? parseLang(decodeURIComponent(m[1])) : null;
 }
 
+// Sin elección guardada: el idioma del navegador decide (Ken, 23-oct — la mayoría
+// de la audiencia es extranjera). Cualquier "es-*" → es; el resto → en.
+function browserLang(): Lang {
+  if (typeof navigator === "undefined") return "es";
+  const prefs = navigator.languages?.length ? navigator.languages : [navigator.language];
+  const first = (prefs[0] ?? "es").toLowerCase();
+  return first.startsWith("es") ? "es" : "en";
+}
+
 export function readStoredLang(): Lang {
   if (typeof window === "undefined") return "es";
   try {
-    return parseLang(window.localStorage.getItem(KEY)) ?? readCookieLang() ?? "es";
+    return parseLang(window.localStorage.getItem(KEY)) ?? readCookieLang() ?? browserLang();
   } catch {
-    return readCookieLang() ?? "es";
+    return readCookieLang() ?? browserLang();
   }
 }
 
@@ -405,7 +417,12 @@ export function useLang() {
  *   - API enum codes: lib/enumLabels.ts tables. */
 export function useT() {
   const { lang } = useLang();
-  return useCallback((es: string, en: string) => (lang === "en" ? en : es), [lang]);
+  return useCallback((es: string, en: string) => {
+    if (lang !== "en") return es;
+    if (_alreadyEn.size > 4000) _alreadyEn.clear();
+    _alreadyEn.add(en);
+    return en;
+  }, [lang]);
 }
 
 // ── Free on-device translation for free-text (listing descriptions) ──────────

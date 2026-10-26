@@ -1,0 +1,63 @@
+# Equipo de QC (Ken, 23-oct): todos los días un agente por tipo de usuario
+# (suscriptor, buscador de propiedades, realtor, negocio) recorre el sitio real.
+# Si algo se rompe, abre (o comenta) un issue "QC diario" con el detalle y deja
+# capturas + trazas como artifact.
+name: QC diario
+
+on:
+  schedule:
+    - cron: "0 11 * * *" # 6:00 am Medellín
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  qc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Recorrer el sitio
+        id: run
+        continue-on-error: true
+        run: npx playwright test -c qc/playwright.config.ts
+        env:
+          QC_BASE_URL: ${{ vars.QC_BASE_URL }}
+          QC_API_URL: ${{ vars.QC_API_URL }}
+          QC_SUBMIT: ${{ vars.QC_SUBMIT }}
+          QC_GHL_FORMS: ${{ vars.QC_GHL_FORMS }}
+          QC_TEST_PHONE: ${{ vars.QC_TEST_PHONE }}
+          GHL_PRIVATE_TOKEN: ${{ secrets.GHL_PRIVATE_TOKEN }}
+          GHL_LOCATION_ID: ${{ secrets.GHL_LOCATION_ID }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qc-report
+          path: |
+            qc-report
+            test-results
+          retention-days: 14
+      - name: Reportar fallas
+        if: steps.run.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node qc/resumen.mjs qc-report/results.json > resumen.md
+          echo "" >> resumen.md
+          echo "Capturas y trazas: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> resumen.md
+          n=$(gh issue list --state open --label qc-diario --json number --jq '.[0].number')
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --body-file resumen.md
+          else
+            gh label create qc-diario --color CE1126 --force
+            gh issue create --title "QC diario: algo se rompió" --label qc-diario --body-file resumen.md
+          fi
+          exit 1

@@ -1,7 +1,8 @@
+import { useLang } from '@/lib/i18n'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useIsFetching } from '@tanstack/react-query'
 import { useRouterState } from '@tanstack/react-router'
-import { BarrioProvider, useBarrio } from './BarrioContext'
+import { BarrioProvider } from './BarrioContext'
 import { ComunidadNavbar } from './ComunidadNavbar'
 import { ComunidadFooter } from './ComunidadFooter'
 import { LoadingVeil } from '../LoadingVeil'
@@ -86,7 +87,7 @@ function useScrollReveal(path: string) {
 }
 
 function Inner({ children, subNav, compact }: { children: ReactNode; subNav?: ReactNode; compact?: boolean }) {
-  const { lang } = useBarrio()
+  const { lang } = useLang()
   const path = useRouterState({ select: s => s.location.pathname })
   const booting = useBooting(path)
   useScrollReveal(path)

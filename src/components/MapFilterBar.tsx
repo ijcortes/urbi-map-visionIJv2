@@ -1111,6 +1111,28 @@ function AmenidadesPanel({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+// Pop-ups de filtro sin botón propio llevan "Aplicar" (Ken, 23-oct). Los filtros ya
+// se aplican en vivo; el botón confirma y cierra. (Precio y amenidades ya traen el suyo.)
+function PanelShell({ innerRef, style, onDone, en, children }: {
+  innerRef: React.RefObject<HTMLDivElement | null>;
+  style: React.CSSProperties;
+  onDone: () => void;
+  en: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div ref={innerRef} style={style}>
+      {children}
+      <div style={{ position: "sticky", bottom: 0, marginTop: 6, background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 8 }}>
+        <button type="button" onClick={onDone} data-i18n-skip
+          style={{ width: "100%", minHeight: 36, borderRadius: 8, background: C.teal, color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+          {en ? "Apply" : "Aplicar"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function MapFilterBar({
   activeTab, onTabChange, filters, onFiltersChange, onResetAll, allBarrios, onBarrioNavigate, onBarrioClear,
   activeComunaCd, activeMunicipio, onComunaSelect,
@@ -1198,7 +1220,6 @@ export function MapFilterBar({
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (!barRef.current?.contains(t) && !dropdownRef.current?.contains(t)) close();
       if (!searchRef.current?.contains(t)) setSearchOpen(false);
     };
     document.addEventListener("mousedown", handler);
@@ -1803,15 +1824,15 @@ export function MapFilterBar({
         );
       case "habBanos":
         return (
-          <div ref={dropdownRef} style={wrapStyle}>
+          <PanelShell innerRef={dropdownRef} style={wrapStyle} onDone={close} en={lang === "en"}>
             <HabBanosPanel filters={filters} onChange={onFiltersChange} />
-          </div>
+          </PanelShell>
         );
       case "tipo":
         return (
-          <div ref={dropdownRef} style={wrapStyle}>
+          <PanelShell innerRef={dropdownRef} style={wrapStyle} onDone={close} en={lang === "en"}>
             <TipoPanel filters={filters} onChange={onFiltersChange} />
-          </div>
+          </PanelShell>
         );
       case "amenidades":
         return (
@@ -1853,7 +1874,7 @@ export function MapFilterBar({
             ];
 
         return (
-          <div ref={dropdownRef} style={wrapStyle}>
+          <PanelShell innerRef={dropdownRef} style={wrapStyle} onDone={close} en={lang === "en"}>
             <div style={{ ...panelBase, minWidth: 300 }}>
               <span style={{ ...labelSm, fontSize: 13, fontWeight: 700, marginBottom: 16 }}>
                 Filtros
@@ -2029,7 +2050,7 @@ export function MapFilterBar({
                 </button>
               </div>
             </div>
-          </div>
+          </PanelShell>
         );
       }
       default:
@@ -2170,6 +2191,12 @@ export function MapFilterBar({
         </div>
       )}
 
+      {activePanel && (
+        // Capa transparente bajo el pop-up: un click afuera SOLO lo cierra y no llega
+        // al mapa (antes seleccionaba otra zona y cambiaba la búsqueda). Empieza bajo
+        // la barra, así clickear otra pill sigue cambiando de filtro directo.
+        <div aria-hidden onClick={close} style={{ position: "fixed", left: 0, right: 0, bottom: 0, top: barRef.current?.getBoundingClientRect().bottom ?? 0, zIndex: 199 }} />
+      )}
       {activePanel}
       {mobileSheet}
     </>

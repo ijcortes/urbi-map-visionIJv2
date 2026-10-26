@@ -73,19 +73,14 @@ const FALLBACK_ITEMS_EN = [
 ]
 
 export function ComunidadNavbar({ compact = false, hideTicker = false }: { compact?: boolean; hideTicker?: boolean }) {
-  const { barrio, barrios, lang, setLang: setBarrioLang, setBarrioSlug } = useBarrio()
-  const { setLang: setGlobalLang } = useLang()
+  const { barrio, barrios, setBarrioSlug } = useBarrio()
+  const { lang, setLang } = useLang()
   const [today,       setToday]       = useState('')
   const [path,        setPath]        = useState('')
   const [menuAbierto, setMenuAbierto] = useState(false)
   const [reOpen,      setReOpen]      = useState(false)
   const isAgente = useIsAgente()
   const logged = !!auth.get()
-
-  function setLang(l: 'es' | 'en') {
-    setBarrioLang(l)
-    setGlobalLang(l)
-  }
 
   const t = useT()
 
@@ -143,6 +138,9 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
     const sections = ['eventos', 'local-business']
     if (sections.includes(parts[0])) {
       window.location.href = `/${parts[0]}/${newSlug}`
+    } else if (parts.length === 0 || parts[0] === 'barrio') {
+      // Home no cambia según el barrio (Ken, 23-oct): elegir uno lleva a su página.
+      window.location.href = newSlug === 'todos' ? '/' : `/barrio/${newSlug}`
     } else {
       setBarrioSlug(newSlug)
     }
@@ -298,15 +296,15 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
                 >
                   <optgroup label="── Medellín ──" style={{ color: K.ink, background: '#fff' }}>
                     {medellin.map(b => (
-                      <option key={b.slug} value={b.slug} style={{ color: K.ink, background: '#fff' }}>
-                        <Name>{b.nombre}</Name>
+                      <option key={b.slug} value={b.slug} data-i18n-skip style={{ color: K.ink, background: '#fff' }}>
+                        {b.nombre}
                       </option>
                     ))}
                   </optgroup>
                   <optgroup label="── Valle de Aburrá ──" style={{ color: K.ink, background: '#fff' }}>
                     {valleAbura.map(b => (
-                      <option key={b.slug} value={b.slug} style={{ color: K.ink, background: '#fff' }}>
-                        <Name>{b.nombre}</Name>
+                      <option key={b.slug} value={b.slug} data-i18n-skip style={{ color: K.ink, background: '#fff' }}>
+                        {b.nombre}
                       </option>
                     ))}
                   </optgroup>
@@ -485,15 +483,15 @@ export function ComunidadNavbar({ compact = false, hideTicker = false }: { compa
               >
                 <optgroup label="── Medellín ──" style={{ color: K.ink, background: '#fff' }}>
                   {medellin.map(b => (
-                    <option key={b.slug} value={b.slug} style={{ color: K.ink, background: '#fff' }}>
-                      <Name>{b.nombre}</Name>
+                    <option key={b.slug} value={b.slug} data-i18n-skip style={{ color: K.ink, background: '#fff' }}>
+                      {b.nombre}
                     </option>
                   ))}
                 </optgroup>
                 <optgroup label="── Valle de Aburrá ──" style={{ color: K.ink, background: '#fff' }}>
                   {valleAbura.map(b => (
-                    <option key={b.slug} value={b.slug} style={{ color: K.ink, background: '#fff' }}>
-                      <Name>{b.nombre}</Name>
+                    <option key={b.slug} value={b.slug} data-i18n-skip style={{ color: K.ink, background: '#fff' }}>
+                      {b.nombre}
                     </option>
                   ))}
                 </optgroup>

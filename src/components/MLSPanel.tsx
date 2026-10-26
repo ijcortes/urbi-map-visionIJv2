@@ -25,6 +25,8 @@ type Props = {
   isLoading: boolean;
   onBack: () => void;
   onListingSelect: (listing: ApiListing, screenX: number, screenY: number) => void;
+  /** Hover en una card → el mapa resalta dónde queda (Ken, 23-oct). */
+  onListingHover?: (listing: ApiListing | null) => void;
   highlightedListingId?: number | null;
   activeBarrioName?: string | null;
   onBarrioFilter?: (barrio: string | null) => void;
@@ -144,7 +146,9 @@ function ListingCard({
   isFav,
   onToggleFav,
   onSimular,
+  onHover,
 }: {
+  onHover?: (hovering: boolean) => void;
   listing: ApiListing;
   highlighted: boolean;
   onSelect: (e: React.MouseEvent) => void;
@@ -235,6 +239,8 @@ function ListingCard({
   return (
     <div
       ref={cardRef}
+      onMouseEnter={() => onHover?.(true)}
+      onMouseLeave={() => onHover?.(false)}
       onClick={(e) => onSelect(e)}
       data-tour="listing-card"
       className="cursor-pointer rounded-lg border overflow-hidden transition-all hover:bg-[#F3F0E8]"
@@ -442,6 +448,7 @@ export function MLSPanel({
   onBack,
   onListingSelect,
   highlightedListingId,
+  onListingHover,
   activeBarrioName,
   onBarrioFilter,
   allBarrios,
@@ -600,6 +607,7 @@ export function MLSPanel({
       listing={l}
       highlighted={highlightedListingId === l.id}
       onSelect={(e) => onListingSelect(l, e.clientX, e.clientY)}
+      onHover={(h) => onListingHover?.(h ? l : null)}
       cardRef={(el) => { cardRefs.current[l.id] = el; }}
       isFav={isFav(favKey(l))}
       onToggleFav={() => {

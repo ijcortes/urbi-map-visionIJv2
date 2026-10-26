@@ -1167,6 +1167,25 @@ async def rechazar_post(request: Request, post_id: int, admin: dict = Depends(re
     return {"id": post_id, "estado": "rechazado"}
 
 
+# Artículo destacado de un barrio/comuna (página de barrio) — mismo alcance que eventos.
+@router.patch("/posts/{post_id}")
+@limiter.limit("30/minute")
+async def editar_post(request: Request, post_id: int, body: DestacadoPatch = Body(...), admin: dict = Depends(require_admin)):
+    pool = get_pool()
+    sets, params = await _build_destacado_sets(pool, "comunidad_post", post_id, body)
+    params.append(post_id)
+    row = await pool.fetchrow(
+        f"UPDATE public.comunidad_post SET {', '.join(sets)} WHERE id = ${len(params)} "
+        "RETURNING id, destacado, destacado_nivel, destacado_zona_codigo",
+        *params,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Post no encontrado")
+    await _audit(pool, admin, "editar_post", "comunidad_post", str(post_id),
+                 {"destacado": row["destacado"], "nivel": row["destacado_nivel"], "zona": row["destacado_zona_codigo"]}, request)
+    return dict(row)
+
+
 # ── Negocios locales (tiendas) — destacados con alcance ────────────────────────
 
 @router.get("/tiendas")

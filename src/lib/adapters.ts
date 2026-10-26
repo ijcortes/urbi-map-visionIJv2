@@ -409,6 +409,8 @@ export type BarrioOption = {
   lat: number;
   lng: number;
   cd_comuna: number | null;
+  /** Sector buscado por su nombre popular: "Ciudad del Río (Colombia)". */
+  displayName?: string;
 };
 
 export function barrioToOption(b: ApiBarrio): BarrioOption {

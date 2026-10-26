@@ -165,44 +165,6 @@ export function EventCardFeatured({ evento }: { evento: EventoData }) {
   )
 }
 
-// Fila compacta con thumb cuadrado — para listas angostas divididas por línea
-// (ej. panel "Trading en tu barrio" del home).
-export function EventCardRow({ evento, last = false }: { evento: EventoData; last?: boolean }) {
-  const f = parseFecha(evento.fecha_inicio)
-  const cat = catMeta(evento.categoria)
-
-  return (
-    <a
-      href={safeHref(evento.url_externo) ?? '#'}
-      target="_blank" rel="noopener noreferrer"
-      style={{
-        display: 'flex', gap: 12, alignItems: 'flex-start',
-        paddingBottom: 12, marginBottom: 12,
-        borderBottom: last ? 'none' : `1px solid ${K.line}`,
-        textDecoration: 'none',
-      }}
-    >
-      <div style={{ width: 56, height: 56, borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}>
-        {evento.foto_url
-          ? <ImgWithFallback src={evento.foto_url} alt={evento.titulo} categoria={evento.categoria} />
-          : <ImgPlaceholder categoria={evento.categoria} />
-        }
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <h4 style={{
-          fontFamily: K.serif, fontWeight: 600, fontSize: 13.5, color: K.ink, lineHeight: 1.3, margin: '0 0 4px',
-          overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const,
-        }}>
-          {evento.titulo}
-        </h4>
-        <p style={{ fontSize: 11, color: K.muted, margin: 0, textTransform: 'uppercase', letterSpacing: '.02em', fontWeight: 600 }}>
-          {cat ? `${cat.label} · ` : ''}{f.day} {f.month}
-        </p>
-      </div>
-    </a>
-  )
-}
-
 export function EventCardMini({ evento }: { evento: EventoData }) {
   const f = parseFecha(evento.fecha_inicio)
   const cat = catMeta(evento.categoria)

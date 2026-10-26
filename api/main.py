@@ -22,7 +22,7 @@ from api.limiter import limiter
 from api.utils.body_limit import BodySizeLimitMiddleware
 from api.utils.session_cookie import SessionCookieMiddleware
 from api.dependencies import auth_cookie_mode
-from api.routers import admin, admin_agentes, afiliados, agency, alertas, asignador, auth, barrios, business, calculadora, comparador, comunidad, comunidad_posts, comunas, embajadores, favoritos, ghl_leads, ghl_webhook, historial, intake, link_review, listings, listings_propios, moderacion, oportunidades, pasantias, realtor, stats, suscripciones, tracking, trm, usuario, visitas, zonas
+from api.routers import admin, admin_agentes, afiliados, agency, alertas, asignador, auth, barrio_page, barrios, business, calculadora, comparador, comunidad, comunidad_posts, comunas, embajadores, favoritos, ghl_leads, ghl_webhook, historial, intake, link_review, listings, listings_propios, moderacion, oportunidades, pasantias, realtor, stats, suscripciones, tracking, trm, usuario, visitas, zonas
 
 # Sentry — only active when SENTRY_DSN is set (optional in local/test)
 _SENTRY_DSN = os.getenv("SENTRY_DSN", "")
@@ -225,6 +225,7 @@ app.include_router(tracking.router,      prefix="/api/v1/track",           tags=
 app.include_router(admin.router,         prefix="/api/v1/admin",           tags=["admin"])
 app.include_router(comunidad.router,     prefix="/api/v1/comunidad",        tags=["comunidad"])
 app.include_router(comunidad_posts.router, prefix="/api/v1/comunidad/posts", tags=["comunidad-posts"])
+app.include_router(barrio_page.router,   prefix="/api/v1/comunidad/barrio-page", tags=["barrio-page"])
 app.include_router(comunas.router,       prefix="/api/v1/comunas",           tags=["comunas"])
 app.include_router(business.router,      prefix="/api/v1/business",          tags=["business"])
 app.include_router(embajadores.router,   prefix="/api/v1/embajadores",       tags=["embajadores"])
