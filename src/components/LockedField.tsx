@@ -35,3 +35,38 @@ export function useIsAgente(): boolean {
   }, []);
   return isAgente;
 }
+
+// Puerta del DETALLE del entorno (ruido/servicios/verde/valor estimado/obras).
+// DECISIÓN DE NEGOCIO (usuario, nov-2026): HOY NO hay tier de pago al consumidor →
+// "suscrito" = "registrado" (logueado). Con solo registrarse se desbloquea el
+// detalle (el CTA del drawer ya lo promete: "Regístrate gratis y desbloquea el
+// detalle del entorno"). El anónimo ve los 4 scores públicos y el lock.
+// Cuando exista un plan pagado, volver a gatear por plan ('pro'/'agente') acá.
+// NOTA: esto solo OCULTA en el cliente; el gate real sería nullear los campos en
+// el backend para no-registrados (patrón de buena_oferta). Pend server-side.
+function _checkSuscriptor(): boolean {
+  return auth.get() != null;
+}
+export function useIsSuscriptor(): boolean {
+  const [v, setV] = useState(false);
+  useEffect(() => {
+    setV(_checkSuscriptor());
+    const h = () => setV(_checkSuscriptor());
+    window.addEventListener("medellin-social:user", h);
+    return () => window.removeEventListener("medellin-social:user", h);
+  }, []);
+  return v;
+}
+
+// Nivel REGISTRADO (inversionista): logueado, sin importar plan. Mismo patrón
+// post-mount que useIsAgente para no romper la hidratación SSR.
+export function useIsRegistered(): boolean {
+  const [registered, setRegistered] = useState(false);
+  useEffect(() => {
+    const read = () => setRegistered(auth.get() != null);
+    read();
+    window.addEventListener("medellin-social:user", read);
+    return () => window.removeEventListener("medellin-social:user", read);
+  }, []);
+  return registered;
+}

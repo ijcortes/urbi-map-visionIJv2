@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from api.config import USD_TO_COP
 from api.db import get_pool
-from api.dependencies import get_optional_user, is_agente
+from api.dependencies import get_optional_user
 from api.routers.listings import ListingFull, ListingsAllResponse, _finalize_row
 from api.services.trm_service import get_usd_rate
 from api.services.personalizacion import PRESUPUESTO_MAX
@@ -170,6 +170,8 @@ class Conectividad(BaseModel):
     score_icfes_municipio: Optional[float] = None
     dist_obra_publica_km: Optional[float] = None
     nombre_obra_cercana: Optional[str] = None
+    obra_tipo: Optional[str] = None
+    obra_fecha: Optional[str] = None
     # dB promedio de día de la estación/sensor SIATA más cercano (red oficial + ciudadana)
     db_ruido_dia_cercano: Optional[float] = None
     dist_ruido_km: Optional[float] = None
@@ -247,6 +249,10 @@ class BarrioResponse(BaseModel):
     comuna: Optional[str] = None
     municipio: Optional[str] = None
     estrato: Optional[int] = None
+    poblacion_comuna: Optional[int] = None
+    poblacion_municipio: Optional[int] = None
+    tiempo_poblado_min: Optional[int] = None
+    tiempo_centro_min: Optional[int] = None
     geometry: Optional[dict[str, Any]] = None
     color_hex: Optional[str] = None
     excluir_inversion: Optional[bool] = None
@@ -280,6 +286,10 @@ _BARRIO_MAP_SQL = """
         b.comuna,
         b.municipio,
         sl.estrato_barrio                   AS estrato,
+        pcom.poblacion                      AS poblacion_comuna,
+        pmun.poblacion                      AS poblacion_municipio,
+        ztr.tiempo_poblado_min,
+        ztr.tiempo_centro_min,
         ST_AsGeoJSON(ST_SimplifyPreserveTopology(b.geometry, 0.0003)) AS geometry_raw,
         sc.score_corto,
         sc.categoria_corto                  AS cat_corto,
@@ -325,6 +335,8 @@ _BARRIO_MAP_SQL = """
         poi.score_icfes_municipio,
         poi.dist_obra_publica_km,
         poi.nombre_obra_cercana,
+        obra.tipo           AS obra_tipo,
+        obra.fecha_estimada AS obra_fecha,
         poi.db_ruido_dia_cercano,
         poi.dist_ruido_km,
         poi.walk_score,
@@ -333,9 +345,15 @@ _BARRIO_MAP_SQL = """
     LEFT JOIN analytics.barrios_score_consolidado sc  ON b.id = sc.barrio_id
     LEFT JOIN analytics.barrios_mercado           bm  ON b.id = bm.barrio_id
     LEFT JOIN analytics.barrios_pois_distancia    poi ON b.id = poi.barrio_id
+    LEFT JOIN raw.obras_publicas_planeadas        obra ON obra.nombre = poi.nombre_obra_cercana
     LEFT JOIN analytics.barrios_liquidez          lq  ON b.id = lq.barrio_id
     LEFT JOIN analytics.barrios_oportunidades     op  ON b.id = op.barrio_id
     LEFT JOIN analytics.score_largo_plazo         sl  ON b.id = sl.barrio_id
+    LEFT JOIN raw.poblacion_comuna     pcom ON pcom.comuna    = b.comuna
+    LEFT JOIN raw.poblacion_municipio  pmun ON pmun.municipio = b.municipio
+    LEFT JOIN analytics.zona_tiempos_recorrido ztr
+           ON ztr.zona_tipo   = CASE WHEN upper(b.municipio) = 'MEDELLIN' THEN 'comuna' ELSE 'municipio' END
+          AND ztr.zona_codigo = CASE WHEN upper(b.municipio) = 'MEDELLIN' THEN upper(b.comuna) ELSE upper(b.municipio) END
 """
 
 _BARRIO_SQL = """
@@ -345,6 +363,10 @@ _BARRIO_SQL = """
         b.comuna,
         b.municipio,
         sl.estrato_barrio                   AS estrato,
+        pcom.poblacion                      AS poblacion_comuna,
+        pmun.poblacion                      AS poblacion_municipio,
+        ztr.tiempo_poblado_min,
+        ztr.tiempo_centro_min,
         ST_AsGeoJSON(b.geometry)            AS geometry_raw,
         -- scores
         sc.score_corto,
@@ -396,6 +418,8 @@ _BARRIO_SQL = """
         poi.score_icfes_municipio,
         poi.dist_obra_publica_km,
         poi.nombre_obra_cercana,
+        obra.tipo           AS obra_tipo,
+        obra.fecha_estimada AS obra_fecha,
         poi.db_ruido_dia_cercano,
         poi.dist_ruido_km,
         poi.walk_score,
@@ -480,6 +504,7 @@ _BARRIO_SQL = """
     LEFT JOIN analytics.barrios_mercado           bm  ON b.id = bm.barrio_id
     LEFT JOIN analytics.barrios_seguridad         seg ON b.id = seg.barrio_id
     LEFT JOIN analytics.barrios_pois_distancia    poi ON b.id = poi.barrio_id
+    LEFT JOIN raw.obras_publicas_planeadas        obra ON obra.nombre = poi.nombre_obra_cercana
     LEFT JOIN analytics.barrios_verde             vd  ON b.id = vd.barrio_id
     LEFT JOIN analytics.barrios_trafico_perfil    tp  ON b.id = tp.barrio_id
     LEFT JOIN analytics.barrios_liquidez          lq  ON b.id = lq.barrio_id
@@ -494,6 +519,13 @@ _BARRIO_SQL = """
     LEFT JOIN analytics.barrios_amenities         am  ON b.id = am.barrio_id
     LEFT JOIN analytics.catastro_comunas_stats cat
            ON UPPER(TRIM(b.comuna)) = cat.comuna
+    -- Población por zona (#5): comuna (Medellín) y municipio, join por nombre
+    -- mayúsculas (igual que raw.icfes_municipio). Tablas de referencia migr 0081.
+    LEFT JOIN raw.poblacion_comuna     pcom ON pcom.comuna    = b.comuna
+    LEFT JOIN raw.poblacion_municipio  pmun ON pmun.municipio = b.municipio
+    LEFT JOIN analytics.zona_tiempos_recorrido ztr
+           ON ztr.zona_tipo   = CASE WHEN upper(b.municipio) = 'MEDELLIN' THEN 'comuna' ELSE 'municipio' END
+          AND ztr.zona_codigo = CASE WHEN upper(b.municipio) = 'MEDELLIN' THEN upper(b.comuna) ELSE upper(b.municipio) END
     LEFT JOIN LATERAL (
         WITH ultimo AS (
             SELECT anio, n_transacciones, valor_mediana
@@ -630,6 +662,10 @@ def _build_response(row: dict, score_col: str = "score_corto", perfil: Optional[
         comuna=row.get("comuna"),
         municipio=row.get("municipio"),
         estrato=row.get("estrato"),
+        poblacion_comuna=_i(row, "poblacion_comuna"),
+        poblacion_municipio=_i(row, "poblacion_municipio"),
+        tiempo_poblado_min=_i(row, "tiempo_poblado_min"),
+        tiempo_centro_min=_i(row, "tiempo_centro_min"),
         geometry=geometry,
         color_hex=color_hex,
         excluir_inversion=excluir,
@@ -710,6 +746,8 @@ def _build_response(row: dict, score_col: str = "score_corto", perfil: Optional[
             score_icfes_municipio=_f(row, "score_icfes_municipio"),
             dist_obra_publica_km=_f(row, "dist_obra_publica_km"),
             nombre_obra_cercana=row.get("nombre_obra_cercana"),
+            obra_tipo=row.get("obra_tipo"),
+            obra_fecha=row.get("obra_fecha"),
             db_ruido_dia_cercano=_f(row, "db_ruido_dia_cercano"),
             dist_ruido_km=_f(row, "dist_ruido_km"),
             walk_score=_i(row, "walk_score"),
@@ -983,17 +1021,27 @@ class BarrioComunaItem(BaseModel):
     precio_m2_cop: Optional[int] = None
 
 
+# Valle de Aburrá — el producto cubre SOLO estos 10 municipios. Excluye la data de
+# Panamá que una rama paralela inyectó en DEV/local (no hay col pais; se discrimina por
+# municipio). Medellín es Medellín, Panamá es otro país/producto aparte.
+# Ver [[feedback_coordinacion_ramas_panama_marketintel]].
+_VALLE_ABURRA_SQL = (
+    "UPPER(b.municipio) IN ('MEDELLIN','BELLO','ITAGUI','ENVIGADO','SABANETA',"
+    "'LA ESTRELLA','CALDAS','COPACABANA','GIRARDOTA','BARBOSA')"
+)
+
+
 @router.get("/comunas", response_model=list[ComunaItem])
 async def list_comunas():
     pool = get_pool()
-    rows = await pool.fetch("""
+    rows = await pool.fetch(f"""
         SELECT
             COALESCE(b.comuna, b.municipio) AS key,
             COALESCE(b.comuna, b.municipio) AS label,
             b.municipio,
             COUNT(*)::int AS n_barrios
         FROM raw.barrios b
-        WHERE b.excluir_inversion = FALSE
+        WHERE b.excluir_inversion = FALSE AND {_VALLE_ABURRA_SQL}
         GROUP BY b.comuna, b.municipio
         ORDER BY b.municipio, label
     """)
@@ -1014,9 +1062,9 @@ async def list_barrios_por_comuna(key: str):
         FROM raw.barrios b
         LEFT JOIN analytics.barrios_mercado bm ON b.id = bm.barrio_id
         WHERE (b.comuna = $1 OR b.municipio = $1)
-          AND b.excluir_inversion = FALSE
+          AND b.excluir_inversion = FALSE AND {valle}
         ORDER BY b.nombre
-    """, key)
+    """.format(valle=_VALLE_ABURRA_SQL), key)
     return [BarrioComunaItem(**dict(r)) for r in rows]
 
 
@@ -1039,12 +1087,54 @@ async def get_barrio_info(barrio_id: int):
     return BarrioInfo(**dict(row))
 
 
+# ── Serie de precios por municipio (#14) — da firmeza a la temperatura (#15) ──────
+# compraventas reales SNR/ORIPS, mediana por año. Nivel municipio (no barrio, no hay
+# dato por barrio). Excluye el año en curso (parcial) y años con <30 transacciones.
+_MERCADO_SERIE_SQL = """
+    SELECT cs.anio, cs.valor_mediana, cs.n_transacciones
+    FROM analytics.compraventas_municipio_stats cs
+    JOIN raw.barrios b ON cs.municipio = UPPER(b.municipio)
+    WHERE b.id = $1
+      AND cs.anio IS NOT NULL
+      AND cs.anio < EXTRACT(YEAR FROM CURRENT_DATE)::int
+      AND cs.n_transacciones >= 30
+      AND cs.valor_mediana > 0
+    ORDER BY cs.anio
+"""
+
+
+@router.get("/{barrio_id}/mercado-serie")
+async def get_mercado_serie(barrio_id: int, current_user: Optional[dict] = Depends(get_optional_user)):
+    """Serie anual de precio mediano del municipio (#14) + CAGR para el momentum.
+    Nivel registrado (inversionista): anónimo recibe serie vacía."""
+    if current_user is None:
+        return {"serie": [], "cagr_pct": None, "anios_cagr": None}
+    pool = get_pool()
+    rows = await pool.fetch(_MERCADO_SERIE_SQL, barrio_id)
+    serie = [
+        {"anio": r["anio"], "valor_mediana": int(r["valor_mediana"]),
+         "n_transacciones": int(r["n_transacciones"])}
+        for r in rows
+    ]
+    # CAGR: último año completo vs ~3 años antes (lo disponible). %/año.
+    cagr_pct = None
+    anios_cagr = None
+    if len(serie) >= 2:
+        last = serie[-1]
+        base = serie[max(0, len(serie) - 4)]
+        n = last["anio"] - base["anio"]
+        if n > 0 and base["valor_mediana"] > 0:
+            cagr_pct = round(((last["valor_mediana"] / base["valor_mediana"]) ** (1 / n) - 1) * 100, 1)
+            anios_cagr = n
+    return {"serie": serie, "cagr_pct": cagr_pct, "anios_cagr": anios_cagr}
+
+
 @router.get("/comparar", response_model=list[BarrioResponse])
 async def comparar_barrios(
-    ids: str = Query(description="IDs separados por coma: 1,2,3 (máx 3)"),
+    ids: str = Query(description="IDs separados por coma: 1,2,3,4 (máx 4)"),
     perfil: Optional[str] = Query(default=None, description="airbnb | mediano_plazo | largo_plazo"),
 ):
-    id_list = [int(x.strip()) for x in ids.split(",") if x.strip().isdigit()][:3]
+    id_list = [int(x.strip()) for x in ids.split(",") if x.strip().isdigit()][:4]
     if not id_list:
         raise HTTPException(status_code=400, detail="Parámetro ids inválido")
 
@@ -1071,7 +1161,11 @@ async def get_barrio(
         raise HTTPException(status_code=503, detail="Datos temporalmente no disponibles")
     if row is None:
         raise HTTPException(status_code=404, detail=f"Barrio {barrio_id} no encontrado")
-    return _build_response(dict(row), score_col, perfil, usd_rate=await get_usd_rate())
+    resp = _build_response(dict(row), score_col, perfil, usd_rate=await get_usd_rate())
+    # Temperatura del mercado = nivel registrado (inversionista); anónimo no la ve.
+    if current_user is None:
+        resp.mercado_real = None
+    return resp
 
 
 _BARRIO_COUNT_SQL = """
@@ -1162,7 +1256,7 @@ SELECT
     med.m2_mediana::int           AS precio_m2_mediana_barrio,
     g.url_activa                  AS disponible_actualmente,
     g.estrato_real,
-    l.dias_en_mercado,
+    (CURRENT_DATE - g.fecha_primera_vez::date)::int AS dias_en_mercado,
     l.fecha_publicacion::text     AS fecha_publicacion,
     NULL::timestamp               AS fecha_ultima_verificacion,
     NULL::float8                  AS relevancia_score,
@@ -1204,14 +1298,11 @@ async def get_barrio_listings(
         *args,
     )
 
-    _agente = is_agente(current_user)
+    # buena_oferta / pct_bajo_mediana son públicos (#2: el usuario ve si está
+    # cara/barata). Los scores de inversión siguen gated en listings.py.
     rate = await get_usd_rate()
     items: list[ListingFull] = []
     for r in rows:
-        d = _finalize_row(dict(r), rate)
-        if not _agente:
-            d["buena_oferta"] = None
-            d["pct_bajo_mediana"] = None
-        items.append(ListingFull(**d))
+        items.append(ListingFull(**_finalize_row(dict(r), rate)))
 
     return ListingsAllResponse(total=total or 0, listings=items)

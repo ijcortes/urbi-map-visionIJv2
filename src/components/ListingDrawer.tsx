@@ -17,13 +17,16 @@ import {
   Binoculars, Flame, Package, BookOpen, Drop, Road, Sun, Star,
 } from "@/lib/icons";
 import { useTarget } from "@/contexts/TargetContext";
-import { useIsPro, useIsAgente } from "@/components/LockedField";
+import { useIsPro, useIsAgente, useIsRegistered, useIsSuscriptor } from "@/components/LockedField";
 import { apiFetch } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { MAPBOX_TOKEN } from "@/lib/mapboxToken";
 import { formatCOP } from "@/lib/format";
+import { zonePriceTrend, calcValorizStats } from "@/lib/valoriz";
+import { scaleRatio } from "@/lib/entornoScale";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { favKey, useFavoritosListings } from "@/hooks/useFavoritosListings";
+import { track } from "@/lib/tracking";
 import { auth } from "@/lib/auth";
 import { ReclamarListingModal } from "@/components/ReclamarListingModal";
 import { toast } from "sonner";
@@ -37,6 +40,15 @@ import { OriginalListingLink } from "@/components/OriginalListingLink";
 import { formatDate } from "@/lib/format";
 import { useLang, translateString, Name } from "@/lib/i18n";
 import { useUnit, formatArea } from "@/hooks/useUnit";
+
+// #4 / To-do §1.2: el cron notificador existe (scripts/alertas_notificar.py,
+// Dockerfile.cron 14:00 UTC) PERO la alerta no llega end-to-end: api/utils/email
+// cae en [EMAIL STUB] (no hay SMTP_USER/PASS ni Gmail API configurado → imprime,
+// no envía) y el social-cron no está redeployado. Botón OCULTO hasta que:
+//   1) email transport real (SMTP_USER/PASS o Gmail OAuth) esté configurado, y
+//   2) social-cron redeployado, y 3) una alerta de prueba llegue de verdad.
+// Probado 2026-10-26: send_email a ADMIN_EMAIL → [EMAIL STUB], no se entregó.
+const ALERTAS_NOTIFIER_READY = false;
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -258,6 +270,9 @@ function ValorEstimado({ listing }: { listing: ApiListingDetail }) {
   const isVenta = normalizeTipoOp(listing.tipo_operacion) === "venta";
   const area = listing.area_m2;
   const barrio = listing.barrio_nombre ?? "el barrio";
+  // Casas: el método mediana €/m² × área estima mal (heterogéneas: terreno + tamaño
+  // no lineal, pocos comparables) → mostramos solo rango del barrio, no un punto.
+  const esCasa = /casa/i.test(listing.tipo_inmueble ?? "");
 
   // Valor estimado (Zestimate) + rango de venta, desde medianas del barrio × área.
   const p50 = listing.precio_m2_mediana_barrio;
@@ -281,50 +296,77 @@ function ValorEstimado({ listing }: { listing: ApiListingDetail }) {
 
   if (valor == null && renta == null && avaluo == null) return null;
 
-  const Row = ({ label, tip, children }: { label: string; tip: string; children: React.ReactNode }) => (
-    <div className="flex items-start justify-between gap-3 border-b py-3 last:border-0" style={{ borderColor: "#E5E0D5" }}>
-      <div className="flex items-center gap-1.5 pt-0.5">
-        <span className="text-[13px]" style={{ color: "#5B5F5C" }}>{label}</span>
-        <InfoTip text={tip} />
+  // Punto (valor único) solo para no-casas; las casas muestran rango (heterogéneas).
+  const showHero = valor != null && !esCasa;
+  // Posición del valor estimado dentro del rango p25–p75 (dónde cae este inmueble).
+  const markerPct = showHero && rangoMin != null && rangoMax != null && rangoMax > rangoMin
+    ? Math.max(5, Math.min(95, ((valor! - rangoMin) / (rangoMax - rangoMin)) * 100))
+    : 50;
+
+  const Chip = ({ icon, label, value, sub, tip }: { icon: string; label: string; value: string; sub?: string; tip: string }) => (
+    <div className="flex-1 rounded-xl px-3 py-2.5" style={{ background: "#F3F0E8", border: "0.5px solid #E5E0D5", minWidth: 104 }}>
+      <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#6E726E" }}>
+        <span data-i18n-skip="true">{icon}</span><span>{label}</span><InfoTip text={tip} />
       </div>
-      <div className="text-right">{children}</div>
+      <div className="mt-0.5 text-[14px] font-bold tabular-nums leading-none" style={{ color: "#111418" }}>
+        {value}{sub && <span className="text-[10px] font-normal" style={{ color: "#6E726E" }}>{sub}</span>}
+      </div>
     </div>
   );
 
   return (
     <div className="space-y-3">
       <h3 className="text-[13px] font-semibold tracking-tight" style={{ color: "#111418" }}>Valor estimado</h3>
-      <div>
-        {valor != null && (
-          <Row label="Valor de mercado" tip={`Precio de venta probable, estimado con el precio/m² típico de ${barrio} multiplicado por los ${area}m² de este inmueble.`}>
-            <div className="text-[19px] font-semibold tabular-nums leading-none" style={{ color: "#0F8A4F" }}>{formatCOP(valor)}</div>
-            {rangoMin != null && rangoMax != null && (
-              <div className="mt-1 text-[11px] tabular-nums" style={{ color: "#6E726E" }}>{formatCOP(rangoMin)} – {formatCOP(rangoMax)}</div>
-            )}
-          </Row>
-        )}
-        {renta != null && (
-          <Row label="Renta estimada" tip={`Canon de arriendo mensual típico para inmuebles similares en ${barrio}.`}>
-            <div className="text-[15px] font-semibold tabular-nums" style={{ color: "#111418" }}>{formatCOP(renta)}<span className="text-[11px] font-normal" style={{ color: "#6E726E" }}>/mes</span></div>
-          </Row>
-        )}
-        {avaluo != null && (
-          <Row
-            label="Avalúo catastral"
-            tip={`Valor fiscal del predio según el catastro de Medellín (estimado con el avalúo/m² de la comuna). Es la base sobre la que se cobran los impuestos y casi siempre es menor al precio de mercado — aquí, cerca de ${valor && avaluo ? Math.round(valor / avaluo) : 4}× por debajo.`}
-          >
-            <div className="text-[15px] font-semibold tabular-nums" style={{ color: "#111418" }}>{formatCOP(avaluo)}</div>
-          </Row>
-        )}
-        {predial != null && (
-          <Row
-            label="Predial estimado"
-            tip={`Impuesto predial anual aproximado: avalúo catastral × tarifa del municipio (~${milaje} por mil${listing.estrato_real != null ? ` para estrato ${listing.estrato_real}` : ""} en Medellín). La tarifa exacta la fija la Alcaldía según estrato y uso.`}
-          >
-            <div className="text-[15px] font-semibold tabular-nums" style={{ color: "#111418" }}>{formatCOP(predial)}<span className="text-[11px] font-normal" style={{ color: "#6E726E" }}>/año</span></div>
-          </Row>
-        )}
-      </div>
+
+      {/* Hero + banda de rango del barrio */}
+      {(showHero || (rangoMin != null && rangoMax != null)) && (
+        <div className="rounded-2xl p-4" style={{ background: "#E7F4EC", border: "0.5px solid rgba(15,138,79,0.25)" }}>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#0A5C36" }}>
+              {esCasa ? "Rango estimado del barrio" : "Valor de mercado estimado"}
+            </span>
+            <InfoTip text={`Referencia del barrio (${barrio}), no una tasación: precio/m² típico × los ${area}m² de este inmueble. De precios publicados, no de cierre.`} />
+          </div>
+          {showHero ? (
+            <div className="mt-1 text-[28px] font-bold leading-none tabular-nums" style={{ color: "#0F8A4F" }}>{formatCOP(valor!)}</div>
+          ) : (
+            <div className="mt-1 text-[20px] font-bold leading-none tabular-nums" style={{ color: "#0F8A4F" }}>{formatCOP(rangoMin!)} – {formatCOP(rangoMax!)}</div>
+          )}
+          {rangoMin != null && rangoMax != null && (
+            <div className="mt-3">
+              <div className="relative h-2 rounded-full" style={{ background: "linear-gradient(90deg,#CDE8D8,rgba(15,138,79,0.55),#CDE8D8)" }}>
+                {showHero && (
+                  <div
+                    className="absolute h-4 w-4 rounded-full border-2 border-white"
+                    style={{ top: -4, left: `calc(${markerPct}% - 8px)`, background: "#0F8A4F", boxShadow: "0 1px 3px rgba(0,0,0,0.25)" }}
+                  />
+                )}
+              </div>
+              <div className="mt-1 flex justify-between text-[10px] tabular-nums" style={{ color: "#5B7A6A" }}>
+                <span>{formatCOP(rangoMin)}</span><span>{formatCOP(rangoMax)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Chips de soporte */}
+      {(renta != null || avaluo != null || predial != null) && (
+        <div className="flex flex-wrap gap-2">
+          {renta != null && (
+            <Chip icon="🏠" label="Renta típica" value={formatCOP(renta)} sub="/mes"
+              tip={`Mediana de arriendo del barrio (${barrio}), no una tasación de este inmueble.`} />
+          )}
+          {avaluo != null && (
+            <Chip icon="🏛️" label="Avalúo catastral" value={formatCOP(avaluo)}
+              tip={`Valor fiscal del predio (avalúo/m² de la comuna × área). Base de impuestos, casi siempre menor al mercado${valor && avaluo ? ` — aquí ~${Math.round(valor / avaluo)}× por debajo` : ""}.`} />
+          )}
+          {predial != null && (
+            <Chip icon="📄" label="Predial" value={formatCOP(predial)} sub="/año"
+              tip={`Impuesto predial anual aprox: avalúo × ~${milaje} por mil${listing.estrato_real != null ? ` (estrato ${listing.estrato_real})` : ""} en Medellín. La tarifa exacta la fija la Alcaldía.`} />
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -440,16 +482,40 @@ function AlertModal({ listing, onClose }: { listing: ApiListingDetail; onClose: 
 
 type BarrioFetch = {
   seguridad?: { score?: number | null } | null;
+  tiempo_poblado_min?: number | null;
+  tiempo_centro_min?: number | null;
+  mercado_real?: {
+    clasificacion_mercado?: string | null;   // comprador | balanceado | vendedor
+    meses_inventario?: number | null;
+    var_anual_pct?: number | null;
+    anio_dato?: number | null;
+  } | null;
   conectividad?: {
     dist_metro_km?: number | null;
+    dist_parque_km?: number | null;
+    dist_mall_km?: number | null;
     indice_nomada?: number | null;
     n_colegios_1km?: number | null;
     dist_colegio_km?: number | null;
     walk_score?: number | null;
     transit_score?: number | null;
+    // "Entorno+" — señales del barrio ya en la respuesta, antes sin pintar.
+    dist_obra_publica_km?: number | null;
+    nombre_obra_cercana?: string | null;
+    obra_tipo?: string | null;
+    obra_fecha?: string | null;
+    db_ruido_dia_cercano?: number | null;
+    dist_ruido_km?: number | null;
+    n_policia_1km?: number | null;
+    dist_policia_km?: number | null;
+    n_bomberos_2km?: number | null;
+    avg_internet_mbps?: number | null;
+    dist_encicla_km?: number | null;
+    n_canchas_1km?: number | null;
   } | null;
   liquidez?: { score?: number | null } | null;
   trafico?: { nivel?: string | null; jam_prom?: number | null } | null;
+  verde?: { score_verde?: number | null; indice_verde_pct?: number | null; categoria_verde?: string | null } | null;
 };
 
 /** Score bar en escala 1-10 estilo Zillow. Recibe score interno 0-100. Público. */
@@ -470,11 +536,141 @@ function ScoreBar({ label, score, sub }: { label: string; score: number; sub: st
   );
 }
 
-/** "Cómo moverse" (Walk/Transit) + colegios cercanos. Público, estilo Zillow. */
-function GettingAround({ barrioId }: { barrioId: number }) {
+// Entorno detalle (servicios): meter circular — valor real al centro, el arco
+// codifica qué tan "bueno" es (ratio 0-1), color por nivel (teal/ámbar/rojo).
+type EntornoFact = { icon: string; label: string; value: string; unit: string; ratio: number };
+function FactCircle({ icon, label, value, unit, ratio }: EntornoFact) {
+  const color = ratio >= 0.66 ? "#0F8A4F" : ratio >= 0.33 ? "#8A6A00" : "#CE1126";
+  const R = 24;
+  const CIRC = 2 * Math.PI * R;
+  const dash = CIRC * Math.max(0.04, Math.min(1, ratio)); // mínimo visible aunque ratio≈0
+  return (
+    <div className="flex flex-col items-center gap-1" style={{ width: 76 }}>
+      <div className="relative" style={{ width: 60, height: 60 }}>
+        <svg width={60} height={60} viewBox="0 0 60 60">
+          <circle cx={30} cy={30} r={R} fill="none" stroke="#EFEADF" strokeWidth={5} />
+          <circle
+            cx={30} cy={30} r={R} fill="none" stroke={color} strokeWidth={5} strokeLinecap="round"
+            strokeDasharray={`${dash} ${CIRC}`} transform="rotate(-90 30 30)"
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-[15px] font-bold leading-none tabular-nums" style={{ color: "#111418" }}>{value}</span>
+          {unit && <span className="mt-0.5 text-[8px] leading-none" style={{ color: "#6E726E" }}>{unit}</span>}
+        </div>
+      </div>
+      {/* El label (Policía, Zonas verdes, etc.) SÍ traduce vía dict; el emoji no
+          tiene entry → queda intacto (word-boundary respeta el espacio). Antes
+          estaba data-i18n-skip y bloqueaba toda la traducción del entorno. */}
+      <span className="text-center text-[10px] leading-tight" style={{ color: "#5B5F5C" }}><span data-i18n-skip="true">{icon}</span> {label}</span>
+    </div>
+  );
+}
+
+// Dial de trayecto en hora pico (#27): minutos al centro + El Poblado. Más
+// prominente que FactCircle — color por congestión, estado legible y arco que se
+// dibuja al montar. ratio 0-1 (1 = fluido). Verde ≤~21min, ámbar ≤~32min, rojo +.
+function CommuteDial({ icon, dest, min, ratio }: { icon: string; dest: string; min: number; ratio: number }) {
+  const r = Math.max(0, Math.min(1, ratio));
+  const color = r >= 0.6 ? "#0F8A4F" : r >= 0.33 ? "#C98A00" : "#CE1126";
+  const estado = r >= 0.6 ? "Fluido" : r >= 0.33 ? "Moderado" : "Pesado";
+  const R = 27;
+  const CIRC = 2 * Math.PI * R;
+  const dash = CIRC * Math.max(0.06, r); // mínimo visible aunque ratio≈0
+  return (
+    <div className="flex flex-col items-center gap-1.5" style={{ width: 96 }}>
+      <div className="relative" style={{ width: 76, height: 76 }}>
+        <svg width={76} height={76} viewBox="0 0 76 76">
+          <circle cx={38} cy={38} r={R} fill="none" stroke="#EFEADF" strokeWidth={6} />
+          <motion.circle
+            cx={38} cy={38} r={R} fill="none" stroke={color} strokeWidth={6} strokeLinecap="round"
+            transform="rotate(-90 38 38)" strokeDasharray={`${dash} ${CIRC}`}
+            initial={{ strokeDashoffset: dash }}
+            animate={{ strokeDashoffset: 0 }}
+            transition={{ duration: 1.1, ease: "easeOut" }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-[20px] font-bold leading-none tabular-nums" style={{ color: "#111418" }}>{min}</span>
+          <span className="text-[8px] leading-none" style={{ color: "#6E726E" }}>min</span>
+        </div>
+      </div>
+      <div className="flex flex-col items-center leading-tight">
+        <span className="text-center text-[10.5px] font-medium" style={{ color: "#5B5F5C" }} data-i18n-skip="true">{icon} {dest}</span>
+        <span className="text-[8.5px] font-semibold uppercase tracking-wider" style={{ color }}>{estado}</span>
+      </div>
+    </div>
+  );
+}
+
+// Gráfica de precio en el tiempo (X=label, Y=precio) con reveal animado al montar.
+// Compartida por el historial real del inmueble y la tendencia de la zona (DANE).
+function PriceAreaChart({ data, highlightLabel, lang, gradId }: {
+  data: { label: string; precio: number }[];
+  highlightLabel?: string;
+  lang: string;
+  gradId: string;
+}) {
+  const { formatPrice } = usePriceFormat();
+  const current = highlightLabel ? data.find((d) => d.label === highlightLabel)?.precio : undefined;
+  return (
+    <div style={{ height: 150 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
+          <defs>
+            <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#0F8A4F" stopOpacity={0.18} />
+              <stop offset="100%" stopColor="#0F8A4F" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#6E726E" }} tickLine={false} axisLine={false} dy={4} minTickGap={14} />
+          <YAxis hide domain={["auto", "auto"]} />
+          <RechartsTooltip
+            formatter={(val: unknown) => [formatPrice(Number(val)), lang === "en" ? "Price" : "Precio"]}
+            contentStyle={{ background: "#111418", border: "none", borderRadius: 8, color: "#fff", fontSize: 11, padding: "6px 10px" }}
+            labelStyle={{ color: "rgba(255,255,255,0.6)", fontSize: 10 }}
+          />
+          <Area
+            type="monotone" dataKey="precio"
+            stroke="#0F8A4F" strokeWidth={2.5} fill={`url(#${gradId})`}
+            dot={{ r: 2.5, fill: "#0F8A4F", strokeWidth: 0 }}
+            activeDot={{ r: 4, fill: "#0F8A4F" }}
+            isAnimationActive animationDuration={1400} animationEasing="ease-out"
+          />
+          {highlightLabel && current != null && (
+            <ReferenceDot x={highlightLabel} y={current} r={4} fill="#111418" stroke="#fff" strokeWidth={2} />
+          )}
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/** "Cómo moverse" (Walk/Transit) + colegios cercanos. Público, estilo Zillow.
+ *  Con barrio_id usa el agregado del barrio; sin él (otros municipios, #1) cae a
+ *  /listings/{id}/entorno que calcula lo mismo por radio desde las coords. */
+// Labels del entorno traducidos IN-COMPONENT (no en el dict global): varios
+// colisionan con nombres reales de negocio ("Canchas de Tenis...", "Clínica De
+// La Policía", "Parque X") → traducirlos en el dict global los mancharía. EnCicla
+// es nombre propio (sistema de bici de Medellín) → no se traduce.
+const ENTORNO_LABEL_EN: Record<string, string> = {
+  "Metro": "Metro", "Parque": "Park", "Centro comercial": "Shopping center",
+  "Zonas verdes": "Green areas", "Ruido día": "Daytime noise", "Policía": "Police",
+  "Bomberos": "Fire station", "Internet": "Internet", "EnCicla": "EnCicla", "Canchas": "Courts",
+};
+
+function GettingAround({ listingId, barrioId, parqueaderos }: { listingId: number; barrioId?: number | null; parqueaderos?: number | null }) {
+  const isSuscriptor = useIsSuscriptor();
+  const { lang } = useLang();
+  const fl = (es: string) => (lang === "en" ? ENTORNO_LABEL_EN[es] ?? es : es);
+  // Los 4 scores (caminabilidad/transporte/tráfico/colegios) = PÚBLICOS para todos
+  // (gancho estilo Zillow). El DETALLE (tiempos hora pico, ruido, policía/bomberos,
+  // internet, EnCicla, canchas, zonas verdes, obras) = SUSCRIPCIÓN.
   const { data } = useQuery<BarrioFetch>({
-    queryKey: ["barrio-full", barrioId],
-    queryFn: () => apiFetch<BarrioFetch>(API_ENDPOINTS.barrio(barrioId)),
+    queryKey: barrioId ? ["barrio-full", barrioId] : ["listing-entorno", listingId],
+    queryFn: () => barrioId
+      ? apiFetch<BarrioFetch>(API_ENDPOINTS.barrio(barrioId))
+      : apiFetch<BarrioFetch>(API_ENDPOINTS.listingEntorno(listingId)),
     staleTime: 300_000,
   });
   const c = data?.conectividad;
@@ -497,12 +693,72 @@ function GettingAround({ barrioId }: { barrioId: number }) {
   const traficoScore = trafico?.jam_prom != null ? Math.max(0, Math.min(100, (10 - trafico.jam_prom) * 10)) : null;
   const traficoSub = trafico?.nivel === "bajo" ? "Vías fluidas" : trafico?.nivel === "alto" ? "Tráfico pesado" : "Tráfico moderado";
 
+  // Orden transporte vs tráfico según parqueadero (#27): con garaje el comprador
+  // probablemente anda en carro → tráfico primero; sin garaje → transporte primero.
+  // parqueaderos null (común en scrapeados) → orden default (transporte primero).
+  const transitTile = transit != null ? { label: "Transporte público", score: transit, sub: transitSub(transit) } : null;
+  const traficoTile = traficoScore != null ? { label: "Tráfico", score: traficoScore, sub: traficoSub } : null;
+  const movilidad = (parqueaderos ?? 0) > 0 ? [traficoTile, transitTile] : [transitTile, traficoTile];
+
   const tiles: { label: string; score: number; sub: string }[] = [];
   if (walk != null) tiles.push({ label: "Caminabilidad", score: walk, sub: walkSub(walk) });
-  if (transit != null) tiles.push({ label: "Transporte público", score: transit, sub: transitSub(transit) });
+  for (const t of movilidad) if (t) tiles.push(t);
   if (colegioScore != null) tiles.push({ label: "Colegios", score: colegioScore, sub: colegioSub });
-  if (traficoScore != null) tiles.push({ label: "Tráfico", score: traficoScore, sub: traficoSub });
-  if (tiles.length === 0) return null;
+
+  // Tiempo en auto a puntos clave, hora pico (#27). Minutos, no score. Solo
+  // llega con barrio_id (vía /barrios/{id}); los listings sin barrio no lo traen.
+  const tPoblado = data?.tiempo_poblado_min ?? null;
+  const tCentro = data?.tiempo_centro_min ?? null;
+  const hayTiempos = tPoblado != null || tCentro != null;
+
+  // Entorno+ (combo): señales del barrio ya en la respuesta, cada una guardada por
+  // cercanía/relevancia → en otros municipios solo aparece lo que de verdad está cerca
+  // (ej. EnCicla y obras son ~Medellín). Solo con barrio_id (vía /barrios/{id}).
+  // Detalle del entorno como meters circulares (valor real al centro + arco por
+  // "bondad" 0-1). ruido: menos=mejor; internet: más=mejor; policía/bomberos:
+  // más/cerca=mejor; EnCicla: cerca=mejor.
+  const facts: EntornoFact[] = [];
+  // #17 obra pública: línea dedicada (nombre largo) con tipo + fecha estimada. Sin
+  // % de valorización (no hay dato que lo respalde). Solo si está realmente cerca (<3km).
+  const obra = c?.nombre_obra_cercana; const dObra = c?.dist_obra_publica_km;
+  const obraVisible = !!obra && dObra != null && dObra <= 3;
+  const obraDist = dObra != null ? (dObra < 1 ? `${Math.round(dObra * 1000)} m` : `${dObra.toFixed(1)} km`) : "";
+  // Cada métrica se colorea por su PERCENTIL real en Medellín (scaleRatio), no por un
+  // tope inventado. Dist en metros si <1km. Helper para formatear distancias:
+  const km = (d: number) => d < 1 ? { value: `${Math.round(d * 1000)}`, unit: "m" } : { value: d.toFixed(1), unit: "km" };
+  // Metro / parque / mall: MÁS CERCA = mejor.
+  const dMetro = c?.dist_metro_km;
+  if (dMetro != null) facts.push({ icon: "🚇", label: fl("Metro"), ...km(dMetro), ratio: scaleRatio(dMetro, "metro") });
+  const dParque = c?.dist_parque_km;
+  if (dParque != null) facts.push({ icon: "🏞️", label: fl("Parque"), ...km(dParque), ratio: scaleRatio(dParque, "parque") });
+  const dMall = c?.dist_mall_km;
+  if (dMall != null) facts.push({ icon: "🛍️", label: fl("Centro comercial"), ...km(dMall), ratio: scaleRatio(dMall, "mall") });
+  // Zonas verdes: % de cobertura (indice_verde_pct). Mediana Medellín = 2.4%, p90 = 11.7%
+  // → un 3% está sobre la mitad de los barrios (ámbar), NO rojo. Antes un tope de 35%
+  // pintaba de rojo barrios realmente verdes.
+  const verde = data?.verde;
+  if (verde?.indice_verde_pct != null) facts.push({ icon: "🌳", label: fl("Zonas verdes"), value: verde.indice_verde_pct.toFixed(1), unit: "% área", ratio: scaleRatio(verde.indice_verde_pct, "verde") });
+  // Ruido día: MENOS dB = mejor. Medellín es ruidosa (mediana 65dB) → la escala lo refleja.
+  const ruidoDb = c?.db_ruido_dia_cercano; const dRuido = c?.dist_ruido_km;
+  if (ruidoDb != null && dRuido != null && dRuido <= 1.5) facts.push({ icon: "🔊", label: fl("Ruido día"), value: `${Math.round(ruidoDb)}`, unit: "dB", ratio: scaleRatio(ruidoDb, "ruido") });
+  // Policía / bomberos: MÁS cerca = mejor.
+  const nPol = c?.n_policia_1km; const dPol = c?.dist_policia_km;
+  if (nPol != null && nPol > 0) facts.push({ icon: "🚓", label: fl("Policía"), value: `${nPol}`, unit: "en 1 km", ratio: scaleRatio(nPol, "policiaN") });
+  else if (dPol != null) facts.push({ icon: "🚓", label: fl("Policía"), ...km(dPol), ratio: scaleRatio(dPol, "policiaD") });
+  const nBomb = c?.n_bomberos_2km;
+  if (nBomb != null && nBomb > 0) facts.push({ icon: "🚒", label: fl("Bomberos"), value: `${nBomb}`, unit: "en 2 km", ratio: scaleRatio(nBomb, "bomberos") });
+  // Internet: MÁS Mbps = mejor. EnCicla: MÁS cerca = mejor. Canchas: MÁS = mejor.
+  const net = c?.avg_internet_mbps;
+  if (net != null && net > 0) facts.push({ icon: "📶", label: fl("Internet"), value: `${Math.round(net)}`, unit: "Mbps", ratio: scaleRatio(net, "internet") });
+  const dEnc = c?.dist_encicla_km;
+  if (dEnc != null && dEnc <= 1.5) facts.push({ icon: "🚲", label: fl("EnCicla"), value: dEnc.toFixed(1), unit: "km", ratio: scaleRatio(dEnc, "encicla") });
+  const nCanc = c?.n_canchas_1km;
+  if (nCanc != null && nCanc > 0) facts.push({ icon: "🏀", label: fl("Canchas"), value: `${nCanc}`, unit: "en 1 km", ratio: scaleRatio(nCanc, "canchas") });
+
+  // Free: solo los 4 scores (tiles). Si no hay tiles y el usuario no es suscriptor
+  // (o no hay detalle que mostrarle), no hay sección.
+  if (tiles.length === 0 && (!isSuscriptor || (!hayTiempos && facts.length === 0 && !obraVisible))) return null;
+  const hayDetalle = hayTiempos || facts.length > 0 || obraVisible;
 
   return (
     <div className="space-y-2.5">
@@ -512,10 +768,80 @@ function GettingAround({ barrioId }: { barrioId: number }) {
           <ScoreBar key={t.label} label={t.label} score={t.score} sub={t.sub} />
         ))}
       </div>
+      {isSuscriptor && hayTiempos && (
+        <div>
+          <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium" style={{ color: "#6E726E" }}>
+            <Car className="h-3.5 w-3.5 shrink-0" /> En carro, hora pico
+          </div>
+          <div className="flex flex-wrap justify-center gap-x-5 gap-y-3 rounded-xl py-3" style={{ background: "#F3F0E8", border: "0.5px solid #E5E0D5" }}>
+            {tPoblado != null && (
+              <CommuteDial icon="🏙️" dest="El Poblado" min={tPoblado}
+                ratio={1 - (tPoblado - 5) / 40} />
+            )}
+            {tCentro != null && (
+              <CommuteDial icon="🏛️" dest="Centro" min={tCentro}
+                ratio={1 - (tCentro - 5) / 40} />
+            )}
+          </div>
+        </div>
+      )}
+      {isSuscriptor && facts.length > 0 && (
+        <div className="flex flex-wrap justify-center gap-x-3 gap-y-3 pt-1">
+          {facts.map((f) => (
+            <FactCircle key={f.label} {...f} />
+          ))}
+        </div>
+      )}
+      {isSuscriptor && obraVisible && (
+        <div className="text-[11px]" style={{ color: "#6E726E" }} data-i18n-skip="true">
+          🏗️ A {obraDist} del proyecto <strong>{obra}</strong>
+          {c?.obra_tipo ? ` · ${c.obra_tipo}` : ""}
+          {c?.obra_fecha && !/sin fecha/i.test(c.obra_fecha) ? ` · ${c.obra_fecha}` : ""}
+        </div>
+      )}
+      {!isSuscriptor && hayDetalle && (
+        <a href="/register"
+          onClick={() => { try { localStorage.setItem("registro_origen", "mls"); } catch { /* storage bloqueado */ } }}
+          className="block rounded-xl px-4 py-2.5 text-center transition hover:opacity-95"
+          style={{ background: "#F3F0E8", border: "1px dashed #C9B896" }}>
+          <div className="text-[12px] font-semibold" style={{ color: "#8A6A00" }}>🔒 Regístrate gratis para ver el detalle del entorno</div>
+          <div className="mt-0.5 text-[11px]" style={{ color: "#6E726E" }}>Tiempos en hora pico, ruido, seguridad, servicios, zonas verdes y obras de la zona.</div>
+        </a>
+      )}
     </div>
   );
 }
 
+
+// ─── Temperatura del mercado (#15) — en el drawer, nivel REGISTRADO (inversionista) ──
+function TemperaturaMercado({ barrioId }: { barrioId: number }) {
+  const isRegistered = useIsRegistered();
+  const { data } = useQuery<BarrioFetch>({
+    queryKey: ["barrio-full", barrioId],
+    queryFn: () => apiFetch<BarrioFetch>(API_ENDPOINTS.barrio(barrioId)),
+    staleTime: 300_000,
+    enabled: isRegistered,  // solo registrado trae mercado_real del backend
+  });
+  const mr = data?.mercado_real;
+  if (!isRegistered || !mr?.clasificacion_mercado) return null;
+  const label = mr.clasificacion_mercado === "vendedor" ? "Mercado de vendedor"
+    : mr.clasificacion_mercado === "comprador" ? "Mercado de comprador"
+    : "Mercado balanceado";
+  // comprador = sobreoferta (favorable al comprador) → verde; vendedor = demanda manda → rojo.
+  const color = mr.clasificacion_mercado === "comprador" ? "#0F8A4F"
+    : mr.clasificacion_mercado === "vendedor" ? "#CE1126" : "#8A6A00";
+  return (
+    <div className="space-y-2">
+      <h3 className="text-[13px] font-semibold tracking-tight" style={{ color: "#111418" }}>Temperatura del mercado</h3>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider" style={{ background: `${color}1A`, color }}>{label}</span>
+        {mr.meses_inventario != null && <span className="text-[12px] tabular-nums" style={{ color: "#5B5F5C" }}>{mr.meses_inventario} meses de inventario</span>}
+        {mr.var_anual_pct != null && <span className="text-[12px] tabular-nums" style={{ color: "#5B5F5C" }}>· precios {mr.var_anual_pct > 0 ? "+" : ""}{mr.var_anual_pct}%/año</span>}
+      </div>
+      <p className="text-[11px]" style={{ color: "#6E726E" }}>Compraventas reales del municipio (SNR/ORIPS) — oferta vs demanda. Nivel municipio. Basado en valores de escritura: puede estar por debajo del precio real de venta.</p>
+    </div>
+  );
+}
 
 // ─── Agendar visita — popup estilo Zillow (día con flechas + hora desplegable) ──
 
@@ -860,8 +1186,8 @@ function waLink(agente: ApiListingAgente, listingId: number): string {
 /** Realtor de comuna — patrocinio principal ($1k), tarjeta prominente. El de
  *  barrio (secundario) aparece discreto como un botón al lado, estilo agendar. */
 function RealtorPrimaryCard({
-  listingId, agente, secondary, onSchedule,
-}: { listingId: number; agente: ApiListingAgente; secondary?: ApiListingAgente | null; onSchedule: () => void }) {
+  listingId, agente, secondary, onSchedule, onContactWa,
+}: { listingId: number; agente: ApiListingAgente; secondary?: ApiListingAgente | null; onSchedule: () => void; onContactWa: () => void }) {
   const esComuna = agente.zona_nivel === "comuna";
   return (
     <div className="overflow-hidden rounded-2xl" style={{ border: "1px solid #0F8A4F", background: "#FFFFFF", boxShadow: "0 4px 16px rgba(29,158,117,0.12)" }}>
@@ -883,6 +1209,7 @@ function RealtorPrimaryCard({
           href={waLink(agente, listingId)}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={onContactWa}
           className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold text-white transition hover:opacity-90"
           style={{ background: "#0F8A4F" }}
         >
@@ -901,6 +1228,7 @@ function RealtorPrimaryCard({
             href={waLink(secondary, listingId)}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={onContactWa}
             className="flex w-full items-center justify-center gap-1.5 pt-1 text-[11px] transition hover:opacity-70"
             style={{ color: "#6E726E" }}
           >
@@ -914,7 +1242,7 @@ function RealtorPrimaryCard({
 }
 
 /** Fallback sin patrocinio: contacto genérico del equipo. */
-function RealtorFallbackCard({ waUrl, onSchedule }: { waUrl: string; onSchedule: () => void }) {
+function RealtorFallbackCard({ waUrl, onSchedule, onContactWa }: { waUrl: string; onSchedule: () => void; onContactWa: () => void }) {
   return (
     <div className="overflow-hidden rounded-2xl" style={{ border: "0.5px solid #E5E0D5", background: "#FFFFFF" }}>
       <div className="flex items-center gap-3 px-4 pt-4 pb-3">
@@ -931,6 +1259,7 @@ function RealtorFallbackCard({ waUrl, onSchedule }: { waUrl: string; onSchedule:
           href={waUrl}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={onContactWa}
           className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold text-white transition hover:opacity-90"
           style={{ background: "#0F8A4F" }}
         >
@@ -950,16 +1279,16 @@ function RealtorFallbackCard({ waUrl, onSchedule }: { waUrl: string; onSchedule:
 
 /** Columna 2 completa: comuna (principal) + barrio (secundario), o fallback. */
 function RealtorColumn({
-  listingId, agentes, waUrl, onSchedule,
-}: { listingId: number; agentes?: ApiListingAgentes | null; waUrl: string; onSchedule: () => void }) {
+  listingId, agentes, waUrl, onSchedule, onContactWa,
+}: { listingId: number; agentes?: ApiListingAgentes | null; waUrl: string; onSchedule: () => void; onContactWa: () => void }) {
   const comuna = agentes?.comuna ?? null;
   const barrio = agentes?.barrio ?? null;
-  if (!comuna && !barrio) return <RealtorFallbackCard waUrl={waUrl} onSchedule={onSchedule} />;
+  if (!comuna && !barrio) return <RealtorFallbackCard waUrl={waUrl} onSchedule={onSchedule} onContactWa={onContactWa} />;
   // Comuna = principal; barrio = botón discreto al lado. Sin comuna, barrio sube a principal.
   const principal = comuna ?? barrio!;
   const secundario = comuna ? barrio : null;
   return (
-    <RealtorPrimaryCard listingId={listingId} agente={principal} secondary={secundario} onSchedule={onSchedule} />
+    <RealtorPrimaryCard listingId={listingId} agente={principal} secondary={secundario} onSchedule={onSchedule} onContactWa={onContactWa} />
   );
 }
 
@@ -1012,10 +1341,12 @@ export function ListingDrawer({ listingId, onClose }: Props) {
   });
 
   // Regla de negocio: inmueble = público; inteligencia de barrio/mercado = solo realtor.
-  // Flag local (plan==='agente') OR señal server-side (buena_oferta/pct_bajo_mediana
-  // solo llegan non-null si is_agente() pasó — cubre aprobados en tabla `agentes`).
-  const isRealtor =
-    useIsAgente() || listing?.buena_oferta != null || listing?.pct_bajo_mediana != null;
+  // useIsAgente() cubre plan==='agente' Y filas aprobadas (esAgente). Ya NO se infiere
+  // de buena_oferta/pct_bajo_mediana: desde #2 esos son públicos (los ve todo el mundo),
+  // así que usarlos como señal de realtor abriría la sección paga a usuarios gratis.
+  const isRealtor = useIsAgente();
+  const isRegistered = useIsRegistered();  // nivel inversionista: rentabilidad/yields
+  const isSuscriptor = useIsSuscriptor();  // = registrado (hoy no hay tier de pago): valor estimado + detalle entorno
 
   useEffect(() => {
     if (!listingId) return;
@@ -1084,6 +1415,14 @@ export function ListingDrawer({ listingId, onClose }: Props) {
     `Hola, me interesa este inmueble en ${listing?.barrio_nombre ?? "Medellín"} por ${formatPrice(listing?.precio_cop)}. ID: ${listingId}`,
   );
   const waUrl = `https://wa.me/+573122502394?text=${waText}`;
+
+  // Lead (capa 4): click a "Contactar" (WhatsApp al agente) = el realtor recibe
+  // un lead. event_type='listing_contact_wa' (no _click → va a Lead, no Intención).
+  const onContactWa = () => track("listing_contact_wa", {
+    entity_type: "listing", entity_id: listing?.url ?? undefined,
+    barrio_id: listing?.barrio_id ?? undefined,
+    metadata: { tipo_inmueble: listing?.tipo_inmueble ?? null, operacion: listing?.tipo_operacion ?? null },
+  });
 
   function handleShare() {
     const url = `${window.location.origin}/map?listing=${listingId}`;
@@ -1198,6 +1537,10 @@ export function ListingDrawer({ listingId, onClose }: Props) {
     activityParts.push(listing.dias_en_mercado === 0 ? "Publicado hoy" : `${listing.dias_en_mercado} días en el mercado`);
   if (listing?.vistas) activityParts.push(`${listing.vistas} vistas`);
   if (listing?.favoritos_count) activityParts.push(`${listing.favoritos_count} guardados`);
+  // #9: agrupamos duplicados cross-portal (cache.py geo+características) → n_duplicados.
+  // Dato ya calculado y expuesto, antes sin pintar. Hash perceptual de fotos = diferido.
+  if (listing?.n_duplicados != null && listing.n_duplicados > 1)
+    activityParts.push(`visto en ${listing.n_duplicados} portales`);
   // Solo afirmamos "se vende más rápido" cuando el barrio es realmente líquido
   // (score ≥ 65, por encima del promedio); si no, no hacemos la afirmación.
   if (isRealtor && listing?.liquidez_score != null && listing.liquidez_score >= 65)
@@ -1210,12 +1553,36 @@ export function ListingDrawer({ listingId, onClose }: Props) {
   // enterrado al fondo del drawer, en ctaButtons).
   const favButton = listing ? (
     <button
-      onClick={() => { if (!auth.get()) return; toggleFav(favKey(listing), listing.barrio_id); }}
+      onClick={() => {
+        if (!auth.get()) { toast.info("Inicia sesión para guardar"); return; }
+        // Intención (capa 3): guardar = señal fuerte. Solo al marcar (no al quitar).
+        if (!isFav(favKey(listing))) {
+          track("listing_save", {
+            entity_type: "listing", entity_id: listing.url ?? undefined,
+            barrio_id: listing.barrio_id ?? undefined,
+            metadata: { tipo_inmueble: listing.tipo_inmueble ?? null, operacion: listing.tipo_operacion ?? null },
+          });
+        }
+        toggleFav(favKey(listing), listing.barrio_id);
+      }}
       title={isFav(favKey(listing)) ? "Quitar de favoritos" : "Guardar"}
       className="grid h-11 w-11 shrink-0 place-items-center rounded-full transition"
       style={{ border: "0.5px solid #E5E0D5", background: isFav(favKey(listing)) ? "#FCE8EA" : "#FFFFFF" }}
     >
       <Heart className="h-5 w-5" style={{ color: isFav(favKey(listing)) ? "#CE1126" : "#5B5F5C" }} fill={isFav(favKey(listing)) ? "#CE1126" : "none"} />
+    </button>
+  ) : null;
+
+  // Compartir arriba, junto al corazón (antes solo estaba enterrado abajo).
+  const shareButton = listing ? (
+    <button
+      onClick={handleShare}
+      title="Compartir"
+      aria-label="Compartir"
+      className="grid h-11 w-11 shrink-0 place-items-center rounded-full transition hover:scale-105"
+      style={{ border: "0.5px solid #E5E0D5", background: "#FFFFFF" }}
+    >
+      <Share2 className="h-5 w-5" style={{ color: "#5B5F5C" }} />
     </button>
   ) : null;
 
@@ -1251,16 +1618,6 @@ export function ListingDrawer({ listingId, onClose }: Props) {
           </button>
         )}
       </div>
-      <div className="flex gap-2">
-        <button
-          onClick={handleShare}
-          title="Copiar link"
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-xl transition"
-          style={{ border: "0.5px solid #E5E0D5", background: "#FFFFFF" }}
-        >
-          <Share2 className="h-4 w-4 text-[#5B5F5C]" />
-        </button>
-      </div>
       <p className="text-[10px] leading-relaxed" style={{ color: "#9A8B76" }}>
         Información publicada por fuentes externas y propietarios. Medellín Social no
         garantiza la exactitud de precios, disponibilidad ni detalles — verifica con el
@@ -1282,7 +1639,10 @@ export function ListingDrawer({ listingId, onClose }: Props) {
           ¿Este inmueble es tuyo? Reclámalo
         </button>
       )}
-      {isPro && listing.barrio_id && (
+      {/* ponytail: notificador de alertas no existe (ningún cron lee alertas_precio);
+          botón escondido para no prometer avisos que nunca llegan. Flip a true cuando
+          salga el cron de match + canal de envío (email/GHL). */}
+      {ALERTAS_NOTIFIER_READY && isPro && listing.barrio_id && (
         <button
           onClick={() => setShowAlertModal(true)}
           className="flex w-full items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-semibold transition hover:opacity-90"
@@ -1334,9 +1694,12 @@ export function ListingDrawer({ listingId, onClose }: Props) {
       {(() => {
         const historia = listing.precio_historia ?? [];
         const fmtFecha = (d: Date) => formatDate(d, lang);
+        const estrato = listing.estrato_real ?? null;
+        const precioActual = listing.precio_cop ?? 0;
 
-        // Sin historial (≈97% de los inmuebles): mostramos precio actual + fecha/año
-        // y avisamos que estamos recopilando el histórico completo.
+        // Sin historial propio (≈97% de los inmuebles): precio actual + fecha, y una
+        // gráfica de la TENDENCIA DE LA ZONA (DANE, modelo) — no ventas de este
+        // inmueble, va etiquetada. Da al usuario la curva de precio en el tiempo.
         if (historia.length === 0) {
           const fechaListado =
             listing.dias_en_mercado != null && listing.dias_en_mercado >= 0
@@ -1344,6 +1707,13 @@ export function ListingDrawer({ listingId, onClose }: Props) {
               : listing.fecha_scraping
                 ? new Date(`${listing.fecha_scraping}T00:00:00`)
                 : null;
+          // Tendencia DANE = valorización de VENTA: no aplica a arriendo (el canon
+          // no "valoriza" igual). Solo venta con estrato válido (1-6) y precio real.
+          const esVenta = normalizeTipoOp(listing.tipo_operacion) === "venta";
+          const zona = esVenta && estrato != null && estrato >= 1 && estrato <= 6 && precioActual > 0
+            ? zonePriceTrend(precioActual, estrato).map((p) => ({ label: String(p.year), precio: p.precio }))
+            : null;
+          const stats = estrato != null ? calcValorizStats(estrato) : null;
           return (
             <div className="space-y-3">
               <h3 className="text-[13px] font-semibold tracking-tight" style={{ color: "#111418" }}>Historial de precio</h3>
@@ -1357,99 +1727,92 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                 </div>
               </div>
               <p className="text-[11px] leading-relaxed" style={{ color: "#6E726E" }}>
-                Aún no hay cambios de precio registrados para este inmueble. Registramos cada variación desde su publicación.
+                Aún no hay cambios de precio registrados para este inmueble.
               </p>
+              {zona && (
+                <div className="space-y-1.5 pt-0.5">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h4 className="text-[12px] font-semibold tracking-tight" style={{ color: "#111418" }} data-i18n-skip="true">📈 Tendencia de la zona</h4>
+                    {stats && (
+                      <span className="text-[11px] font-semibold tabular-nums" style={{ color: "#B4462F" }}>
+                        ▲ {stats.acumulado}% <span className="font-normal" style={{ color: "#8A8E8A" }}>2015–2025</span>
+                      </span>
+                    )}
+                  </div>
+                  <PriceAreaChart data={zona} highlightLabel={zona[zona.length - 1].label} lang={lang} gradId="zonaFill" />
+                  <p className="text-[10px] leading-relaxed" style={{ color: "#8A8E8A" }}>
+                    Cómo ha valorizado la zona (DANE, estrato {estrato}), anclada al precio de hoy. No es el historial de ventas de este inmueble.
+                  </p>
+                </div>
+              )}
             </div>
           );
         }
 
-        if (historia.length <= 2) {
-          return (
-            <div className="space-y-3">
-              <h3 className="text-[13px] font-semibold tracking-tight" style={{ color: "#111418" }}>Historial de precio</h3>
-              <div className="space-y-2.5">
-                {historia.map((h, i) => {
-                  const daysAgo = Math.floor((Date.now() - new Date(h.fecha).getTime()) / 86400000);
-                  const cuandoLabel = daysAgo === 0 ? (lang === "en" ? "Today" : "Hoy") : daysAgo === 1 ? (lang === "en" ? "1 day ago" : "Hace 1 día") : (lang === "en" ? `${daysAgo} days ago` : `Hace ${daysAgo} días`);
-                  const sube = (h.delta_pct ?? 0) > 0;
-                  const color = sube ? "#B4462F" : "#0F8A4F";
-                  return (
-                    <div key={i} className="flex items-baseline justify-between border-b pb-2.5 last:border-0" style={{ borderColor: "#E5E0D5" }}>
-                      <div>
-                        <div className="text-[13px]" style={{ color: "#111418" }}>{sube ? "Subió de precio" : "Bajó de precio"}</div>
-                        <div className="text-[11px]" style={{ color: "#6E726E" }}>{cuandoLabel}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-[14px] font-semibold tabular-nums" style={{ color: "#111418" }}>{formatPrice(h.precio)}</div>
-                        {h.delta_pct != null && (
-                          <div className="text-[11px] font-medium tabular-nums" style={{ color }}>
-                            {sube ? "+" : "−"}{Math.abs(h.delta_pct).toFixed(1)}%
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        }
-
-        // 3+ cambios → gráfica de área estilo Zillow
+        // Con historial real (≥1 cambio) → gráfica del precio del inmueble en el tiempo.
         const sorted = [...historia].sort((a, b) => a.fecha.localeCompare(b.fecha));
+        const hoyLabel = lang === "en" ? "Today" : "Hoy";
         const chartData = [
-          ...sorted.map(h => ({
-            fecha: h.fecha.slice(5, 10).replace("-", "/"), // MM/DD
-            precio: h.precio,
-          })),
-          { fecha: lang === "en" ? "Today" : "Hoy", precio: listing.precio_cop ?? 0 },
+          ...sorted.map((h) => ({ label: h.fecha.slice(5, 10).replace("-", "/"), precio: h.precio })),
+          { label: hoyLabel, precio: precioActual },
         ];
-        const currentPrecioM = listing.precio_cop ?? 0;
+        // % neto desde el primer precio registrado hasta hoy (resumen sobre la gráfica).
+        const primerPrecio = sorted[0]?.precio ?? null;
+        const netPct = primerPrecio && primerPrecio > 0 ? ((precioActual - primerPrecio) / primerPrecio) * 100 : null;
+        const subeNet = (netPct ?? 0) >= 0;
 
         return (
-          <div className="space-y-3">
-            <h3 className="text-[13px] font-semibold tracking-tight" style={{ color: "#111418" }}>Historial de precio</h3>
-            <div style={{ height: 150 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="priceFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#0F8A4F" stopOpacity={0.16} />
-                      <stop offset="100%" stopColor="#0F8A4F" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="fecha" tick={{ fontSize: 10, fill: "#6E726E" }} tickLine={false} axisLine={false} dy={4} />
-                  <YAxis hide domain={["auto", "auto"]} />
-                  <RechartsTooltip
-                    formatter={(val: unknown) => [formatPrice(Number(val)), lang === "en" ? "Price" : "Precio"]}
-                    contentStyle={{ background: "#111418", border: "none", borderRadius: 8, color: "#fff", fontSize: 11, padding: "6px 10px" }}
-                    labelStyle={{ color: "rgba(255,255,255,0.6)", fontSize: 10 }}
-                  />
-                  <Area
-                    type="monotone" dataKey="precio"
-                    stroke="#0F8A4F" strokeWidth={2} fill="url(#priceFill)"
-                    dot={{ r: 2.5, fill: "#0F8A4F", strokeWidth: 0 }}
-                    activeDot={{ r: 4, fill: "#0F8A4F" }}
-                  />
-                  <ReferenceDot x={lang === "en" ? "Today" : "Hoy"} y={currentPrecioM} r={4} fill="#111418" stroke="#fff" strokeWidth={2} />
-                </AreaChart>
-              </ResponsiveContainer>
+          <div className="space-y-2">
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="text-[13px] font-semibold tracking-tight" style={{ color: "#111418" }}>Historial de precio</h3>
+              {netPct != null && Math.abs(netPct) >= 0.5 && (
+                <span className="text-[11px] font-semibold tabular-nums" style={{ color: subeNet ? "#B4462F" : "#0F8A4F" }}>
+                  {subeNet ? "▲" : "▼"} {Math.abs(netPct).toFixed(0)}% {lang === "en" ? "since listed" : "desde publicación"}
+                </span>
+              )}
             </div>
+            <PriceAreaChart data={chartData} highlightLabel={hoyLabel} lang={lang} gradId="priceFill" />
           </div>
         );
       })()}
 
       {/* Entorno — Walk/Transit score + colegios cercanos (público) */}
-      {listing.barrio_id && <GettingAround barrioId={listing.barrio_id} />}
+      {listingId != null && <GettingAround listingId={listingId} barrioId={listing.barrio_id} parqueaderos={listing.parqueaderos} />}
 
-      {/* Valor estimado de mercado (Zestimate) — se auto-oculta si no hay medianas (público) */}
-      <ValorEstimado listing={listing} />
+      {/* Valor estimado de mercado (Zestimate) — nivel REGISTRADO (suscrito=registro) */}
+      {isSuscriptor && <ValorEstimado listing={listing} />}
 
-      {/* ── INVESTOR: rentabilidad (mercado → solo realtor) ── */}
-      {isRealtor && isInvestor && (
+      {/* CTA registro (solo anónimo) — bajo "Valor estimado", sobre "Ubicación".
+          El entorno/historial del detalle está gated a nivel registrado gratis. */}
+      {!isRegistered && (
+        <a
+          href="/register"
+          onClick={() => { try { localStorage.setItem("registro_origen", "mls"); } catch { /* storage bloqueado */ } }}
+          className="block rounded-xl p-4 text-center transition hover:opacity-95"
+          style={{ background: "#E7F4EC", border: "1px solid #0F8A4F" }}
+        >
+          <div className="text-[14px] font-bold" style={{ color: "#0A5C36" }}>
+            {lang === "en" ? "Want the full picture?" : "¿Quieres ver más para decidir mejor?"}
+          </div>
+          <div className="mt-1 text-[12px] leading-snug" style={{ color: "#0A5C36" }}>
+            {lang === "en"
+              ? "Sign up free to unlock neighborhood detail (safety, services, commute times) and investment returns."
+              : "Regístrate gratis y desbloquea el detalle del entorno (servicios, obras, tiempos de viaje) y la rentabilidad."}
+          </div>
+          <span className="mt-3 inline-flex items-center justify-center gap-1 rounded-lg px-5 py-2 text-[13px] font-bold text-white" style={{ background: "#0F8A4F" }}>
+            {lang === "en" ? "Sign up free" : "Regístrate gratis"} <ChevronRight className="h-4 w-4" />
+          </span>
+        </a>
+      )}
+
+      {/* Temperatura del mercado (#15) — registrado; se auto-oculta para anónimo/sin barrio */}
+      {listing.barrio_id && <TemperaturaMercado barrioId={listing.barrio_id} />}
+
+      {/* ── INVESTOR: rentabilidad (yields → registrado; score desglosado → realtor) ── */}
+      {isRegistered && isInvestor && (
         <>
           <YieldMultiModal listing={listing} />
-          {isPro && listing.score_corto != null && (
+          {isRealtor && listing.score_corto != null && (
             <div className="flex items-center justify-between border-b py-3 text-[13px]" style={{ borderColor: "#E5E0D5" }}>
               <span style={{ color: "#5B5F5C" }}>Score de inversión</span>
               <span className="font-semibold tabular-nums" style={{ color: "#111418" }}>{Math.round(listing.score_corto / 10)}/10</span>
@@ -1458,8 +1821,8 @@ export function ListingDrawer({ listingId, onClose }: Props) {
         </>
       )}
 
-      {/* ── LANDLORD: yield sin badge de compra (mercado → solo realtor) ────────── */}
-      {isRealtor && isLandlord && <YieldMultiModal listing={listing} />}
+      {/* ── LANDLORD: yield (rentabilidad → registrado) ────────── */}
+      {isRegistered && isLandlord && <YieldMultiModal listing={listing} />}
 
 
       {/* CTA único para usuarios free */}
@@ -1617,6 +1980,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                             </div>
                             <div className="flex items-start gap-2">
                               {badgesRow}
+                              {shareButton}
                               {favButton}
                             </div>
                           </div>
@@ -1640,6 +2004,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                           agentes={agentes}
                           waUrl={waUrl}
                           onSchedule={() => setShowScheduleModal(true)}
+                          onContactWa={onContactWa}
                         />
                         {analysisContent}
                         {similaresSection}
@@ -1669,6 +2034,7 @@ export function ListingDrawer({ listingId, onClose }: Props) {
         agentes={agentes}
         waUrl={waUrl}
         onSchedule={() => setShowScheduleModal(true)}
+        onContactWa={onContactWa}
       />
     </div>
   ) : null;
@@ -1692,8 +2058,9 @@ export function ListingDrawer({ listingId, onClose }: Props) {
                   </div>
                 )}
               </div>
-              <div className="flex shrink-0 items-start gap-3 pt-1.5">
+              <div className="flex shrink-0 items-start gap-2 pt-1.5">
                 {specsInline}
+                {shareButton}
                 {favButton}
               </div>
             </div>

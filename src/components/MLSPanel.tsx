@@ -1,9 +1,10 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { useImpression } from "@/lib/impressions";
 import { OriginalListingLink } from "@/components/OriginalListingLink";
 import { originalListingUrl } from "@/lib/originalListing";
 import { motion, AnimatePresence } from "framer-motion";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { ArrowLeft, ExternalLink, Plus, Check, ArrowUpDown } from "@/lib/icons";
+import { ArrowLeft, ExternalLink, Plus, Check, ArrowUpDown, Heart } from "@/lib/icons";
 import { useNavigate } from "@tanstack/react-router";
 import type { ApiListing, BarrioOption, Neighborhood } from "@/lib/adapters";
 import { formatCOP } from "@/lib/format";
@@ -160,6 +161,13 @@ function ListingCard({
   const isPro = useIsPro();
   const isRealtor = useIsAgente();
   const isMobile = useIsMobile();
+  // Alcance (capa 1): impresión de la tarjeta de listing. Merge con cardRef
+  // (que el panel usa para scroll/highlight) en un solo ref callback.
+  const impRef = useImpression({ entity_type: "listing", entity_id: listing.url ?? "", barrio_id: listing.barrio_id ?? undefined });
+  const mergedRef = useCallback(
+    (el: HTMLDivElement | null) => { cardRef?.(el); if (listing.url) impRef(el); },
+    [cardRef, impRef, listing.url],
+  );
   const { addListing, removeListing, isSelected, canAdd } = useComparadorStore();
   const selected = isSelected(listing.id);
   const { formatPrice, formatSecondary, formatPricePerArea } = usePriceFormat();
@@ -185,7 +193,7 @@ function ListingCard({
   if (isMobile) {
     return (
       <div
-        ref={cardRef}
+        ref={mergedRef}
         onClick={(e) => onSelect(e)}
         data-tour="listing-card"
         className="cursor-pointer rounded-lg border overflow-hidden"
@@ -229,7 +237,7 @@ function ListingCard({
             aria-label={isFav ? "Quitar de favoritos" : "Guardar propiedad"}
             title={isFav ? "Quitar de favoritos" : "Guardar propiedad"}
           >
-            {isFav ? "❤️" : "🤍"}
+            <Heart className="h-[22px] w-[22px]" style={{ color: isFav ? "#CE1126" : "#9aa0a6" }} fill={isFav ? "#CE1126" : "none"} />
           </button>
         </div>
       </div>
@@ -238,7 +246,7 @@ function ListingCard({
 
   return (
     <div
-      ref={cardRef}
+      ref={mergedRef}
       onMouseEnter={() => onHover?.(true)}
       onMouseLeave={() => onHover?.(false)}
       onClick={(e) => onSelect(e)}
@@ -427,7 +435,7 @@ function ListingCard({
             aria-label={isFav ? "Quitar de favoritos" : "Guardar propiedad"}
             title={isFav ? "Quitar de favoritos" : "Guardar propiedad"}
           >
-            {isFav ? "❤️" : "🤍"}
+            <Heart className="h-[22px] w-[22px]" style={{ color: isFav ? "#CE1126" : "#9aa0a6" }} fill={isFav ? "#CE1126" : "none"} />
           </button>
         </div>
       </div>
@@ -611,7 +619,7 @@ export function MLSPanel({
       cardRef={(el) => { cardRefs.current[l.id] = el; }}
       isFav={isFav(favKey(l))}
       onToggleFav={() => {
-        if (!auth.get()) return;
+        if (!auth.get()) { toast.info("Inicia sesión para guardar"); return; }
         toggleFav(favKey(l), l.barrio_id);
       }}
       onSimular={() => {

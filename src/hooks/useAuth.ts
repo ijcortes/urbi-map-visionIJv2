@@ -43,13 +43,34 @@ function storeAuth(res: AuthResponse) {
   });
 }
 
+// Refresca plan/esAgente del user guardado contra /auth/me. `storeAuth` los fija
+// SOLO al login → si el user se suscribe (o cambia su plan/estado de agente)
+// después, localStorage queda stale y los gates de suscripción (useIsSuscriptor /
+// useIsAgente) mienten. Esto trae la verdad del server al boot. Usa auth.patch
+// (no set) para preservar favoritos/historial, y solo toca el store si algo
+// cambió — así no dispara qc.clear() en cada carga.
+export async function refreshMe(): Promise<void> {
+  if (!getToken()) return;
+  try {
+    const res = await apiFetch<AuthResponse>(API_ENDPOINTS.me);
+    const cur = auth.get();
+    if (!cur) return;
+    const plan = (res.user.plan ?? "free") as never;
+    const esAgente = res.user.es_agente ?? false;
+    if (cur.plan === plan && cur.esAgente === esAgente) return;  // sin cambios → no toca cache
+    auth.patch({ plan, esAgente });
+  } catch {
+    // best-effort: si /me falla, el user local se queda como está (401 ya desloguea en apiFetch)
+  }
+}
+
 // /auth/register no longer returns a session: the account is unusable until the
 // emailed link is clicked, so there is no token/user to store here.
 export type RegisterResponse = { ok: boolean; verification_required: boolean; message: string };
 
 export function useRegister() {
   return useMutation({
-    mutationFn: async (data: { email: string; password: string; nombre?: string; telefono?: string; origen?: string }) => {
+    mutationFn: async (data: { email: string; password: string; nombre?: string; telefono?: string; origen?: string; habeas_data: boolean; consent_whatsapp?: boolean }) => {
       return apiFetch<RegisterResponse>(API_ENDPOINTS.register, {
         method: "POST",
         body: JSON.stringify(data),
@@ -86,7 +107,7 @@ export function useLogin() {
 
 export function useGoogleLogin() {
   return useMutation({
-    mutationFn: async (data: { id_token: string }) => {
+    mutationFn: async (data: { id_token: string; habeas_data?: boolean; consent_whatsapp?: boolean }) => {
       const res = await apiFetch<AuthResponse & { challenge?: string; message?: string }>(API_ENDPOINTS.googleLogin, {
         method: "POST",
         body: JSON.stringify(data),

@@ -1,11 +1,10 @@
 import { seo } from "@/lib/seo";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { motion } from "framer-motion";
 import { z } from "zod";
 import { apiFetch } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
-import { AuthShell } from "./login";
+import { AuthShell, Field, ErrorBanner, AuthButton, inputStyle } from "./login";
 
 const searchSchema = z.object({
   token: z.string().optional(),
@@ -53,7 +52,7 @@ function ResetPasswordPage() {
   if (done) {
     return (
       <AuthShell title="¡Contraseña actualizada!" subtitle="Redirigiendo al login…">
-        <div className="rounded-xl border border-success/40 bg-success/10 p-4 text-center text-sm text-success">
+        <div style={{ borderRadius: 10, border: "1px solid #0F8A4F", background: "#E7F4EC", padding: 16, textAlign: "center", fontSize: 14, color: "#0A5C36", fontFamily: "'Inter', system-ui, sans-serif" }}>
           Contraseña actualizada correctamente. Serás redirigido en segundos.
         </div>
       </AuthShell>
@@ -62,55 +61,43 @@ function ResetPasswordPage() {
 
   return (
     <AuthShell title="Nueva contraseña" subtitle="Ingresa el token y tu nueva contraseña">
-      <form onSubmit={submit} className="space-y-4">
-        <div>
-          <label className="block text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
-            Token de recuperación
-          </label>
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <Field label="Token de recuperación">
           <input
             type="text"
             value={token}
             onChange={(e) => setToken(e.target.value)}
-            className="mt-1 w-full rounded-md border border-border bg-background/40 px-3 py-2.5 font-mono text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+            className="auth-input"
+            style={{ ...inputStyle, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12 }}
             placeholder="Pega el token aquí"
           />
-        </div>
-        <div>
-          <label className="block text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
-            Nueva contraseña
-          </label>
+        </Field>
+        <Field label="Nueva contraseña">
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full rounded-md border border-border bg-background/40 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+            className="auth-input"
+            style={inputStyle}
             placeholder="Mínimo 8 caracteres"
           />
-        </div>
-        <div>
-          <label className="block text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
-            Confirmar contraseña
-          </label>
+        </Field>
+        <Field label="Confirmar contraseña">
           <input
             type="password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
-            className="mt-1 w-full rounded-md border border-border bg-background/40 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+            className="auth-input"
+            style={inputStyle}
             placeholder="Repite la contraseña"
           />
-        </div>
-        {error && <p className="text-xs text-danger">{error}</p>}
-        <motion.button
-          whileHover={{ scale: 1.01 }}
-          whileTap={{ scale: 0.99 }}
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-md bg-primary py-2.5 text-sm font-semibold text-primary-foreground glow-cyan disabled:opacity-60"
-        >
+        </Field>
+        {error && <ErrorBanner message={error} />}
+        <AuthButton disabled={loading}>
           {loading ? "Actualizando…" : "Actualizar contraseña"}
-        </motion.button>
-        <p className="text-center text-xs text-muted-foreground">
-          <Link to="/forgot-password" className="text-primary hover:underline">
+        </AuthButton>
+        <p style={{ textAlign: "center", fontSize: 13, fontFamily: "'Inter', system-ui, sans-serif", color: "#5B5F5C", margin: 0 }}>
+          <Link to="/forgot-password" style={{ color: "#0F8A4F", fontWeight: 700, textDecoration: "none" }}>
             Solicitar nuevo token
           </Link>
         </p>

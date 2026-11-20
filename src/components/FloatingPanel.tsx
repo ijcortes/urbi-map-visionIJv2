@@ -44,9 +44,10 @@ import { auth, GOAL_LABEL, recommendation, type Goal } from "@/lib/auth";
 import { useTarget, TARGET_OPTIONS } from "@/contexts/TargetContext";
 import { formatCOP, formatNumber, formatPct, yieldColor } from "@/lib/format";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useIsAgente } from "@/components/LockedField";
 import { useLang, AutoTranslate } from "@/lib/i18n";
 import { usePriceFormat } from "@/hooks/usePriceFormat";
-import { useListings, useCiudadStats, useBarrios, useBarriosRaw } from "@/hooks/useBarrios";
+import { useListings, useCiudadStats, useBarrios, useBarriosRaw, useBarrio, useBarrioMercadoSerie } from "@/hooks/useBarrios";
 import { useFavoritos, useToggleFavorito } from "@/hooks/useUser";
 import type { ApiListing } from "@/lib/adapters";
 
@@ -688,6 +689,9 @@ function BarrioDetail({ n, onBack, onListings, goal, onGoToMLS }: { n: Neighborh
   const { target, setTarget } = useTarget();
   const scoreColor = getScoreColor(n.score_activo ?? null, undefined, perfil, risk);
   const scoreLbl = getScoreLabel(n.score_activo ?? null, perfil, risk);
+  // Población por zona (#5): comuna para Medellín, municipio para el resto.
+  const poblacion = n.poblacionComuna ?? n.poblacionMunicipio ?? null;
+  const poblacionZona = n.poblacionComuna != null ? "Comuna" : "Municipio";
 
   const { data: listingsData, isLoading: listingsLoading } = useListings(n.id, 6);
   const apiListings = listingsData?.listings ?? [];
@@ -756,6 +760,7 @@ function BarrioDetail({ n, onBack, onListings, goal, onGoToMLS }: { n: Neighborh
         <div className="mt-2 flex flex-wrap gap-1.5">
           <Badge>Estrato {n.estrato}</Badge>
           <Badge>{n.municipio}</Badge>
+          {poblacion != null && <Badge>{poblacionZona}: {poblacion.toLocaleString("es-CO")} hab</Badge>}
           <Badge color={scoreColor}>{scoreLbl}</Badge>
         </div>
       </div>
@@ -1587,7 +1592,15 @@ function CatastroSection({ n }: { n: Neighborhood }) {
 /* ------------- Mercado real (compraventas SNR/ORIPS) ------------- */
 
 function MercadoRealSection({ n }: { n: Neighborhood }) {
-  const mr = n.mercado_real;
+  // #15 Temperatura: mercado_real (clasificacion vendedor/comprador) sólo viene en
+  // el detalle get_barrio — el LATERAL de compraventas es caro, por eso el mapa no
+  // lo trae. Barrios reales (<800k) piden el detalle; sintéticos quedan sin sección.
+  const { data: detalle } = useBarrio(n.id < 800_000 ? n.id : null);
+  // #14: serie de precios del municipio (9 años) → momentum que da firmeza a la temperatura.
+  const { data: serieData } = useBarrioMercadoSerie(n.id < 800_000 ? n.id : null);
+  const serie = serieData?.serie ?? [];
+  const cagr = serieData?.cagr_pct ?? null;
+  const mr = detalle?.mercado_real ?? n.mercado_real;
   if (!mr || mr.anio_dato == null) return null;
 
   const color = mr.clasificacion_mercado ? MERCADO_REAL_COLORS[mr.clasificacion_mercado] ?? "#5B5F5C" : "#5B5F5C";
@@ -1631,11 +1644,43 @@ function MercadoRealSection({ n }: { n: Neighborhood }) {
             </span>
           </div>
         )}
+        {serie.length >= 2 && (
+          <div className="border-t border-border pt-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Precios {serie[0].anio}–{serie[serie.length - 1].anio}
+              </span>
+              {cagr != null && (
+                <span
+                  className="text-[11px] font-bold tabular-nums"
+                  style={{ color: cagr > 3 ? "#0F8A4F" : cagr < -3 ? "#CE1126" : "#5B5F5C" }}
+                >
+                  {cagr > 0 ? "+" : ""}{cagr}%/año {cagr > 3 ? "↑" : cagr < -3 ? "↓" : "→"}
+                </span>
+              )}
+            </div>
+            <div className="mt-1 h-10 w-full">
+              <ResponsiveContainer>
+                <BarChart data={serie} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+                  <XAxis dataKey="anio" hide />
+                  <Tooltip
+                    cursor={{ fill: "transparent" }}
+                    contentStyle={{ fontSize: 11, padding: "2px 8px" }}
+                    formatter={(v) => [formatCOP(Number(v)), "Mediana"]}
+                    labelFormatter={(l) => `${l}`}
+                  />
+                  <Bar dataKey="valor_mediana" fill={color} radius={[2, 2, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
       </div>
       <p className="mt-1.5 text-[10px] text-muted-foreground">
         Fuente: registro notarial SNR/ORIPS, nivel municipio (no barrio) — {mr.n_transacciones_anual != null ? formatNumber(mr.n_transacciones_anual) : "—"} transacciones reales de {n.municipio} en {mr.anio_dato}.
         {mr.ipvn_dane_pct != null && ` Índice DANE nacional del mismo año: ${mr.ipvn_dane_pct > 0 ? "+" : ""}${mr.ipvn_dane_pct}% (referencia, no aplicado como ajuste).`}
         {" "}Valor absoluto, no controla mezcla de tipo/tamaño de inmueble.
+        {" "}Basado en valores de escritura: puede estar por debajo del precio real de venta.
       </p>
     </Section>
   );
@@ -1662,6 +1707,9 @@ function ValorizacionSection({ n }: { n: Neighborhood }) {
   const api = n.valorizacion_api;
   const fallback = calcValorizStats(n.estrato);
   const isReal = api?.var_anual_pct != null;
+  // To-do §2: la PROYECCIÓN de valorización es solo para agentes. Lo histórico
+  // (último año, acumulado desde 2015) queda público — es historial de precios.
+  const isAgente = useIsAgente();
 
   const varAnual = api?.var_anual_pct ?? fallback.ultimoAnio;
   const proy5 = api?.proyeccion_5anos_pct != null ? Math.round(api.proyeccion_5anos_pct) : fallback.proj5;
@@ -1679,7 +1727,7 @@ function ValorizacionSection({ n }: { n: Neighborhood }) {
             <div className="text-[10px] text-muted-foreground mt-0.5">último año</div>
           </div>
           <div className="text-center">
-            {proy3 != null ? (
+            {isAgente && proy3 != null ? (
               <>
                 <div className="font-display text-xl font-bold text-success">+{Math.round(proy3)}%</div>
                 <div className="text-[10px] text-muted-foreground mt-0.5">proy. 3 años</div>
@@ -1695,9 +1743,13 @@ function ValorizacionSection({ n }: { n: Neighborhood }) {
         <div className="border-t border-border pt-2 flex items-center justify-between text-xs text-muted-foreground">
           <span>
             Proyección 5 años:{" "}
-            <span className="font-semibold text-foreground">+{proy5}%</span>
+            {isAgente ? (
+              <span className="font-semibold text-foreground">+{proy5}%</span>
+            ) : (
+              <span className="font-semibold text-muted-foreground">🔒 Solo agentes</span>
+            )}
           </span>
-          {badge && (
+          {isAgente && badge && (
             <span
               className="rounded-md px-2 py-0.5 text-[11px] font-semibold"
               style={{ color: badge.color, background: `${badge.color}20` }}
@@ -1710,7 +1762,7 @@ function ValorizacionSection({ n }: { n: Neighborhood }) {
       <p className="mt-1.5 text-[10px] text-muted-foreground">
         {isReal
           ? "Fuente: datos reales del barrio"
-          : `Fuente: DANE IPVN · Ajustado por estrato ${n.estrato}`}
+          : `Estimación (no tasación) — proyección basada en DANE IPVN, ajustada por estrato ${n.estrato}`}
       </p>
     </Section>
   );

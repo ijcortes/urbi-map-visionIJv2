@@ -39,9 +39,17 @@ function loadGsiScript(): Promise<void> {
 export function GoogleSignInButton({
   onSuccess,
   onError,
+  enforceConsent = false,
+  habeasData = false,
+  consentWhatsapp = false,
 }: {
   onSuccess: (res: AuthResponse) => void;
   onError?: (message: string) => void;
+  // On /register the Google button must honour the same required consent
+  // checkbox as the e-mail form. On /login these stay off (returning users).
+  enforceConsent?: boolean;
+  habeasData?: boolean;
+  consentWhatsapp?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const googleLogin = useGoogleLogin();
@@ -51,8 +59,14 @@ export function GoogleSignInButton({
   // after mount, so a stale closure here would ship the wrong value.
   const onSuccessRef = useRef(onSuccess);
   const onErrorRef = useRef(onError);
+  const enforceConsentRef = useRef(enforceConsent);
+  const habeasDataRef = useRef(habeasData);
+  const consentWhatsappRef = useRef(consentWhatsapp);
   onSuccessRef.current = onSuccess;
   onErrorRef.current = onError;
+  enforceConsentRef.current = enforceConsent;
+  habeasDataRef.current = habeasData;
+  consentWhatsappRef.current = consentWhatsapp;
 
   useEffect(() => {
     if (!CLIENT_ID) return;
@@ -64,8 +78,16 @@ export function GoogleSignInButton({
         window.google.accounts.id.initialize({
           client_id: CLIENT_ID,
           callback: async (response) => {
+            if (enforceConsentRef.current && !habeasDataRef.current) {
+              onErrorRef.current?.("Debes aceptar la política de tratamiento de datos para crear tu cuenta.");
+              return;
+            }
             try {
-              const res = await googleLogin.mutateAsync({ id_token: response.credential });
+              const res = await googleLogin.mutateAsync({
+                id_token: response.credential,
+                habeas_data: habeasDataRef.current,
+                consent_whatsapp: consentWhatsappRef.current,
+              });
               onSuccessRef.current(res);
             } catch (err) {
               onErrorRef.current?.(err instanceof Error ? err.message : "No se pudo iniciar sesión con Google.");

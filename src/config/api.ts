@@ -27,6 +27,7 @@ export const API_ENDPOINTS = {
   // Barrios
   barrios: `${API_BASE_URL}/barrios`,
   barrio: (id: number) => `${API_BASE_URL}/barrios/${id}`,
+  barrioMercadoSerie: (id: number) => `${API_BASE_URL}/barrios/${id}/mercado-serie`,
   barrioInfo: (id: number) => `${API_BASE_URL}/barrios/${id}/info`,
   comparar: `${API_BASE_URL}/barrios/comparar`,
   barrioAliases: `${API_BASE_URL}/barrios/aliases`,
@@ -39,6 +40,7 @@ export const API_ENDPOINTS = {
   listingReportBrokenLink: (id: number) => `${API_BASE_URL}/listings/${id}/report-broken-link`,
   listingReclamar: (id: number) => `${API_BASE_URL}/listings/${id}/reclamar`,
   listingSimilares: (id: number) => `${API_BASE_URL}/listings/${id}/similares`,
+  listingEntorno: (id: number) => `${API_BASE_URL}/listings/${id}/entorno`,
   listingAgente: (id: number) => `${API_BASE_URL}/listings/${id}/agente`,
   agentesDirectorio: `${API_BASE_URL}/listings/agentes`,
   agentePerfil: (id: string) => `${API_BASE_URL}/listings/agentes/${id}`,
@@ -46,6 +48,7 @@ export const API_ENDPOINTS = {
   listingSlots: (id: number) => `${API_BASE_URL}/listings/${id}/slots`,
   visitas: `${API_BASE_URL}/visitas`,
   track: `${API_BASE_URL}/track`,
+  trackImpressions: `${API_BASE_URL}/track/impressions`,
 
   // Usuario
   onboarding: `${API_BASE_URL}/usuario/onboarding`,
@@ -80,6 +83,9 @@ export const API_ENDPOINTS = {
 
   // Comunidad
   comunidadEventos: (barrioId: number) => `${API_BASE_URL}/comunidad/${barrioId}/eventos`,
+  crearEvento: `${API_BASE_URL}/comunidad/eventos`,
+  importarEvento: `${API_BASE_URL}/comunidad/eventos/importar`,
+  crearNegocio: `${API_BASE_URL}/business/mi-negocio`,
   comunidadTiendas: (barrioId: number) => `${API_BASE_URL}/comunidad/${barrioId}/tiendas`,
   ticker: (ciudadId = 1) => `${API_BASE_URL}/comunidad/ticker?ciudad_id=${ciudadId}`,
   todosEventos: `${API_BASE_URL}/comunidad/todos/eventos?limit=20`,

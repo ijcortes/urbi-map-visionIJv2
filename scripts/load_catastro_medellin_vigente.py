@@ -54,6 +54,36 @@ GROUP BY ds_comuna
 ORDER BY predios DESC;
 """
 
+# Reconstruye analytics.catastro_comunas_stats (lo lee barrios.py para el ratio
+# mercado/catastro). Filtro clave: SOLO viviendas reales. Antes el agregado tomaba
+# todo lo '%residencial%' — metía 70k PARQUEADEROS y matrices de edificio entero
+# (nm_ar_constru de miles de m²) → avalúo/m² ~40x chico → ratio mercado/catastro de
+# ~100 (irreal; se espera 1,5–4). Acá: área 30–400 m², sin parqueadero/lote, y
+# mediana (no promedio) por robustez. Ver docs To-do §1. [NOTA: mismo filtro vive
+# en dbt/models/analytics/listings_vs_catastro.sql — mantener ambos en sync.]
+REBUILD_STATS_SQL = """
+TRUNCATE analytics.catastro_comunas_stats;
+INSERT INTO analytics.catastro_comunas_stats
+    (comuna, total_predios, pct_apartamento, area_mediana_apto_m2, avaluo_m2)
+SELECT
+    upper(trim(ds_comuna))                                                       AS comuna,
+    count(*)                                                                     AS total_predios,
+    round(100.0 * avg(((ds_uso_tipo ilike '%4 o más pisos%'
+                        OR ds_uso_tipo ilike '%conjunto%'))::int), 1)            AS pct_apartamento,
+    round(percentile_cont(0.5) within group (order by nm_ar_constru))            AS area_mediana_apto_m2,
+    round(percentile_cont(0.5) within group (order by vl_avaluo_total / nm_ar_constru)) AS avaluo_m2
+FROM raw.catastro_medellin
+WHERE cd_vig_pred = 'S'
+  AND cd_ind_ru_ur = 'U'
+  AND vl_avaluo_total > 0
+  AND nm_ar_constru BETWEEN 30 AND 400
+  AND ds_uso_tipo ILIKE '%residencial%'
+  AND ds_uso_tipo NOT ILIKE '%parqueadero%'
+  AND ds_uso_tipo NOT ILIKE '%lote%'
+GROUP BY upper(trim(ds_comuna))
+HAVING count(*) >= 20;
+"""
+
 # nm_ar_lote es entero puro — se lee directamente como Int64
 DTYPE = {
     "matricula_anonimizada": str,
@@ -201,6 +231,21 @@ def main():
         )
     print(sep)
     print(f"{'TOTAL COMUNAS':>30}: {len(rows)}")
+
+    # ── Paso 4: Reconstruir stats por comuna (lo que lee la API) ───────────────
+    print("\n── Paso 4: Rebuild analytics.catastro_comunas_stats ────────────")
+    s_conn = psycopg2.connect(DB_URL)
+    s_cur = s_conn.cursor()
+    try:
+        s_cur.execute(REBUILD_STATS_SQL)
+        s_conn.commit()
+        s_cur.execute("SELECT count(*), round(percentile_cont(0.5) within group (order by avaluo_m2)) "
+                      "FROM analytics.catastro_comunas_stats")
+        n, med = s_cur.fetchone()
+        print(f"✅ {n} comunas · avalúo/m² mediano {float(med):,.0f} COP")
+    finally:
+        s_cur.close()
+        s_conn.close()
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ import type { CSSProperties } from "react"
 // Los cortes están medidos sobre Fraunces 900: amarillo hasta la mitad de la
 // altura de las minúsculas, rojo desde el tercio inferior. flag={false}
 // vuelve al "Social" verde plano.
-const FLAG_FILL = "linear-gradient(180deg, #FCD116 0 SPLIT1, #003893 SPLIT1 SPLIT2, #CE1126 SPLIT2 100%)"
+const FLAG_FILL = "linear-gradient(180deg, #E0A800 0 SPLIT1, #003893 SPLIT1 SPLIT2, #CE1126 SPLIT2 100%)"
   .replace(/SPLIT1/g, "49.6%").replace(/SPLIT2/g, "68.8%")
 
 function flagText(extra?: CSSProperties): CSSProperties {
@@ -79,7 +79,7 @@ export function Wordmark({ teal = "#0F8A4F", coral = "#CE1126", paper = "#FAF8F3
 // Insignia apilada (logo 05) — plaquita coral con "M" chico en ámbar arriba y
 // "S" grande en paper abajo. Un solo componente, tamaño por prop, para que se
 // vea igual en el header móvil de /map y en el círculo de cuenta.
-export function BrandBadge({ size = 32, coral = "#CE1126", amarillo = "#FCD116", paper = "#FAF8F3" }: {
+export function BrandBadge({ size = 32, coral = "#CE1126", amarillo = "#E0A800", paper = "#FAF8F3" }: {
   size?: number
   coral?: string
   amarillo?: string

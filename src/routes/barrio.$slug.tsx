@@ -9,6 +9,7 @@ import { EventCardFeatured, EventCardMini } from '@/components/comunidad/EventCa
 import { Carousel as UiCarousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useDeals } from '@/hooks/useDeals'
+import { observeImpression } from '@/lib/impressions'
 import { useDirectorio } from '@/hooks/useDirectorio'
 import { useNoticias } from '@/hooks/useNoticias'
 import { useEventosZona } from '@/hooks/useEventosZona'
@@ -51,7 +52,7 @@ function BarrioRoot() {
 
 interface Embajador { nombre: string; foto_url: string | null; bio: string | null; video_url: string | null; post_id: number | null }
 interface Historia { id: number; titulo: string; cuerpo: string; imagen_url: string | null; enlace_url: string | null; autor_nombre: string; created_at: string | null; destacado: boolean }
-interface RealtorCard { id: string; nombre: string; foto_url: string | null; bio: string | null; agencia_nombre: string | null; rating_promedio: number | null; n_resenas: number }
+interface RealtorCard { tier?: string | null; id: string; nombre: string; foto_url: string | null; bio: string | null; agencia_nombre: string | null; rating_promedio: number | null; n_resenas: number }
 interface BarrioPageData { embajador: Embajador | null; historias: Historia[]; realtors: RealtorCard[] }
 
 /** cd_comuna (Medellín) o municipio (resto del Valle): la zona que usan la API y /map. */
@@ -64,7 +65,7 @@ function useBarrioPage(b: Barrio | undefined) {
     queryKey: ['barrio-page', b?.slug],
     enabled: !!b,
     queryFn: async () => {
-      const res = await fetch(`${API_BASE_URL}/comunidad/barrio-page?${zonaQS(b!)}`)
+      const res = await fetch(`${API_BASE_URL}/comunidad/barrio-page?${zonaQS(b!)}${b!.barrio_id != null ? `&barrio_id=${b!.barrio_id}` : ''}`)
       if (!res.ok) return { embajador: null, historias: [], realtors: [] }
       return res.json()
     },
@@ -338,7 +339,7 @@ function BarrioPage({ slug }: { slug: string }) {
               <a key={r.id} href={`/agentes?agente=${r.id}`} style={{ display: 'flex', gap: 16, alignItems: 'center', background: K.paper, border: `1px solid ${K.line}`, borderRadius: 16, padding: 16, textDecoration: 'none', color: K.ink }}>
                 <ImgBox round src={r.foto_url} alt={r.nombre} height={76} fallback="🏠" bg={K.azulLight} />
                 <div style={{ minWidth: 0 }}>
-                  <div style={kicker(K.azul, 10.5)}>{t('Realtor destacado', 'Featured realtor')}</div>
+                  <div style={kicker(K.azul, 10.5)}>{r.tier === 'preferred' ? 'Preferred' : t('Realtor destacado', 'Featured realtor')}</div>
                   <div style={{ fontFamily: K.serif, fontWeight: 800, fontSize: '1.15rem' }}><Name>{r.nombre}</Name></div>
                   <div style={{ fontSize: '.85rem', color: K.muted }}>
                     {r.agencia_nombre ? <Name>{r.agencia_nombre}</Name> : null}
@@ -348,7 +349,7 @@ function BarrioPage({ slug }: { slug: string }) {
                 </div>
               </a>
             ) : (
-              <a key={`slot-${i}`} href="/planes/featured-realtor" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', minHeight: 108, border: `2px dashed ${K.line}`, borderRadius: 16, padding: 16, color: K.muted, textDecoration: 'none', fontWeight: 700 }}>
+              <a key={`slot-${i}`} href={`/planes/featured-realtor?zona_nivel=barrio&zona_codigo=${b.barrio_id}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', minHeight: 108, border: `2px dashed ${K.line}`, borderRadius: 16, padding: 16, color: K.muted, textDecoration: 'none', fontWeight: 700 }}>
                 {t(`¿Eres realtor en ${b.nombre}? Este espacio es tuyo →`, `Realtor in ${b.nombre}? This spot is yours →`)}
               </a>
             )
@@ -395,7 +396,10 @@ function BarrioPage({ slug }: { slug: string }) {
           <Carousel label={t('Negocios', 'Businesses')}>
             {deals.map((d) => (
               <Slide key={`d-${d.id}`} width={230}>
-                <div style={{ background: K.paper, borderRadius: 14, border: `2px solid ${K.rojo}`, overflow: 'hidden' }}>
+                <div
+                  ref={(el) => observeImpression(el, { entity_type: 'deal', entity_id: String(d.id), categoria: d.categoria })}
+                  style={{ background: K.paper, borderRadius: 14, border: `2px solid ${K.rojo}`, overflow: 'hidden' }}
+                >
                   <ImgBox src={d.foto_url} alt={d.tienda_nombre} height={120} fallback="🏷️" />
                   <div style={cardBody}>
                     <span style={{ fontSize: 10, fontWeight: 800, color: '#fff', background: K.rojo, padding: '3px 8px', borderRadius: 999 }}>{d.tipo_deal}</span>

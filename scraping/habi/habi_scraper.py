@@ -66,17 +66,62 @@ from scraping.utils.quality import RunStats, http_get, implausible_reason, recor
 STATS = RunStats("habi")
 
 API_URL = "https://apiv2.habi.co/listing-global-api/get_properties"
-# Portal web-client key. NOT stored in the repo: set HABI_API_KEY in the
-# environment (see .env.example). The value is never logged.
+# x-api-key PÚBLICA de web-client: habi.co (SPA Gatsby) la usa en cada request a
+# apiv2.habi.co. NO es un secreto. Prioridad: env var si está (override/fallback);
+# si no, se auto-extrae del frontend. Así el scraper no depende de configurar un
+# token ni de hardcodear un valor que habi puede rotar (se auto-cura) — habi SIEMPRE
+# se scrapeó sin token.
 API_KEY = os.getenv("HABI_API_KEY", "").strip()
+_EXTRACTED_KEY: str | None = None
+
+
+def _extract_api_key_via_browser() -> str | None:
+    """La key no vive en el HTML/JS estático (el SPA la inyecta en runtime), así que
+    se carga habi.co en un chromium headless y se intercepta el header x-api-key de
+    la 1a llamada a apiv2.habi.co. Cache por proceso. chromium ya está en el cron."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as exc:
+        print(f"[habi] Playwright no disponible para auto-extraer la key: {exc}", file=sys.stderr)
+        return None
+    found: dict[str, str] = {}
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.on("request", lambda req: found.setdefault("k", req.headers.get("x-api-key"))
+                    if req.headers.get("x-api-key") and "apiv2.habi.co" in req.url else None)
+            try:
+                page.goto("https://habi.co/venta-apartamentos/medellin",
+                          wait_until="networkidle", timeout=60000)
+                for _ in range(4):
+                    if found.get("k"):
+                        break
+                    page.mouse.wheel(0, 3000)
+                    page.wait_for_timeout(2000)
+            except Exception as exc:
+                print(f"[habi] navegación para extraer key falló: {exc}", file=sys.stderr)
+            browser.close()
+    except Exception as exc:
+        print(f"[habi] no pude auto-extraer la key vía browser: {exc}", file=sys.stderr)
+    return found.get("k")
 
 
 def _require_api_key() -> str:
-    if not API_KEY:
-        raise RuntimeError(
-            "HABI_API_KEY is not set. Export it (see .env.example) before running the Habi scraper."
-        )
-    return API_KEY
+    global _EXTRACTED_KEY
+    if API_KEY:
+        return API_KEY
+    if _EXTRACTED_KEY:
+        return _EXTRACTED_KEY
+    key = _extract_api_key_via_browser()
+    if key:
+        _EXTRACTED_KEY = key
+        print("[habi] x-api-key pública auto-extraída del frontend de habi.co", flush=True)
+        return key
+    raise RuntimeError(
+        "HABI_API_KEY no está en el env y no se pudo auto-extraer del frontend de "
+        "habi.co (¿cambió el sitio o falta chromium?). Setear el env var como fallback."
+    )
 BASE_URL = "https://habi.co"
 IMG_BASE = "https://d3hzflklh28tts.cloudfront.net"
 PAGE_LIMIT = 200
@@ -116,10 +161,16 @@ def fetch_all_valle_aburra(max_pages: int | None) -> list[dict]:
         page += 1
         if max_pages and page > max_pages:
             break
+        # check_robots=False a propósito: apiv2.habi.co/robots.txt da 403 (no sirve
+        # robots.txt — es el gateway de la API), y urllib.robotparser interpreta un
+        # 403 en robots.txt como "disallow all" → bloqueaba este endpoint por falso
+        # positivo. El robots.txt REAL del sitio (habi.co) solo prohíbe /final/ y
+        # /undefined, no los listings; y este es el API público que el propio sitio
+        # usa para mostrarlos. No hay directiva real contra scrapearlo.
         r = http_get(
             session, API_URL,
             params={"offset": offset, "limit": PAGE_LIMIT, "filters": "{}", "country": "CO"},
-            timeout=25, stats=STATS,
+            timeout=25, stats=STATS, check_robots=False,
         )
         if r is None:
             print(f"  offset {offset}: failed after retries, stopping (run marked degraded)")

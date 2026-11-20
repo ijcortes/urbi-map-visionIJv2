@@ -5,11 +5,13 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, field_validator
 
 from api.db import get_pool
 from api.dependencies import get_current_user
+from api.limiter import limiter
+from api.utils.event_import import ImportError_, import_event
 from api.utils.urls import require_safe_url
 
 logger = logging.getLogger(__name__)
@@ -1033,3 +1035,43 @@ async def submit_evento(
         logger.exception("Error inesperado")
         raise HTTPException(status_code=500, detail="Error interno del servidor")
     return EventoSubmitOut(id=row["id"], estado="pendiente")
+
+
+# ── POST /eventos/importar — prefill el form desde un link (Luma, Eventbrite…) ──
+
+class EventoImportarIn(BaseModel):
+    url: str
+    _validar_url = field_validator("url")(require_safe_url)
+
+
+class EventoImportarOut(BaseModel):
+    titulo: Optional[str] = None
+    descripcion: Optional[str] = None
+    foto_url: Optional[str] = None
+    fecha_inicio: Optional[str] = None
+    fecha_fin: Optional[str] = None
+    gratuito: bool = True
+    precio: float = 0
+    organizador: Optional[str] = None
+    url_externo: Optional[str] = None
+
+
+@router.post("/eventos/importar", response_model=EventoImportarOut)
+@limiter.limit("10/minute")
+async def importar_evento(
+    request: Request,
+    body: EventoImportarIn = Body(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Trae metadatos de un evento ya publicado en otra parte (schema.org JSON-LD →
+    Open Graph) para prellenar el form. No inserta nada — el usuario revisa y envía
+    por POST /eventos. Fetch server-side de URL de usuario con guardas SSRF en
+    event_import.py; auth + rate-limit aquí acotan el abuso."""
+    try:
+        data = await import_event(body.url)
+    except ImportError_ as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception:
+        logger.exception("Error importando evento")
+        raise HTTPException(status_code=502, detail="No pudimos leer ese link")
+    return EventoImportarOut(**data)

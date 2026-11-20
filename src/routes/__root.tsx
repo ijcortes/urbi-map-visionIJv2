@@ -1,10 +1,12 @@
 import { OG_IMAGE, SITE_URL } from "@/lib/seo";
-import { Outlet, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
+import { Outlet, createRootRoute, HeadContent, Scripts, useRouterState } from "@tanstack/react-router";
 import { Link } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { track } from "@/lib/tracking";
 import { LanguageProvider } from "@/lib/i18n";
 import { refreshIfExpiringSoon } from "@/lib/auth";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { refreshMe } from "@/hooks/useAuth";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { OnboardingModal } from "@/components/OnboardingModal";
 import { TargetProvider } from "@/contexts/TargetContext";
@@ -188,11 +190,42 @@ function RootShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Al cambiar de sesión (login/logout dispara "medellin-social:user") limpiamos la
+// caché de react-query: las queries gated por nivel (barrio/temperatura, listing/
+// yields, mercado-serie) se cachean por id SIN auth, así que sin esto un barrio
+// visto deslogueado seguía mostrando la versión pública tras loguear como inversionista.
+function AuthCacheSync() {
+  const qc = useQueryClient();
+  useEffect(() => {
+    const onUserChange = () => qc.clear();
+    window.addEventListener("medellin-social:user", onUserChange);
+    return () => window.removeEventListener("medellin-social:user", onUserChange);
+  }, [qc]);
+  return null;
+}
+
+// Site-wide page_view: one fire per route change, for every page, authenticated
+// or not. The API resolves usuario_id from the auth header (see lib/tracking),
+// so each row is attributable to a logged-in user or left anonymous.
+// ponytail: path only; semantic events (categoria, tipo_inversion) are emitted
+// separately where that context lives.
+function PageViewTracker() {
+  const path = useRouterState({ select: s => s.location.pathname });
+  useEffect(() => {
+    track("page_view", { metadata: { path } });
+  }, [path]);
+  return null;
+}
+
 function RootComponent() {
-  useEffect(() => { refreshIfExpiringSoon(); }, []);
+  // Refresca token si expira, LUEGO trae plan/esAgente frescos de /auth/me → los
+  // gates de suscripción dejan de mentir cuando el user se suscribió tras loguearse.
+  useEffect(() => { refreshIfExpiringSoon().then(() => refreshMe()); }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
+      <AuthCacheSync />
+      <PageViewTracker />
       <LanguageProvider>
         <TargetProvider>
           <Outlet />

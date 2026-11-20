@@ -142,6 +142,58 @@ combined as (
     full outer join arriendo a  on v.barrio_id = a.barrio_id
     left join      airbnb   ab  on coalesce(v.barrio_id, a.barrio_id) = ab.barrio_id
 
+),
+
+-- #3 To-do: tasa de "precio justo" POR ESTRATO. Antes era 0,6%/mes fijo (= 7,2%
+-- anual bruto), que marcaba ~68% de los barrios como SOBRE porque el yield real
+-- cae con el estrato (estratos 4-6 rinden ~0,33%/mes, no 0,6%). Ahora el benchmark
+-- de cada barrio = rendimiento mensual MEDIANO real de su estrato → NORMAL = precio
+-- típico de su estrato; SOBRE/BAJO = outliers dentro del estrato. Auto-calibra en
+-- cada run. Estrato por intersección de área con raw.estratos_manzana (igual que
+-- score_largo_plazo, sin ciclo: ambos leen el raw, no este modelo).
+estrato_barrio as (
+    select
+        b.id as barrio_id,
+        (
+            select em.estrato
+            from raw.estratos_manzana em
+            where em.geometry is not null
+              and ST_Intersects(b.geometry, em.geometry)
+            order by ST_Area(ST_Intersection(b.geometry, em.geometry)) desc
+            limit 1
+        ) as estrato
+    from {{ source('geo', 'barrios') }} b
+),
+
+estrato_rate as (
+    select
+        eb.estrato,
+        percentile_cont(0.5) within group (
+            order by c.precio_arriendo_p50 * 100.0 / nullif(c.precio_venta_promedio, 0)
+        )::numeric as rate_pct
+    from combined c
+    join estrato_barrio eb on eb.barrio_id = c.barrio_id
+    where c.precio_arriendo_p50 > 0 and c.precio_venta_promedio > 0
+    group by eb.estrato
+),
+
+global_rate as (
+    -- mediana de mercado global — fallback para barrios sin estrato (satélites:
+    -- raw.estratos_manzana es solo Medellín). Mejor que el 0,6 fijo histórico.
+    select percentile_cont(0.5) within group (
+               order by c.precio_arriendo_p50 * 100.0 / nullif(c.precio_venta_promedio, 0)
+           )::numeric as rate_pct
+    from combined c
+    where c.precio_arriendo_p50 > 0 and c.precio_venta_promedio > 0
+),
+
+barrio_rate as (
+    -- rate mensual % del estrato del barrio; si no hay estrato (satélite / sin
+    -- cobertura) cae a la mediana global; último recurso 0,6 (regla general).
+    select eb.barrio_id,
+           coalesce(er.rate_pct, (select rate_pct from global_rate), 0.6) as rate_pct
+    from estrato_barrio eb
+    left join estrato_rate er on er.estrato = eb.estrato
 )
 
 select
@@ -167,33 +219,33 @@ select
     c.yield_airbnb_pct,
 
     -- PBN / PMN / POI: valor total del inmueble implícito en el arriendo de zona
-    -- PBN = (arriendo_p50 * 100) / 0.6
-    ROUND((c.precio_arriendo_p50 * 100.0 / 0.6))                      AS pbn_precio_justo,
-    ROUND((c.precio_arriendo_p50 * 100.0 / 0.6) * 0.97)               AS pmn_neto,
-    ROUND((c.precio_arriendo_p50 * 100.0 / 0.6) * 0.97 * 0.85)        AS poi_precio_oferta,
+    -- PBN = (arriendo_p50 * 100) / rate_pct_del_estrato  (ver CTE barrio_rate; antes 0,6 fijo)
+    ROUND((c.precio_arriendo_p50 * 100.0 / br.rate_pct))                      AS pbn_precio_justo,
+    ROUND((c.precio_arriendo_p50 * 100.0 / br.rate_pct) * 0.97)               AS pmn_neto,
+    ROUND((c.precio_arriendo_p50 * 100.0 / br.rate_pct) * 0.97 * 0.85)        AS poi_precio_oferta,
 
     -- PBN normalizado a m² para comparar con precio_venta_m2_p50
     ROUND(
-        (c.precio_arriendo_p50 * 100.0 / 0.6)
+        (c.precio_arriendo_p50 * 100.0 / br.rate_pct)
         / NULLIF(c.area_promedio_m2, 0)
     )                                                                  AS pbn_precio_justo_m2,
 
     -- Opción A: comparación en totales (precio_venta_promedio vs PBN)
     -- positivo = mercado caro vs fundamentales; negativo = oportunidad
     ROUND(
-        ((c.precio_venta_promedio - (c.precio_arriendo_p50 * 100.0 / 0.6))
-        / NULLIF((c.precio_arriendo_p50 * 100.0 / 0.6), 0)) * 100, 1
+        ((c.precio_venta_promedio - (c.precio_arriendo_p50 * 100.0 / br.rate_pct))
+        / NULLIF((c.precio_arriendo_p50 * 100.0 / br.rate_pct), 0)) * 100, 1
     )                                                                  AS diferencia_total_pct,
 
     -- Opción B: comparación por m² (precio_venta_m2_p50 vs PBN/m²)
     ROUND(
-        ((c.precio_venta_m2_p50 - (c.precio_arriendo_p50 * 100.0 / 0.6) / NULLIF(c.area_promedio_m2, 0))
-        / NULLIF((c.precio_arriendo_p50 * 100.0 / 0.6) / NULLIF(c.area_promedio_m2, 0), 0)) * 100, 1
+        ((c.precio_venta_m2_p50 - (c.precio_arriendo_p50 * 100.0 / br.rate_pct) / NULLIF(c.area_promedio_m2, 0))
+        / NULLIF((c.precio_arriendo_p50 * 100.0 / br.rate_pct) / NULLIF(c.area_promedio_m2, 0), 0)) * 100, 1
     )                                                                  AS diferencia_m2_pct,
 
     CASE
-        WHEN c.precio_venta_promedio > (c.precio_arriendo_p50 * 100.0 / 0.6) * 1.10 THEN 'SOBRE'
-        WHEN c.precio_venta_promedio < (c.precio_arriendo_p50 * 100.0 / 0.6) * 0.90 THEN 'BAJO'
+        WHEN c.precio_venta_promedio > (c.precio_arriendo_p50 * 100.0 / br.rate_pct) * 1.10 THEN 'SOBRE'
+        WHEN c.precio_venta_promedio < (c.precio_arriendo_p50 * 100.0 / br.rate_pct) * 0.90 THEN 'BAJO'
         ELSE 'NORMAL'
     END                                                                AS estado_precio,
 
@@ -251,6 +303,7 @@ select
     now()                                                                  as calculado_en
 
 from combined c
+left join barrio_rate                            br       on c.barrio_id = br.barrio_id
 left join {{ source('geo', 'barrios') }}         b        on c.barrio_id = b.id
 left join {{ ref('barrios_seguridad') }}         bs       on c.barrio_id = bs.barrio_id
 left join {{ ref('barrios_renta_media') }}       rm       on c.barrio_id = rm.barrio_id

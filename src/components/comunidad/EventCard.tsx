@@ -1,5 +1,7 @@
 import { safeHref } from "@/lib/utils"
 import { numberLocale } from "@/lib/format";
+import { track } from "@/lib/tracking";
+import { useImpression } from "@/lib/impressions";
 import { K as TOKENS } from "@/design/tokens";
 
 export interface EventoData {
@@ -25,6 +27,27 @@ export interface EventoData {
 }
 
 const K = TOKENS;
+
+// Click on a card = category engagement. Feeds user_interests.categorias_eventos_top
+// (cron reads event_type LIKE 'evento_%' + metadata.categoria) and the B2B funnel.
+function trackEventoView(evento: EventoData) {
+  track('evento_view', {
+    entity_type: 'evento',
+    entity_id: String(evento.id),
+    barrio_id: evento.barrio_id ?? undefined,
+    metadata: { categoria: evento.categoria ?? null },
+  })
+}
+
+// Alcance (capa 1): payload de impresión para useImpression.
+function eventoImpression(evento: EventoData) {
+  return {
+    entity_type: 'evento',
+    entity_id: String(evento.id),
+    barrio_id: evento.barrio_id ?? undefined,
+    categoria: evento.categoria,
+  }
+}
 
 function parseFecha(str: string) {
   const normalized = str.replace(' ', 'T')
@@ -114,11 +137,14 @@ export function EventCardFeatured({ evento }: { evento: EventoData }) {
   const f = parseFecha(evento.fecha_inicio)
   const cat = catMeta(evento.categoria)
   const priceLabel = evento.gratuito ? 'Gratis' : evento.precio > 0 ? formatPrecio(evento.precio, evento.moneda) : null
+  const impRef = useImpression(eventoImpression(evento))
 
   return (
     <a
+      ref={impRef}
       href={safeHref(evento.url_externo) ?? '#'}
       target="_blank" rel="noopener noreferrer"
+      onClick={() => trackEventoView(evento)}
       style={{
         display: 'block', background: '#FAF8F3',
         border: '0.5px solid #E5E0D5', borderRadius: 12,
@@ -169,11 +195,14 @@ export function EventCardMini({ evento }: { evento: EventoData }) {
   const f = parseFecha(evento.fecha_inicio)
   const cat = catMeta(evento.categoria)
   const priceLabel = evento.gratuito ? ' · Gratis' : evento.precio > 0 ? ` · ${formatPrecio(evento.precio, evento.moneda)}` : ''
+  const impRef = useImpression(eventoImpression(evento))
 
   return (
     <a
+      ref={impRef}
       href={safeHref(evento.url_externo) ?? '#'}
       target="_blank" rel="noopener noreferrer"
+      onClick={() => trackEventoView(evento)}
       style={{
         display: 'flex', flexDirection: 'column',
         background: '#FFFFFF', border: '0.5px solid #E5E0D5',

@@ -355,6 +355,139 @@ async def dashboard(admin: dict = Depends(require_admin)):
     }
 
 
+# ── Funnel B2B: demanda por segmento ──────────────────────────────────────────
+# Qué miran los usuarios, partido por sesión AUTENTICADA (usuario_id resuelto del
+# token) vs ANÓNIMA. Insumo para vender exposición a eventos/negocios: "N
+# interesados en categoría X". OJO: 'anonimo' incluye suscriptores sin login
+# (leads de /suscribirse no tienen contraseña) — es split por sesión, no por
+# estado de suscripción.
+
+@router.get("/funnel")
+async def funnel(dias: int = Query(30, ge=1, le=365), admin: dict = Depends(require_admin)):
+    pool = get_pool()
+    ventana = f"{dias} days"
+    seg = "CASE WHEN usuario_id IS NULL THEN 'anonimo' ELSE 'autenticado' END"
+
+    totales = await pool.fetch(
+        f"""SELECT {seg} AS segmento,
+                   COUNT(*)::int AS eventos,
+                   COUNT(DISTINCT session_id)::int AS sesiones
+            FROM public.user_events
+            WHERE created_at > NOW() - INTERVAL '{ventana}'
+            GROUP BY 1"""
+    )
+
+    async def _categorias(prefijo: str):
+        return await pool.fetch(
+            f"""SELECT {seg} AS segmento,
+                       metadata->>'categoria' AS categoria,
+                       COUNT(*)::int AS n
+                FROM public.user_events
+                WHERE created_at > NOW() - INTERVAL '{ventana}'
+                  AND event_type LIKE $1
+                  AND metadata->>'categoria' IS NOT NULL
+                GROUP BY 1, 2
+                ORDER BY n DESC
+                LIMIT 40""",
+            prefijo,
+        )
+
+    cats_eventos = await _categorias("evento_%")
+    cats_negocios = await _categorias("negocio_%")
+
+    # Interés de listings por dimensión (tipo_inmueble/operacion) — la demanda
+    # inmobiliaria: "qué tipo de inmueble buscan y en qué operación".
+    tipos_listing = await pool.fetch(
+        f"""SELECT {seg} AS segmento,
+                   metadata->>'tipo_inmueble' AS tipo_inmueble,
+                   metadata->>'operacion' AS operacion,
+                   COUNT(*)::int AS n
+            FROM public.user_events
+            WHERE created_at > NOW() - INTERVAL '{ventana}'
+              AND event_type IN ('listing_view', 'listing_preview')
+              AND metadata->>'tipo_inmueble' IS NOT NULL
+            GROUP BY 1, 2, 3 ORDER BY n DESC LIMIT 40"""
+    )
+
+    top_barrios = await pool.fetch(
+        f"""SELECT barrio_id, COUNT(*)::int AS n
+            FROM public.user_events
+            WHERE created_at > NOW() - INTERVAL '{ventana}' AND barrio_id IS NOT NULL
+            GROUP BY barrio_id ORDER BY n DESC LIMIT 15"""
+    )
+
+    # Funnel de demanda por tipo de entidad: Alcance (impression) → Interés (views)
+    # → Intención (acciones *_click/*_save) → Lead (contacto/visita) → Conversión (cierre).
+    etapas = await pool.fetch(
+        f"""SELECT entity_type,
+                   COUNT(*) FILTER (WHERE event_type = 'impression')::int AS alcance,
+                   COUNT(*) FILTER (WHERE event_type IN
+                       ('evento_view','negocio_view','listing_view','listing_preview'))::int AS interes,
+                   COUNT(*) FILTER (WHERE event_type ~ '_(click|save)$')::int AS intencion,
+                   COUNT(*) FILTER (WHERE event_type IN
+                       ('visit_request','listing_contact_wa'))::int AS lead,
+                   COUNT(*) FILTER (WHERE event_type = 'conversion')::int AS conversion
+            FROM public.user_events
+            WHERE created_at > NOW() - INTERVAL '{ventana}' AND entity_type IS NOT NULL
+            GROUP BY entity_type ORDER BY alcance DESC"""
+    )
+    funnel_demanda = []
+    for r in etapas:
+        d = dict(r)
+        # Tasas relativas al Interés (base común; el funnel no es estrictamente
+        # secuencial por usuario — se puede pasar de Interés a Lead sin Intención).
+        d["tasa_interes"] = round(d["interes"] / d["alcance"], 4) if d["alcance"] else None
+        d["tasa_intencion"] = round(d["intencion"] / d["interes"], 4) if d["interes"] else None
+        d["tasa_lead"] = round(d["lead"] / d["interes"], 4) if d["interes"] else None
+        # Conversión sobre Lead: la métrica de plata (de los leads, cuántos cerraron).
+        d["tasa_conversion"] = round(d["conversion"] / d["lead"], 4) if d["lead"] else None
+        funnel_demanda.append(d)
+
+    return {
+        "ventana_dias": dias,
+        "nota": "Split por sesión autenticada vs anónima; 'anonimo' incluye suscriptores sin login. "
+                "funnel_demanda: alcance→interés→intención→lead→conversión. tasa_interes=interés/alcance; "
+                "tasa_intencion y tasa_lead = sobre interés; tasa_conversion = conversión/lead.",
+        "totales": [dict(r) for r in totales],
+        "funnel_demanda": funnel_demanda,
+        "categorias_eventos": [dict(r) for r in cats_eventos],
+        "categorias_negocios": [dict(r) for r in cats_negocios],
+        "interes_listings": [dict(r) for r in tipos_listing],
+        "top_barrios": [dict(r) for r in top_barrios],
+    }
+
+
+# ── Demanda insatisfecha: búsquedas localizadas sin resultado ─────────────────
+# "N personas buscaron apto 3 hab en Laureles bajo $400M y no hay oferta" = lead
+# de venta directo. Lo emite GET /listings cuando una búsqueda con filtros da 0.
+
+@router.get("/demanda-insatisfecha")
+async def demanda_insatisfecha(dias: int = Query(30, ge=1, le=365), admin: dict = Depends(require_admin)):
+    pool = get_pool()
+    rows = await pool.fetch(
+        f"""SELECT barrio_id,
+                   metadata->>'tipo_operacion' AS operacion,
+                   metadata->>'tipo_inmueble'  AS tipo_inmueble,
+                   metadata->>'cd_comuna'      AS cd_comuna,
+                   metadata->>'municipio'      AS municipio,
+                   COUNT(*)::int AS busquedas,
+                   MIN(NULLIF(metadata->>'precio_min','')::bigint) AS precio_min,
+                   MAX(NULLIF(metadata->>'precio_max','')::bigint) AS precio_max
+            FROM public.user_events
+            WHERE event_type = 'search_no_results'
+              AND created_at > NOW() - INTERVAL '{dias} days'
+            GROUP BY barrio_id, 2, 3, 4, 5
+            ORDER BY busquedas DESC
+            LIMIT 50"""
+    )
+    return {
+        "ventana_dias": dias,
+        "nota": "Búsquedas localizadas con filtros que devolvieron 0 resultados. "
+                "Cada fila = demanda sin oferta → lead de venta para patrocinar la zona.",
+        "demanda": [dict(r) for r in rows],
+    }
+
+
 # ── Endpoint 2: Lista usuarios ────────────────────────────────────────────────
 
 @router.get("/usuarios")

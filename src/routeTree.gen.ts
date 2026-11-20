@@ -26,6 +26,7 @@ import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as PasantiasRouteImport } from './routes/pasantias'
 import { Route as PerfilRouteImport } from './routes/perfil'
 import { Route as PlanesRouteImport } from './routes/planes'
+import { Route as PoliticaPrivacidadRouteImport } from './routes/politica-privacidad'
 import { Route as PublicarRouteImport } from './routes/publicar'
 import { Route as RealEstateRouteImport } from './routes/real-estate'
 import { Route as RegisterRouteImport } from './routes/register'
@@ -39,9 +40,11 @@ import { Route as VerifyEmailRouteImport } from './routes/verify-email'
 import { Route as AgentesRegistroRouteImport } from './routes/agentes_.registro'
 import { Route as BarrioSlugRouteImport } from './routes/barrio.$slug'
 import { Route as EventosBarrio_slugRouteImport } from './routes/eventos/$barrio_slug'
+import { Route as EventosCrearRouteImport } from './routes/eventos/crear'
 import { Route as ListingIdRouteImport } from './routes/listing.$id'
 import { Route as LocalBusinessBarrio_slugRouteImport } from './routes/local-business/$barrio_slug'
 import { Route as LoginVerificarRouteImport } from './routes/login_.verificar'
+import { Route as NegociosCrearRouteImport } from './routes/negocios/crear'
 import { Route as NegociosUnirseRouteImport } from './routes/negocios/unirse'
 import { Route as PanelX9k2IndexRouteImport } from './routes/panel-x9k2/index'
 import { Route as PlanesDealRouteImport } from './routes/planes_.deal'
@@ -139,6 +142,11 @@ const PlanesRoute = PlanesRouteImport.update({
   path: '/planes',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PoliticaPrivacidadRoute = PoliticaPrivacidadRouteImport.update({
+  id: '/politica-privacidad',
+  path: '/politica-privacidad',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PublicarRoute = PublicarRouteImport.update({
   id: '/publicar',
   path: '/publicar',
@@ -204,6 +212,11 @@ const EventosBarrio_slugRoute = EventosBarrio_slugRouteImport.update({
   path: '/eventos/$barrio_slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EventosCrearRoute = EventosCrearRouteImport.update({
+  id: '/eventos/crear',
+  path: '/eventos/crear',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ListingIdRoute = ListingIdRouteImport.update({
   id: '/listing/$id',
   path: '/listing/$id',
@@ -218,6 +231,11 @@ const LocalBusinessBarrio_slugRoute =
 const LoginVerificarRoute = LoginVerificarRouteImport.update({
   id: '/login_/verificar',
   path: '/login/verificar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NegociosCrearRoute = NegociosCrearRouteImport.update({
+  id: '/negocios/crear',
+  path: '/negocios/crear',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NegociosUnirseRoute = NegociosUnirseRouteImport.update({
@@ -294,6 +312,7 @@ export interface FileRoutesByFullPath {
   '/pasantias': typeof PasantiasRoute
   '/perfil': typeof PerfilRoute
   '/planes': typeof PlanesRoute
+  '/politica-privacidad': typeof PoliticaPrivacidadRoute
   '/publicar': typeof PublicarRoute
   '/real-estate': typeof RealEstateRoute
   '/register': typeof RegisterRoute
@@ -307,9 +326,11 @@ export interface FileRoutesByFullPath {
   '/agentes/registro': typeof AgentesRegistroRoute
   '/barrio/$slug': typeof BarrioSlugRoute
   '/eventos/$barrio_slug': typeof EventosBarrio_slugRoute
+  '/eventos/crear': typeof EventosCrearRoute
   '/listing/$id': typeof ListingIdRoute
   '/local-business/$barrio_slug': typeof LocalBusinessBarrio_slugRoute
   '/login/verificar': typeof LoginVerificarRoute
+  '/negocios/crear': typeof NegociosCrearRoute
   '/negocios/unirse': typeof NegociosUnirseRoute
   '/planes/deal': typeof PlanesDealRoute
   '/planes/featured-realtor': typeof PlanesFeaturedRealtorRoute
@@ -340,6 +361,7 @@ export interface FileRoutesByTo {
   '/pasantias': typeof PasantiasRoute
   '/perfil': typeof PerfilRoute
   '/planes': typeof PlanesRoute
+  '/politica-privacidad': typeof PoliticaPrivacidadRoute
   '/publicar': typeof PublicarRoute
   '/real-estate': typeof RealEstateRoute
   '/register': typeof RegisterRoute
@@ -353,9 +375,11 @@ export interface FileRoutesByTo {
   '/agentes/registro': typeof AgentesRegistroRoute
   '/barrio/$slug': typeof BarrioSlugRoute
   '/eventos/$barrio_slug': typeof EventosBarrio_slugRoute
+  '/eventos/crear': typeof EventosCrearRoute
   '/listing/$id': typeof ListingIdRoute
   '/local-business/$barrio_slug': typeof LocalBusinessBarrio_slugRoute
   '/login/verificar': typeof LoginVerificarRoute
+  '/negocios/crear': typeof NegociosCrearRoute
   '/negocios/unirse': typeof NegociosUnirseRoute
   '/planes/deal': typeof PlanesDealRoute
   '/planes/featured-realtor': typeof PlanesFeaturedRealtorRoute
@@ -387,6 +411,7 @@ export interface FileRoutesById {
   '/pasantias': typeof PasantiasRoute
   '/perfil': typeof PerfilRoute
   '/planes': typeof PlanesRoute
+  '/politica-privacidad': typeof PoliticaPrivacidadRoute
   '/publicar': typeof PublicarRoute
   '/real-estate': typeof RealEstateRoute
   '/register': typeof RegisterRoute
@@ -400,9 +425,11 @@ export interface FileRoutesById {
   '/agentes_/registro': typeof AgentesRegistroRoute
   '/barrio/$slug': typeof BarrioSlugRoute
   '/eventos/$barrio_slug': typeof EventosBarrio_slugRoute
+  '/eventos/crear': typeof EventosCrearRoute
   '/listing/$id': typeof ListingIdRoute
   '/local-business/$barrio_slug': typeof LocalBusinessBarrio_slugRoute
   '/login_/verificar': typeof LoginVerificarRoute
+  '/negocios/crear': typeof NegociosCrearRoute
   '/negocios/unirse': typeof NegociosUnirseRoute
   '/planes_/deal': typeof PlanesDealRoute
   '/planes_/featured-realtor': typeof PlanesFeaturedRealtorRoute
@@ -435,6 +462,7 @@ export interface FileRouteTypes {
     | '/pasantias'
     | '/perfil'
     | '/planes'
+    | '/politica-privacidad'
     | '/publicar'
     | '/real-estate'
     | '/register'
@@ -448,9 +476,11 @@ export interface FileRouteTypes {
     | '/agentes/registro'
     | '/barrio/$slug'
     | '/eventos/$barrio_slug'
+    | '/eventos/crear'
     | '/listing/$id'
     | '/local-business/$barrio_slug'
     | '/login/verificar'
+    | '/negocios/crear'
     | '/negocios/unirse'
     | '/planes/deal'
     | '/planes/featured-realtor'
@@ -481,6 +511,7 @@ export interface FileRouteTypes {
     | '/pasantias'
     | '/perfil'
     | '/planes'
+    | '/politica-privacidad'
     | '/publicar'
     | '/real-estate'
     | '/register'
@@ -494,9 +525,11 @@ export interface FileRouteTypes {
     | '/agentes/registro'
     | '/barrio/$slug'
     | '/eventos/$barrio_slug'
+    | '/eventos/crear'
     | '/listing/$id'
     | '/local-business/$barrio_slug'
     | '/login/verificar'
+    | '/negocios/crear'
     | '/negocios/unirse'
     | '/planes/deal'
     | '/planes/featured-realtor'
@@ -527,6 +560,7 @@ export interface FileRouteTypes {
     | '/pasantias'
     | '/perfil'
     | '/planes'
+    | '/politica-privacidad'
     | '/publicar'
     | '/real-estate'
     | '/register'
@@ -540,9 +574,11 @@ export interface FileRouteTypes {
     | '/agentes_/registro'
     | '/barrio/$slug'
     | '/eventos/$barrio_slug'
+    | '/eventos/crear'
     | '/listing/$id'
     | '/local-business/$barrio_slug'
     | '/login_/verificar'
+    | '/negocios/crear'
     | '/negocios/unirse'
     | '/planes_/deal'
     | '/planes_/featured-realtor'
@@ -574,6 +610,7 @@ export interface RootRouteChildren {
   PasantiasRoute: typeof PasantiasRoute
   PerfilRoute: typeof PerfilRoute
   PlanesRoute: typeof PlanesRoute
+  PoliticaPrivacidadRoute: typeof PoliticaPrivacidadRoute
   PublicarRoute: typeof PublicarRoute
   RealEstateRoute: typeof RealEstateRoute
   RegisterRoute: typeof RegisterRoute
@@ -587,9 +624,11 @@ export interface RootRouteChildren {
   AgentesRegistroRoute: typeof AgentesRegistroRoute
   BarrioSlugRoute: typeof BarrioSlugRoute
   EventosBarrio_slugRoute: typeof EventosBarrio_slugRoute
+  EventosCrearRoute: typeof EventosCrearRoute
   ListingIdRoute: typeof ListingIdRoute
   LocalBusinessBarrio_slugRoute: typeof LocalBusinessBarrio_slugRoute
   LoginVerificarRoute: typeof LoginVerificarRoute
+  NegociosCrearRoute: typeof NegociosCrearRoute
   NegociosUnirseRoute: typeof NegociosUnirseRoute
   PlanesDealRoute: typeof PlanesDealRoute
   PlanesFeaturedRealtorRoute: typeof PlanesFeaturedRealtorRoute
@@ -724,6 +763,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlanesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/politica-privacidad': {
+      id: '/politica-privacidad'
+      path: '/politica-privacidad'
+      fullPath: '/politica-privacidad'
+      preLoaderRoute: typeof PoliticaPrivacidadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/publicar': {
       id: '/publicar'
       path: '/publicar'
@@ -815,6 +861,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EventosBarrio_slugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/eventos/crear': {
+      id: '/eventos/crear'
+      path: '/eventos/crear'
+      fullPath: '/eventos/crear'
+      preLoaderRoute: typeof EventosCrearRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/listing/$id': {
       id: '/listing/$id'
       path: '/listing/$id'
@@ -834,6 +887,13 @@ declare module '@tanstack/react-router' {
       path: '/login/verificar'
       fullPath: '/login/verificar'
       preLoaderRoute: typeof LoginVerificarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/negocios/crear': {
+      id: '/negocios/crear'
+      path: '/negocios/crear'
+      fullPath: '/negocios/crear'
+      preLoaderRoute: typeof NegociosCrearRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/negocios/unirse': {
@@ -934,6 +994,7 @@ const rootRouteChildren: RootRouteChildren = {
   PasantiasRoute: PasantiasRoute,
   PerfilRoute: PerfilRoute,
   PlanesRoute: PlanesRoute,
+  PoliticaPrivacidadRoute: PoliticaPrivacidadRoute,
   PublicarRoute: PublicarRoute,
   RealEstateRoute: RealEstateRoute,
   RegisterRoute: RegisterRoute,
@@ -947,9 +1008,11 @@ const rootRouteChildren: RootRouteChildren = {
   AgentesRegistroRoute: AgentesRegistroRoute,
   BarrioSlugRoute: BarrioSlugRoute,
   EventosBarrio_slugRoute: EventosBarrio_slugRoute,
+  EventosCrearRoute: EventosCrearRoute,
   ListingIdRoute: ListingIdRoute,
   LocalBusinessBarrio_slugRoute: LocalBusinessBarrio_slugRoute,
   LoginVerificarRoute: LoginVerificarRoute,
+  NegociosCrearRoute: NegociosCrearRoute,
   NegociosUnirseRoute: NegociosUnirseRoute,
   PlanesDealRoute: PlanesDealRoute,
   PlanesFeaturedRealtorRoute: PlanesFeaturedRealtorRoute,

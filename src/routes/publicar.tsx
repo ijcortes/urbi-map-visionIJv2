@@ -866,7 +866,7 @@ function Step3({
           </Field>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Field label="Matrícula inmobiliaria" hint="(opcional · en la escritura)" info="Es la cédula del inmueble en el registro público (ORIP). Nos deja seguir la MISMA propiedad entre portales y en el tiempo, sin confundirla con otra.">
+            <Field label="Matrícula inmobiliaria" hint="(obligatoria · en la escritura)" info="Es la cédula del inmueble en el registro público (ORIP). Nos deja seguir la MISMA propiedad entre portales y en el tiempo, sin confundirla con otra. Obligatoria para publicar.">
               <Input
                 value={data.matricula_inmobiliaria}
                 onChange={(e) => setData({ matricula_inmobiliaria: e.target.value })}
@@ -1521,6 +1521,8 @@ function validateStep(step: number, data: FormData): string | null {
   }
   if (step === 2) {
     if (!data.direccion.trim()) return "Ingresa la dirección exacta del inmueble";
+    // #11: matrícula obligatoria en listings nuevos (identidad de propiedad).
+    if (!data.matricula_inmobiliaria.trim()) return "Ingresa la matrícula inmobiliaria (está en la escritura)";
     if (!data.lat || !data.lon) return "Marca la ubicación en el mapa";
     if (data.descripcion.length < 50) return "La descripción debe tener al menos 50 caracteres";
   }

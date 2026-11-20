@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRegister, useResendVerification } from "@/hooks/useAuth";
 import { AuthShell, Field, ErrorBanner, AuthButton, inputStyle } from "./login";
 import { GoogleSignInButton } from "@/components/GoogleSignInButton";
+import { ConsentFields } from "@/components/ConsentFields";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/register")({
   head: () => seo({ title: "Crear cuenta · Medellín Social", description: "Crea tu cuenta gratis en Medellín Social.", path: "/register" }),
@@ -25,6 +27,7 @@ function getOrigenFromReferrer(): "mls" | "comunidad" {
 }
 
 function RegisterPage() {
+  const t = useT();
   const navigate = useNavigate();
   const register = useRegister();
   const resend = useResendVerification();
@@ -35,6 +38,8 @@ function RegisterPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [origen, setOrigen] = useState<"mls" | "comunidad">("comunidad");
+  const [habeasData, setHabeasData] = useState(false);
+  const [consentWhatsapp, setConsentWhatsapp] = useState(false);
 
   useEffect(() => {
     setOrigen(getOrigenFromReferrer());
@@ -46,9 +51,13 @@ function RegisterPage() {
       setError("Completa todos los campos.");
       return;
     }
+    if (!habeasData) {
+      setError("Debes aceptar la política de tratamiento de datos.");
+      return;
+    }
     setError("");
     try {
-      await register.mutateAsync({ email, password, nombre: name, telefono, origen });
+      await register.mutateAsync({ email, password, nombre: name, telefono, origen, habeas_data: habeasData, consent_whatsapp: consentWhatsapp });
       // No session yet: the account only works after the emailed link is confirmed.
       localStorage.removeItem("registro_origen");
       localStorage.removeItem("onboarding_complete");
@@ -62,13 +71,13 @@ function RegisterPage() {
   if (sentTo) {
     return (
       <AuthShell
-        title="Revisa tu correo"
-        subtitle={`Te enviamos un enlace de confirmación a ${sentTo}`}
-        editorial={"Únete a la comunidad que\nestá construyendo Medellín."}
+        title={t("Revisa tu correo", "Check your email")}
+        subtitle={t(`Te enviamos un enlace de confirmación a ${sentTo}`, `We sent a confirmation link to ${sentTo}`)}
+        editorial={t("Únete a la comunidad que\nestá construyendo Medellín.", "Join the community that's\nbuilding Medellín.")}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 16, fontFamily: "'Inter', system-ui, sans-serif", fontSize: 14, color: "#5B5F5C" }}>
           <p style={{ margin: 0 }}>
-            Confirma tu correo para activar tu cuenta y luego inicia sesión. Si no llega en unos minutos, revisa spam o pide otro enlace.
+            {t("Confirma tu correo para activar tu cuenta y luego inicia sesión. Si no llega en unos minutos, revisa spam o pide otro enlace.", "Confirm your email to activate your account, then sign in. If it doesn't arrive in a few minutes, check spam or request another link.")}
           </p>
           <button
             type="button"
@@ -79,7 +88,7 @@ function RegisterPage() {
             {resend.isSuccess ? "Enlace reenviado" : "Reenviar enlace"}
           </button>
           <Link to="/login" style={{ color: "#0F8A4F", fontWeight: 700, textDecoration: "none" }}>
-            Ir a iniciar sesión
+            {t("Ir a iniciar sesión", "Go to sign in")}
           </Link>
         </div>
       </AuthShell>
@@ -132,11 +141,20 @@ function RegisterPage() {
             placeholder="Mínimo 8 caracteres"
           />
         </Field>
+        <ConsentFields
+          habeasData={habeasData}
+          setHabeasData={setHabeasData}
+          consentWhatsapp={consentWhatsapp}
+          setConsentWhatsapp={setConsentWhatsapp}
+        />
         {error && <ErrorBanner message={error} />}
-        <AuthButton disabled={register.isPending}>
+        <AuthButton disabled={register.isPending || !habeasData}>
           {register.isPending ? "Creando cuenta…" : "Crear cuenta →"}
         </AuthButton>
         <GoogleSignInButton
+          enforceConsent
+          habeasData={habeasData}
+          consentWhatsapp={consentWhatsapp}
           onSuccess={() => {
             localStorage.removeItem("registro_origen");
             localStorage.removeItem("onboarding_complete");
@@ -146,12 +164,23 @@ function RegisterPage() {
           }}
           onError={setError}
         />
-        <p style={{ textAlign: "center", fontSize: 13, fontFamily: "'Inter', system-ui, sans-serif", color: "#5B5F5C", margin: 0 }}>
-          ¿Ya tienes cuenta?{" "}
-          <Link to="/login" style={{ color: "#0F8A4F", fontWeight: 700, textDecoration: "none" }}>
-            Inicia sesión
-          </Link>
-        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "4px 0" }}>
+          <span style={{ flex: 1, height: 1, background: "#E5E0D5" }} />
+          <span style={{ fontSize: 12, fontFamily: "'Inter', system-ui, sans-serif", color: "#5B5F5C" }}>{t("¿Ya tienes cuenta?", "Already have an account?")}</span>
+          <span style={{ flex: 1, height: 1, background: "#E5E0D5" }} />
+        </div>
+        <Link
+          to="/login"
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: "100%", padding: "13px", borderRadius: 999,
+            border: "1.5px solid #0F8A4F", background: "transparent",
+            color: "#0A5C36", fontFamily: "'Inter', system-ui, sans-serif",
+            fontSize: 14, fontWeight: 800, textDecoration: "none",
+          }}
+        >
+          {t("Iniciar sesión", "Sign in")}
+        </Link>
       </form>
     </AuthShell>
   );

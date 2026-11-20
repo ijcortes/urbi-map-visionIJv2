@@ -30,6 +30,16 @@ describe("translateString — nuevas entradas de traducción", () => {
     ["Conectar con tu comunidad", "Connect with your community"],
     ["Perfil guardado. Explorando el mapa…", "Profile saved. Opening the map…"],
     ["Publica y conecta con compradores e inversores", "List and connect with buyers and investors"],
+    // Drawer: entorno / valor estimado / temperatura del mercado
+    ["En carro, hora pico", "By car, rush hour"],
+    ["Temperatura del mercado", "Market temperature"],
+    ["Valor de mercado estimado", "Estimated market value"],
+    ["Rango estimado del barrio", "Estimated neighborhood range"],
+    ["Renta típica", "Typical rent"],
+    ["Predial", "Property tax"],
+    ["Regístrate gratis para ver el detalle del entorno", "Sign up free to see neighborhood detail"],
+    ["3 en 1 km", "3 within 1 km"],     // unidad del entorno (boundary-interpolada)
+    ["Tráfico pesado", "Heavy traffic"], // frase larga gana a "Pesado"→"Heavy"
   ];
   for (const [es, en] of cases) {
     it(`"${es}" → "${en}"`, () => expect(translateString(es)).toBe(en));

@@ -393,6 +393,24 @@ export function useBarrio(id: number | null) {
   });
 }
 
+export type MercadoSerie = {
+  serie: { anio: number; valor_mediana: number; n_transacciones: number }[];
+  cagr_pct: number | null;
+  anios_cagr: number | null;
+};
+
+// #14: serie de precios por municipio (compraventas reales) + CAGR, para el
+// momentum que acompaña la temperatura. Nivel municipio (no barrio).
+export function useBarrioMercadoSerie(id: number | null) {
+  return useQuery({
+    queryKey: ["mercado-serie", id],
+    queryFn: () => apiFetch<MercadoSerie>(API_ENDPOINTS.barrioMercadoSerie(id!)),
+    enabled: id != null,
+    staleTime: 10 * 60 * 1000,
+    retry: 1,
+  });
+}
+
 export function useComparar(ids: number[]) {
   return useQuery({
     queryKey: ["comparar", ids],

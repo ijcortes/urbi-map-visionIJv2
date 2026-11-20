@@ -31,11 +31,9 @@ with catastro_por_comuna as (
         cd_comuna,
         count(*)                                            as n_predios_catastro,
         avg(vl_avaluo_total)                                as avaluo_total_prom,
-        avg(
-            case when nm_ar_constru > 0
-                 then vl_avaluo_total / nm_ar_constru
-                 else null
-            end
+        -- mediana del avalúo/m² (antes avg, sesgado por casas grandes).
+        percentile_cont(0.5) within group (
+            order by vl_avaluo_total / nm_ar_constru
         )                                                   as avaluo_m2_construccion,
         percentile_cont(0.5) within group (
             order by
@@ -48,9 +46,14 @@ with catastro_por_comuna as (
     from raw.catastro_medellin
     where cd_vig_pred = 'S'
       and cd_ind_ru_ur = 'U'
-      and nm_ar_constru > 0
       and vl_avaluo_total > 0
+      -- SOLO viviendas reales: área 30–400 m², sin parqueaderos (70k filas) ni
+      -- matrices de edificio entero / lotes, que hundían el avalúo/m² ~40x. Ver
+      -- To-do §1 y scripts/load_catastro_medellin_vigente.py (mismo filtro, sync).
+      and nm_ar_constru between 30 and 400
       and ds_uso_tipo ilike '%residencial%'
+      and ds_uso_tipo not ilike '%parqueadero%'
+      and ds_uso_tipo not ilike '%lote%'
     group by ds_comuna, cd_comuna
 ),
 

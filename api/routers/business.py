@@ -7,6 +7,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from api.db import get_pool
 from api.dependencies import get_current_user
 from api.limiter import limiter
+from api.utils import ghl_client
 from api.utils.urls import require_plain_text, require_safe_url
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,10 @@ async def aplicar_negocio(request: Request, body: AplicarIn = Body(...), pool=De
     except Exception:
         logger.exception("Error inesperado")
         raise HTTPException(status_code=500, detail="Error interno del servidor")
+    try:
+        await ghl_client.push_negocio_lead_to_ghl(row["id"], body.model_dump())
+    except Exception:
+        logger.exception("push_negocio_lead_to_ghl(%s) falló", row["id"])
     return AplicarOut(
         ok=True,
         lead_id=row["id"],

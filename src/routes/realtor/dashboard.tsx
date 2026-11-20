@@ -8,6 +8,10 @@ import { PieChart, Pie, Cell } from "recharts";
 import { apiFetch } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ResumenTab } from "./ResumenTab";
+import { ComparadorTab } from "./ComparadorTab";
+import { SimuladorTab } from "./SimuladorTab";
+import { C } from "./_kit";
 import { formatCOP } from "@/lib/format";
 import { LanguageToggle, Name } from "@/lib/i18n";
 import {
@@ -39,6 +43,8 @@ import {
   useEditarListing,
   useTomarDelPool,
   useVerificarDDItem,
+  useCerrarListing,
+  useComparables,
 } from "@/hooks/useRealtorDashboard";
 
 export const Route = createFileRoute("/realtor/dashboard")({
@@ -55,20 +61,28 @@ export const Route = createFileRoute("/realtor/dashboard")({
 
 // ── Tabs ───────────────────────────────────────────────────────────────────────
 
-type Tab = "resultados" | "inbox" | "agenda" | "listings" | "desempeno" | "inteligencia" | "config";
+type Tab = "resumen" | "resultados" | "inbox" | "agenda" | "listings" | "desempeno" | "inteligencia" | "comparador" | "simulador" | "config";
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: "resumen",      label: "Resumen" },
   { id: "resultados",   label: "Resultados" },
   { id: "inbox",        label: "Inbox" },
   { id: "agenda",       label: "Agenda" },
   { id: "listings",     label: "Mis listings" },
   { id: "desempeno",    label: "Desempeño" },
   { id: "inteligencia", label: "Inteligencia" },
+  { id: "comparador",   label: "Comparador" },
+  { id: "simulador",    label: "Simulador" },
   { id: "config",       label: "Configuración" },
 ];
 
 function RealtorDashboardPage() {
-  const [tab, setTab] = useState<Tab>("resultados");
+  // Tab inicial desde ?tab= (deep-link desde navbar/listing → abre el tab correcto
+  // dentro del centro de agente, sin mandar a otra página).
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("tab") : null;
+    return (TABS.some((x) => x.id === t) ? t : "resumen") as Tab;
+  });
   const { isError, error, isLoading } = useRealtorPerfil();
 
   // La cuenta logueada existe pero no tiene fila `agent` (backend responde 403
@@ -101,12 +115,15 @@ function RealtorDashboardPage() {
     <div className="paper-theme min-h-screen bg-background">
       <RealtorNav tab={tab} onTab={setTab} />
       <main className="mx-auto max-w-6xl px-4 pb-20 pt-8 sm:px-6">
+        {tab === "resumen"      && <ResumenTab />}
         {tab === "resultados"   && <ResultadosTab />}
         {tab === "inbox"        && <InboxTab />}
         {tab === "agenda"       && <AgendaTab />}
         {tab === "listings"     && <ListingsTab />}
         {tab === "desempeno"    && <DesempenoTab />}
         {tab === "inteligencia" && <InteligenciaTab />}
+        {tab === "comparador"   && <ComparadorTab />}
+        {tab === "simulador"    && <SimuladorTab />}
         {tab === "config"       && <ConfiguracionTab />}
       </main>
     </div>
@@ -189,19 +206,6 @@ function RealtorNav({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
               )}
             </button>
           ))}
-          <span className="my-auto h-4 w-px shrink-0 bg-border" aria-hidden />
-          <Link
-            to="/comparador"
-            className="shrink-0 border-b-2 border-transparent pb-2.5 pt-1 text-sm font-medium text-muted-foreground transition hover:text-foreground"
-          >
-            Comparador
-          </Link>
-          <Link
-            to="/simulador"
-            className="shrink-0 border-b-2 border-transparent pb-2.5 pt-1 text-sm font-medium text-muted-foreground transition hover:text-foreground"
-          >
-            Simulador
-          </Link>
         </div>
       </nav>
     </header>
@@ -283,27 +287,26 @@ function InboxTab() {
           className={inputCls}
           aria-label="Buscar leads"
         />
-        <div className="mt-3 flex gap-4 border-b border-border text-sm">
+        <div className="mt-3 flex flex-wrap gap-1.5">
           {LEAD_FILTERS.map((f) => (
             <button
               key={f.id}
               onClick={() => setFiltro(f.id)}
-              className={`border-b-2 pb-2 transition ${
-                filtro === f.id
-                  ? "border-primary font-semibold text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
+              className="rounded-full px-3 py-1 text-[12px] font-semibold transition"
+              style={filtro === f.id
+                ? { background: C.brand, color: "#FFFFFF" }
+                : { background: C.card, color: C.muted, border: `1px solid ${C.line}` }}
             >
               {f.label}
             </button>
           ))}
         </div>
 
-        <div className="mt-3 overflow-hidden rounded-lg border border-border bg-surface">
+        <div className="mt-3 overflow-hidden rounded-2xl" style={{ background: C.card, border: `1px solid ${C.line}` }}>
           {visibles.length === 0 && (
             <div className="px-4 py-12 text-center">
-              <Inbox className="mx-auto h-5 w-5 text-muted-foreground/50" />
-              <p className="mx-auto mt-2 max-w-[220px] text-sm text-muted-foreground">
+              <Inbox className="mx-auto h-5 w-5" style={{ color: C.muted, opacity: 0.5 }} />
+              <p className="mx-auto mt-2 max-w-[220px] text-sm" style={{ color: C.muted }}>
                 {filtro === "pool"
                   ? "El pool está vacío por ahora."
                   : "Sin leads en esta vista. Cuando un propietario publique en tu zona, aparecerá aquí."}
@@ -327,10 +330,10 @@ function InboxTab() {
         {selected ? (
           <LeadDetail lead={selected} onBack={() => setSelectedId(null)} />
         ) : (
-          <div className="grid h-full min-h-[320px] place-items-center rounded-lg border border-dashed border-border">
+          <div className="grid h-full min-h-[320px] place-items-center rounded-2xl border border-dashed" style={{ borderColor: C.line }}>
             <div className="text-center">
-              <Inbox className="mx-auto h-5 w-5 text-muted-foreground/50" />
-              <p className="mt-2 text-sm text-muted-foreground">Selecciona un lead para ver el detalle</p>
+              <Inbox className="mx-auto h-5 w-5" style={{ color: C.muted, opacity: 0.5 }} />
+              <p className="mt-2 text-sm" style={{ color: C.muted }}>Selecciona un lead para ver el detalle</p>
             </div>
           </div>
         )}
@@ -358,18 +361,21 @@ function LeadListRow({
     <button
       onClick={onClick}
       aria-current={active ? "true" : undefined}
-      className={`block w-full border-l-2 px-4 py-3 text-left transition ${
-        first ? "" : "border-t border-border/70"
-      } ${active ? "border-l-primary bg-primary/5" : "border-l-transparent hover:bg-muted/40"}`}
+      className={`block w-full border-l-2 px-4 py-3 text-left transition ${active ? "" : "hover:bg-black/[0.02]"}`}
+      style={{
+        borderTop: first ? undefined : `1px solid ${C.line}`,
+        borderLeftColor: active ? C.brand : "transparent",
+        background: active ? C.soft : undefined,
+      }}
     >
       <span className="flex items-baseline justify-between gap-2">
-        <span className={`flex min-w-0 items-center gap-2 text-sm ${esNuevo ? "font-semibold" : "font-medium"} text-foreground`}>
-          {esNuevo && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-label="Nuevo" />}
+        <span className={`flex min-w-0 items-center gap-2 text-sm ${esNuevo ? "font-semibold" : "font-medium"}`} style={{ color: C.ink }}>
+          {esNuevo && <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: C.brand }} aria-label="Nuevo" />}
           <span className="truncate">{titulo}</span>
         </span>
-        <span className="shrink-0 text-xs text-muted-foreground">{relativeTime(d.created_at)}</span>
+        <span className="shrink-0 text-xs" style={{ color: C.muted }}>{relativeTime(d.created_at)}</span>
       </span>
-      <span className="mt-0.5 block truncate text-sm text-muted-foreground">
+      <span className="mt-0.5 block truncate text-sm" style={{ color: C.sub }}>
         <span className="capitalize">{d.tipo_inmueble}</span> en {d.barrio} · {formatCOP(d.precio_esperado)}
       </span>
       <span className="mt-1.5 block">
@@ -381,23 +387,23 @@ function LeadListRow({
 
 // Estado como punto + texto — color solo en el punto
 function LeadStatus({ lead }: { lead: LeadItem }) {
-  let dot = "bg-muted-foreground";
+  let dot = C.muted;
   let txt = "";
   if (lead.kind === "pool") {
-    dot = "bg-accent"; txt = "Disponible en pool";
+    dot = C.ramp[1]; txt = "Disponible en pool";
   } else {
     const a = lead.data;
-    if (a.estado === "asignado") { dot = "bg-primary"; txt = "Nuevo · requiere respuesta"; }
-    else if (!a.due_diligence.documentos_completos) { dot = "bg-warning"; txt = "Verificando documentos"; }
+    if (a.estado === "asignado") { dot = C.brand; txt = "Nuevo · requiere respuesta"; }
+    else if (!a.due_diligence.documentos_completos) { dot = C.warn; txt = "Verificando documentos"; }
     else {
       const c = a.listing ? datosMinimosCompletos(a.listing) : null;
-      if (c && !c.ok) { dot = "bg-warning"; txt = "Ficha incompleta"; }
-      else { dot = "bg-success"; txt = "Listo para publicar"; }
+      if (c && !c.ok) { dot = C.warn; txt = "Ficha incompleta"; }
+      else { dot = C.good; txt = "Listo para publicar"; }
     }
   }
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden />
+    <span className="inline-flex items-center gap-1.5 text-xs" style={{ color: C.muted }}>
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: dot }} aria-hidden />
       {txt}
     </span>
   );
@@ -440,22 +446,23 @@ function LeadDetail({ lead, onBack }: { lead: LeadItem; onBack: () => void }) {
   }
 
   return (
-    <div className="rounded-lg border border-border bg-surface">
+    <div className="rounded-2xl" style={{ background: C.card, border: `1px solid ${C.line}` }}>
       {/* Header */}
-      <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+      <div className="flex items-center justify-between gap-3 px-5 py-4" style={{ borderBottom: `1px solid ${C.line}` }}>
         <div className="flex min-w-0 items-center gap-3">
           <button
             onClick={onBack}
-            className="shrink-0 rounded-md border border-border p-1.5 text-muted-foreground transition hover:text-foreground lg:hidden"
+            className="shrink-0 rounded-xl p-1.5 transition hover:opacity-70 lg:hidden"
+            style={{ border: `1px solid ${C.line}`, color: C.muted }}
             aria-label="Volver a la lista"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
           <div className="min-w-0">
-            <h2 className="truncate text-base font-semibold text-foreground">
+            <h2 className="truncate text-base font-semibold" style={{ color: C.ink }}>
               {asignado ? asignado.owner_nombre : "Inmueble del pool"}
             </h2>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs" style={{ color: C.muted }}>
               {lead.kind === "pool" ? "Zona sin patrocinador" : "Asignado por tu zona"} · recibido {relativeTime(d.created_at)}
             </p>
           </div>
@@ -464,13 +471,14 @@ function LeadDetail({ lead, onBack }: { lead: LeadItem; onBack: () => void }) {
       </div>
 
       {/* Siguiente paso */}
-      <div className="flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-foreground">{nextStep.texto}</p>
+      <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between" style={{ borderBottom: `1px solid ${C.line}` }}>
+        <p className="text-sm" style={{ color: C.ink }}>{nextStep.texto}</p>
         {nextStep.accion && (
           <button
             onClick={nextStep.accion.run}
             disabled={nextStep.accion.pending}
-            className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
+            className="shrink-0 rounded-xl px-4 py-2 text-[13px] font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+            style={{ background: C.brand }}
           >
             {nextStep.accion.label}
           </button>
@@ -480,16 +488,16 @@ function LeadDetail({ lead, onBack }: { lead: LeadItem; onBack: () => void }) {
       <div className="grid gap-6 px-5 py-5 md:grid-cols-2">
         {/* Propiedad */}
         <section>
-          <h3 className="text-sm font-semibold text-foreground">Propiedad</h3>
-          <div className="mt-2 text-2xl font-semibold tabular-nums text-foreground">
+          <h3 className="text-sm font-semibold" style={{ color: C.ink }}>Propiedad</h3>
+          <div className="mt-2 text-2xl font-semibold tabular-nums" style={{ color: C.ink }}>
             {formatCOP(d.precio_esperado)}
-            <span className="ml-2 text-sm font-normal capitalize text-muted-foreground">{d.operacion}</span>
+            <span className="ml-2 text-sm font-normal capitalize" style={{ color: C.muted }}>{d.operacion}</span>
           </div>
-          <p className="mt-1 text-sm text-foreground">
+          <p className="mt-1 text-sm" style={{ color: C.ink }}>
             <span className="capitalize">{d.tipo_inmueble}</span> en {d.barrio}, {d.municipio}
           </p>
           {asignado && (
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm" style={{ color: C.sub }}>
               {[
                 asignado.declarado.area_m2 && `${asignado.declarado.area_m2} m²`,
                 asignado.declarado.habitaciones != null && `${asignado.declarado.habitaciones} hab`,
@@ -501,7 +509,7 @@ function LeadDetail({ lead, onBack }: { lead: LeadItem; onBack: () => void }) {
 
         {/* Declarado por el propietario */}
         <section>
-          <h3 className="text-sm font-semibold text-foreground">Declarado por el propietario</h3>
+          <h3 className="text-sm font-semibold" style={{ color: C.ink }}>Declarado por el propietario</h3>
           {asignado ? (
             <ul className="mt-2 space-y-1.5">
               <DeclaradoItem label="Escritura" value={asignado.declarado.tiene_escritura} />
@@ -510,7 +518,7 @@ function LeadDetail({ lead, onBack }: { lead: LeadItem; onBack: () => void }) {
               <DeclaradoItem label="Sin hipoteca" value={asignado.declarado.tiene_hipoteca == null ? null : !asignado.declarado.tiene_hipoteca} />
             </ul>
           ) : (
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="mt-2 text-sm" style={{ color: C.sub }}>
               Los datos del propietario se revelan al tomar el inmueble.
             </p>
           )}
@@ -524,17 +532,18 @@ function LeadDetail({ lead, onBack }: { lead: LeadItem; onBack: () => void }) {
         {asignado && ddOk && completeness && !completeness.ok && asignado.listing && (
           <section className="md:col-span-2">
             <div className="flex items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold text-foreground">Campos de la ficha por completar</h3>
+              <h3 className="text-sm font-semibold" style={{ color: C.ink }}>Campos de la ficha por completar</h3>
               <button
                 onClick={() => setEditandoFicha(true)}
-                className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:opacity-90"
+                className="shrink-0 rounded-xl px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90"
+                style={{ background: C.brand }}
               >
                 Completar ficha
               </button>
             </div>
             <ul className="mt-2 grid gap-1.5 sm:grid-cols-2">
               {completeness.faltan.map((f) => (
-                <li key={f} className="text-sm capitalize text-muted-foreground">· {f}</li>
+                <li key={f} className="text-sm capitalize" style={{ color: C.sub }}>· {f}</li>
               ))}
             </ul>
           </section>
@@ -686,27 +695,28 @@ function DDChecklistSection({ intakeId }: { intakeId: string }) {
 
   return (
     <section className="md:col-span-2">
-      <h3 className="text-sm font-semibold text-foreground">Verificación de documentos</h3>
-      <p className="mt-0.5 text-xs text-muted-foreground">
+      <h3 className="text-sm font-semibold" style={{ color: C.ink }}>Verificación de documentos</h3>
+      <p className="mt-0.5 text-xs" style={{ color: C.muted }}>
         Revisa cada punto con el propietario. Con todo verificado, el listing recibe el sello.
       </p>
 
       {isLoading && <Skeleton className="mt-3 h-32 rounded-lg" />}
-      {isError && <p className="mt-3 text-sm text-danger">No se pudo cargar el checklist.</p>}
+      {isError && <p className="mt-3 text-sm" style={{ color: C.bad }}>No se pudo cargar el checklist.</p>}
 
       {data && (
-        <div className="mt-3 overflow-hidden rounded-lg border border-border bg-background">
+        <div className="mt-3 overflow-hidden rounded-xl" style={{ background: C.soft, border: `1px solid ${C.line}` }}>
           {data.items.map((item, i) => (
             <div
               key={item.id}
-              className={`flex flex-col gap-2 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between ${i > 0 ? "border-t border-border/60" : ""}`}
+              className="flex flex-col gap-2 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+              style={i > 0 ? { borderTop: `1px solid ${C.line}` } : undefined}
             >
               <div className="min-w-0">
-                <span className="text-sm text-foreground">{DD_LABEL[item.clave] ?? item.clave.replaceAll("_", " ")}</span>
-                <span className="ml-2 text-xs text-muted-foreground">
+                <span className="text-sm" style={{ color: C.ink }}>{DD_LABEL[item.clave] ?? item.clave.replaceAll("_", " ")}</span>
+                <span className="ml-2 text-xs" style={{ color: C.muted }}>
                   declaró: {item.declarado === true ? "sí" : item.declarado === false ? "no" : item.declarado ?? "sin dato"}
                 </span>
-                {item.nota && <span className="ml-2 text-xs italic text-muted-foreground">“{item.nota}”</span>}
+                {item.nota && <span className="ml-2 text-xs italic" style={{ color: C.muted }}>“{item.nota}”</span>}
               </div>
 
               {item.estado === "pendiente" ? (
@@ -714,21 +724,23 @@ function DDChecklistSection({ intakeId }: { intakeId: string }) {
                   <button
                     onClick={() => verificar.mutate({ itemId: item.id, estado: "verificado" })}
                     disabled={verificar.isPending}
-                    className="rounded-md bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
+                    className="rounded-xl px-3 py-1 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+                    style={{ background: C.brand }}
                   >
                     Verificado
                   </button>
                   <button
                     onClick={() => verificar.mutate({ itemId: item.id, estado: "rechazado" })}
                     disabled={verificar.isPending}
-                    className="rounded-md border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-50"
+                    className="rounded-xl px-3 py-1 text-xs font-semibold transition hover:opacity-80 disabled:opacity-50"
+                    style={{ border: `1px solid ${C.line}`, color: C.ink }}
                   >
                     Rechazar
                   </button>
                 </div>
               ) : (
-                <span className={`inline-flex shrink-0 items-center gap-1.5 text-xs ${item.estado === "verificado" ? "text-success" : "text-danger"}`}>
-                  <span className={`h-1.5 w-1.5 rounded-full ${item.estado === "verificado" ? "bg-success" : "bg-danger"}`} aria-hidden />
+                <span className="inline-flex shrink-0 items-center gap-1.5 text-xs" style={{ color: item.estado === "verificado" ? C.good : C.bad }}>
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: item.estado === "verificado" ? C.good : C.bad }} aria-hidden />
                   {item.estado === "verificado" ? "Verificado" : "Rechazado"}
                 </span>
               )}
@@ -743,10 +755,10 @@ function DDChecklistSection({ intakeId }: { intakeId: string }) {
 function DeclaradoItem({ label, value }: { label: string; value: boolean | null }) {
   return (
     <li className="flex items-center justify-between gap-2 text-sm">
-      <span className="text-foreground">{label}</span>
-      {value === true  && <span className="font-medium text-success">Sí</span>}
-      {value === false && <span className="font-medium text-danger">No</span>}
-      {value == null   && <span className="text-muted-foreground">Sin dato</span>}
+      <span style={{ color: C.ink }}>{label}</span>
+      {value === true  && <span className="font-semibold" style={{ color: C.good }}>Sí</span>}
+      {value === false && <span className="font-semibold" style={{ color: C.bad }}>No</span>}
+      {value == null   && <span style={{ color: C.muted }}>Sin dato</span>}
     </li>
   );
 }
@@ -805,11 +817,10 @@ function AgendaBody({ data, actualizar }: { data: Agenda; actualizar: ReturnType
             <button
               key={c.id}
               onClick={() => { setFiltro(c.id); setVerTodas(false); }}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-                filtro === c.id
-                  ? "border-primary bg-primary/10 text-foreground"
-                  : "border-border bg-surface text-muted-foreground hover:text-foreground"
-              }`}
+              className="rounded-full px-3 py-1 text-[12px] font-semibold transition"
+              style={filtro === c.id
+                ? { background: C.brand, color: "#FFFFFF" }
+                : { background: C.card, color: C.muted, border: `1px solid ${C.line}` }}
             >
               {c.label} <span className="opacity-60">{c.n}</span>
             </button>
@@ -819,7 +830,7 @@ function AgendaBody({ data, actualizar }: { data: Agenda; actualizar: ReturnType
           <EmptyState msg="No hay solicitudes con este filtro. Cuando alguien agende una visita desde el mapa, aparecerá aquí." />
         ) : (
           <>
-            <div className="overflow-hidden rounded-lg border border-border bg-surface">
+            <div className="overflow-hidden rounded-2xl" style={{ background: C.card, border: `1px solid ${C.line}` }}>
               {visibles.map((v, i) => (
                 <VisitaRow
                   key={v.id}
@@ -833,7 +844,8 @@ function AgendaBody({ data, actualizar }: { data: Agenda; actualizar: ReturnType
             {filtradas.length > LIMIT && (
               <button
                 onClick={() => setVerTodas((v) => !v)}
-                className="mt-2 text-xs font-medium text-primary transition hover:underline"
+                className="mt-2 text-xs font-semibold transition hover:underline"
+                style={{ color: C.brand }}
               >
                 {verTodas ? "Ver menos" : `Ver ${filtradas.length - LIMIT} más`}
               </button>
@@ -848,26 +860,28 @@ function AgendaBody({ data, actualizar }: { data: Agenda; actualizar: ReturnType
           <EmptyState msg="Nadie ha guardado tus listings todavía." />
         ) : (
           <>
-            <div className="overflow-hidden rounded-lg border border-border bg-surface">
+            <div className="overflow-hidden rounded-2xl" style={{ background: C.card, border: `1px solid ${C.line}` }}>
               {interesadosVis.map((p, i) => (
                 <div
                   key={`${p.email}-${i}`}
-                  className={`flex items-center justify-between gap-3 px-4 py-3 ${i === 0 ? "" : "border-t border-border/70"}`}
+                  className="flex items-center justify-between gap-3 px-4 py-3"
+                  style={i === 0 ? undefined : { borderTop: `1px solid ${C.line}` }}
                 >
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-foreground">{p.nombre ?? "Usuario"}</div>
-                    <div className="truncate text-xs text-muted-foreground">
-                      {p.email} · guardó <span className="text-foreground">{p.listing_titulo}</span>
+                    <div className="truncate text-sm font-medium" style={{ color: C.ink }}>{p.nombre ?? "Usuario"}</div>
+                    <div className="truncate text-xs" style={{ color: C.sub }}>
+                      {p.email} · guardó <span style={{ color: C.ink }}>{p.listing_titulo}</span>
                     </div>
                   </div>
-                  <span className="shrink-0 text-xs text-muted-foreground">{relativeTime(p.created_at)}</span>
+                  <span className="shrink-0 text-xs" style={{ color: C.muted }}>{relativeTime(p.created_at)}</span>
                 </div>
               ))}
             </div>
             {data.interesados.length > LIMIT && (
               <button
                 onClick={() => setVerInteresados((v) => !v)}
-                className="mt-2 text-xs font-medium text-primary transition hover:underline"
+                className="mt-2 text-xs font-semibold transition hover:underline"
+                style={{ color: C.brand }}
               >
                 {verInteresados ? "Ver menos" : `Ver ${data.interesados.length - LIMIT} más`}
               </button>
@@ -880,11 +894,11 @@ function AgendaBody({ data, actualizar }: { data: Agenda; actualizar: ReturnType
 }
 
 const VISITA_ESTADO: Record<VisitaSolicitud["estado"], { label: string; dot: string }> = {
-  pendiente:  { label: "Pendiente",  dot: "bg-warning" },
-  confirmada: { label: "Confirmada", dot: "bg-success" },
-  realizada:  { label: "Realizada",  dot: "bg-muted-foreground" },
-  cancelada:  { label: "Cancelada",  dot: "bg-muted-foreground" },
-  no_asistio: { label: "No asistió", dot: "bg-danger" },
+  pendiente:  { label: "Pendiente",  dot: C.warn },
+  confirmada: { label: "Confirmada", dot: C.good },
+  realizada:  { label: "Realizada",  dot: C.muted },
+  cancelada:  { label: "Cancelada",  dot: C.muted },
+  no_asistio: { label: "No asistió", dot: C.bad },
 };
 
 const RESULTADO_LABEL: Record<NonNullable<VisitaSolicitud["resultado"]>, string> = {
@@ -928,10 +942,10 @@ function VisitaRow({
     : "Sin fecha propuesta";
 
   return (
-    <div className={`flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${first ? "" : "border-t border-border/70"}`}>
+    <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between" style={first ? undefined : { borderTop: `1px solid ${C.line}` }}>
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="font-medium text-foreground"><Name>{v.nombre}</Name></span>
+          <span className="font-medium" style={{ color: C.ink }}><Name>{v.nombre}</Name></span>
           {v.es_pro && (
             <span
               className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider"
@@ -966,25 +980,25 @@ function VisitaRow({
               </span>
             );
           })()}
-          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden />
+          <span className="inline-flex items-center gap-1.5 text-xs" style={{ color: C.muted }}>
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: dot }} aria-hidden />
             {label}
           </span>
         </div>
-        <div className="mt-0.5 text-sm text-muted-foreground">
-          {v.listing_titulo} · <span className="text-foreground">{fecha}</span>
+        <div className="mt-0.5 text-sm" style={{ color: C.sub }}>
+          {v.listing_titulo} · <span style={{ color: C.ink }}>{fecha}</span>
         </div>
-        <div className="mt-0.5 text-xs text-muted-foreground">
+        <div className="mt-0.5 text-xs" style={{ color: C.muted }}>
           {[v.telefono, v.email].filter(Boolean).join(" · ") || "Sin datos de contacto"}
           {v.mensaje && ` · "${v.mensaje}"`}
           {v.resultado && (
-            <span className="ml-1 font-medium text-foreground">· {RESULTADO_LABEL[v.resultado]}</span>
+            <span className="ml-1 font-medium" style={{ color: C.ink }}>· {RESULTADO_LABEL[v.resultado]}</span>
           )}
         </div>
         {v.calificado && (
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {leadPills(v).map((p) => (
-              <span key={p} className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium text-foreground">
+              <span key={p} className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium" style={{ background: C.soft, color: C.ink }}>
                 {p}
               </span>
             ))}
@@ -995,20 +1009,22 @@ function VisitaRow({
       {(v.estado === "pendiente" || v.estado === "confirmada") && (
         pidiendoResultado ? (
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <span className="text-xs text-muted-foreground">¿Cómo terminó?</span>
+            <span className="text-xs" style={{ color: C.muted }}>¿Cómo terminó?</span>
             {(Object.keys(RESULTADO_LABEL) as (keyof typeof RESULTADO_LABEL)[]).map((r) => (
               <button
                 key={r}
                 onClick={() => { onEstado("realizada", r); setPidiendoResultado(false); }}
                 disabled={pending}
-                className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted/50 disabled:opacity-50"
+                className="rounded-xl px-3 py-1.5 text-xs font-semibold transition hover:opacity-80 disabled:opacity-50"
+                style={{ border: `1px solid ${C.line}`, color: C.ink }}
               >
                 {RESULTADO_LABEL[r]}
               </button>
             ))}
             <button
               onClick={() => setPidiendoResultado(false)}
-              className="text-xs text-muted-foreground hover:text-foreground"
+              className="text-xs transition hover:opacity-70"
+              style={{ color: C.muted }}
             >
               Volver
             </button>
@@ -1019,7 +1035,8 @@ function VisitaRow({
               <button
                 onClick={() => onEstado("confirmada")}
                 disabled={pending}
-                className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
+                className="rounded-xl px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+                style={{ background: C.brand }}
               >
                 Confirmar
               </button>
@@ -1029,14 +1046,16 @@ function VisitaRow({
                 <button
                   onClick={() => setPidiendoResultado(true)}
                   disabled={pending}
-                  className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
+                  className="rounded-xl px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+                  style={{ background: C.brand }}
                 >
                   Marcar realizada
                 </button>
                 <button
                   onClick={() => onEstado("no_asistio")}
                   disabled={pending}
-                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-50"
+                  className="rounded-xl px-3 py-1.5 text-xs font-semibold transition hover:opacity-80 disabled:opacity-50"
+                  style={{ border: `1px solid ${C.line}`, color: C.ink }}
                 >
                   No asistió
                 </button>
@@ -1045,7 +1064,8 @@ function VisitaRow({
             <button
               onClick={() => onEstado("cancelada")}
               disabled={pending}
-              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-50"
+              className="rounded-xl px-3 py-1.5 text-xs font-semibold transition hover:opacity-80 disabled:opacity-50"
+              style={{ border: `1px solid ${C.line}`, color: C.ink }}
             >
               Cancelar
             </button>
@@ -1072,6 +1092,7 @@ function ListingsTab() {
   const { data, isLoading, isError } = useMisListings();
   const [filtro, setFiltro] = useState<EstadoListing | "todos">("todos");
   const [editando, setEditando] = useState<MiListing | null>(null);
+  const [cerrando, setCerrando] = useState<MiListing | null>(null);
 
   const visible = useMemo(
     () => (filtro === "todos" ? data ?? [] : (data ?? []).filter((l) => l.estado === filtro)),
@@ -1117,7 +1138,13 @@ function ListingsTab() {
       {!isLoading && !isError && visible.length > 0 && (
         <div className="overflow-hidden rounded-lg border border-border bg-surface">
           {visible.map((l, i) => (
-            <ListingRow key={l.id} listing={l} first={i === 0} onEditar={() => setEditando(l)} />
+            <ListingRow
+              key={l.id}
+              listing={l}
+              first={i === 0}
+              onEditar={() => setEditando(l)}
+              onMarcarVendido={() => setCerrando(l)}
+            />
           ))}
         </div>
       )}
@@ -1129,12 +1156,123 @@ function ListingsTab() {
           onClose={() => setEditando(null)}
         />
       )}
+
+      {cerrando && (
+        <CerrarVendidoModal listing={cerrando} onClose={() => setCerrando(null)} />
+      )}
     </section>
   );
 }
 
-function ListingRow({ listing: l, first, onEditar }: { listing: MiListing; first: boolean; onEditar: () => void }) {
+// Modal "Marcar vendido" — reporta el cierre (precio + matrícula obligatoria).
+// ES la contribución que desbloquea los comparables y sube el puntaje (incentivo).
+function CerrarVendidoModal({ listing, onClose }: { listing: MiListing; onClose: () => void }) {
+  const cerrar = useCerrarListing();
+  const [precio, setPrecio] = useState("");
+  const [matricula, setMatricula] = useState("");
+  const [fecha, setFecha] = useState("");
+  const [catastral, setCatastral] = useState("");
+
+  const precioNum = Number(precio.replace(/[^\d]/g, ""));
+  const puedeEnviar = precioNum > 0 && matricula.trim().length > 0 && !cerrar.isPending;
+
+  async function enviar() {
+    if (!puedeEnviar) return;
+    try {
+      await cerrar.mutateAsync({
+        listingId: listing.id,
+        input: {
+          precio_cierre: precioNum,
+          matricula_inmobiliaria: matricula.trim(),
+          fecha_cierre: fecha || undefined,
+          cedula_catastral: catastral.trim() || undefined,
+        },
+      });
+      onClose();
+    } catch {
+      /* el hook ya hace toast.error */
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40" />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Marcar vendido"
+        className="relative w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-semibold text-foreground">Reportar venta</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {listing.titulo}. Reportar el cierre <strong>desbloquea los comparables de cierre</strong> y sube tu puntaje.
+        </p>
+
+        <div className="mt-4 space-y-3">
+          <label className="block">
+            <span className="text-xs font-medium text-muted-foreground">Precio de cierre (COP) *</span>
+            <input
+              value={precio}
+              onChange={(e) => setPrecio(e.target.value)}
+              inputMode="numeric"
+              placeholder="450000000"
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            {precioNum > 0 && <span className="mt-0.5 block text-xs text-muted-foreground">{formatCOP(precioNum)}</span>}
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-muted-foreground">Matrícula inmobiliaria (ORIP) *</span>
+            <input
+              value={matricula}
+              onChange={(e) => setMatricula(e.target.value)}
+              placeholder="001-123456"
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <span className="mt-0.5 block text-xs text-muted-foreground">Obligatoria — es la llave del registro de la propiedad.</span>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground">Fecha de cierre</span>
+              <input
+                type="date"
+                value={fecha}
+                onChange={(e) => setFecha(e.target.value)}
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground">Cédula catastral</span>
+              <input
+                value={catastral}
+                onChange={(e) => setCatastral(e.target.value)}
+                placeholder="opcional"
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-md px-4 py-2 text-sm text-muted-foreground hover:text-foreground">
+            Cancelar
+          </button>
+          <button
+            onClick={enviar}
+            disabled={!puedeEnviar}
+            className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-40"
+          >
+            {cerrar.isPending ? "Reportando…" : "Reportar venta"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ListingRow({ listing: l, first, onEditar, onMarcarVendido }: { listing: MiListing; first: boolean; onEditar: () => void; onMarcarVendido: () => void }) {
   const estado = ESTADO_META[l.estado];
+  const puedeCerrar = l.estado === "publicado" || l.estado === "pausado";
   return (
     <div
       className={`flex flex-col gap-3 px-4 py-3 transition sm:flex-row sm:items-center sm:justify-between hover:bg-muted/30 ${
@@ -1175,6 +1313,15 @@ function ListingRow({ listing: l, first, onEditar }: { listing: MiListing; first
             className="shrink-0 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:text-foreground"
           >
             Editar
+          </button>
+        )}
+        {puedeCerrar && (
+          <button
+            onClick={onMarcarVendido}
+            className="shrink-0 rounded-md border border-primary px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary hover:text-white"
+            title="Reportar la venta: desbloquea comparables de cierre y sube tu puntaje"
+          >
+            Marcar vendido
           </button>
         )}
       </div>
@@ -1245,6 +1392,63 @@ function etiquetaCaminable(score: number | null | undefined): string {
   return "Poco caminable";
 }
 
+// Comparables de cierre — incentivo de reciprocidad: gated si no has reportado cierres.
+function ComparablesSection() {
+  const { data, isLoading } = useComparables();
+  return (
+    <section>
+      <BloqueHeader
+        titulo="Comparables de cierre"
+        estado={data?.acceso ? "disponible" : "pendiente"}
+        sub="Precios reales de venta (no de aviso)"
+      />
+      {isLoading && <SkeletonRows n={2} />}
+      {!isLoading && data && !data.acceso && (
+        <div className="rounded-2xl border border-dashed p-5 text-sm" style={{ background: C.soft, borderColor: C.line }}>
+          <p className="font-semibold" style={{ color: C.ink }}>🔒 Desbloquea los comparables de cierre</p>
+          <p className="mt-1" style={{ color: C.sub }}>{data.motivo}</p>
+          <p className="mt-2 text-xs" style={{ color: C.muted }}>
+            Has reportado {data.cierres_reportados} de {data.cierres_necesarios ?? 1} cierres necesarios.
+            Marca vendido un listing en “Mis listings”.
+          </p>
+        </div>
+      )}
+      {!isLoading && data?.acceso && data.comparables.length === 0 && (
+        <EmptyState msg="Aún no hay cierres reportados para comparar. A medida que los agentes reporten, aparecerán aquí." />
+      )}
+      {!isLoading && data?.acceso && data.comparables.length > 0 && (
+        <>
+        <p className="mb-3 text-xs" style={{ color: C.muted }}>
+          {data.verificados ?? 0} verificados · {data.autoreportados ?? 0} autoreportados.
+          “Sin verificar” = reportado por un agente, aún sin cruzar con el registro (SNR) — tómalo con cautela.
+        </p>
+        <div className="overflow-hidden rounded-2xl" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+          {data.comparables.map((c, i) => (
+            <div key={i} className="flex items-center justify-between px-4 py-3" style={i === 0 ? undefined : { borderTop: `1px solid ${C.line}` }}>
+              <div className="min-w-0">
+                <div className="text-sm font-medium capitalize" style={{ color: C.ink }}>
+                  {c.tipo_inmueble} · {c.barrio ?? "—"}
+                  {c.verificado
+                    ? <span className="ml-2 text-[11px] font-semibold" style={{ color: C.good }}>✓ verificado</span>
+                    : <span className="ml-2 text-[11px] font-medium" style={{ color: C.muted }}>· sin verificar</span>}
+                </div>
+                <div className="text-xs" style={{ color: C.sub }}>
+                  {c.area_m2 ? `${c.area_m2} m²` : "área —"} · {new Date(c.fecha).toLocaleDateString("es-CO", { month: "short", year: "numeric" })}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-semibold tabular-nums" style={{ color: C.ink }}>{c.precio != null ? formatCOP(c.precio) : "—"}</div>
+                <div className="text-xs" style={{ color: C.muted }}>{c.precio_m2 != null ? `${formatCOP(c.precio_m2)}/m²` : ""}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function ResultadosTab() {
   const { data, isLoading, isError } = useDesempeno();
   // zonas viene ordenado por precio_mensual DESC → [0] es la zona pagada principal
@@ -1276,12 +1480,17 @@ function ResultadosTab() {
   const csSub = cs.ranking
     ? `${cs.nota} · Puesto ${cs.ranking.posicion} de ${cs.ranking.total} por velocidad`
     : cs.nota;
+  const st = data.standing;
+  const stValue = st.puntaje != null ? `${st.puntaje}/100` : "—";
+  const stSub = st.ranking
+    ? `Puesto ${st.ranking.posicion} de ${st.ranking.total} · ${st.cierres_reportados_12m} cierres reportados`
+    : st.nota;
 
   return (
     <div className="space-y-12">
       <header>
-        <h1 className="text-xl font-semibold text-foreground">Tu panel de resultados</h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+        <h1 className="text-xl font-semibold" style={{ color: C.ink }}>Tu panel de resultados</h1>
+        <p className="mt-1 max-w-2xl text-sm" style={{ color: C.sub }}>
           Cómo te está yendo, cómo rinde tu zona pagada y qué dice el mercado. Cuéntanos qué te
           sirve más — eso decide qué construimos después.
         </p>
@@ -1321,8 +1530,12 @@ function ResultadosTab() {
             value={cs.mediana_horas_respuesta != null ? `${cs.grado} · ${cs.mediana_horas_respuesta}h` : cs.grado}
             sub={csSub}
           />
+          <ResultCard label="Tu puntaje (standing)" value={stValue} sub={stSub} />
         </div>
       </section>
+
+      {/* ── §1b Comparables de cierre (incentivo de reciprocidad) ── */}
+      <ComparablesSection />
 
       {/* ── §2 Resultados en tu zona pagada ── */}
       <section>
@@ -1330,13 +1543,13 @@ function ResultadosTab() {
         {!zonaPagada ? (
           <EmptyState msg="Cuando actives una zona pagada, aquí verás cuánto te cuesta cada cliente y cómo avanzan tus inmuebles en esa zona." />
         ) : (
-          <div className="rounded-xl border border-border bg-surface p-5 sm:p-6">
+          <div className="rounded-2xl p-5 sm:p-6" style={{ background: C.card, border: `1px solid ${C.line}` }}>
             <div>
-              <h3 className="text-base font-semibold capitalize text-foreground">
+              <h3 className="text-base font-semibold capitalize" style={{ color: C.ink }}>
                 {zonaPagada.zona_nombre}
-                <span className="ml-2 text-sm font-normal capitalize text-muted-foreground">{zonaPagada.nivel}</span>
+                <span className="ml-2 text-sm font-normal capitalize" style={{ color: C.muted }}>{zonaPagada.nivel}</span>
               </h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">{planZona(zonaPagada)}</p>
+              <p className="mt-0.5 text-xs" style={{ color: C.muted }}>{planZona(zonaPagada)}</p>
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
@@ -1364,11 +1577,11 @@ function ResultadosTab() {
                 const max = Math.max(zonaPagada.intakes_mes, 1);
                 return (
                   <div key={label} className="flex items-center gap-3">
-                    <span className="w-24 shrink-0 text-sm text-muted-foreground">{label}</span>
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                      <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, (value / max) * 100)}%` }} />
+                    <span className="w-24 shrink-0 text-sm" style={{ color: C.sub }}>{label}</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full" style={{ background: C.soft }}>
+                      <div className="h-full rounded-full" style={{ width: `${Math.min(100, (value / max) * 100)}%`, background: C.brand }} />
                     </div>
-                    <span className="w-8 shrink-0 text-right text-sm font-semibold tabular-nums text-foreground">{value}</span>
+                    <span className="w-8 shrink-0 text-right text-sm font-semibold tabular-nums" style={{ color: C.ink }}>{value}</span>
                   </div>
                 );
               })}
@@ -1386,7 +1599,7 @@ function ResultadosTab() {
           <EmptyState msg="Aún no tenemos datos de mercado para esta zona." />
         ) : (
           <div className="space-y-6">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 className="text-sm font-semibold uppercase tracking-wide" style={{ color: C.muted }}>
               {intel.nombre ?? zonaPagada.zona_nombre}
             </h3>
 
@@ -1425,7 +1638,7 @@ function ResultadosTab() {
               ]} />
             </div>
 
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs" style={{ color: C.muted }}>
               Esta información se actualiza cada semana o cada mes, no al instante.
             </p>
           </div>
@@ -1437,14 +1650,14 @@ function ResultadosTab() {
         <BloqueHeader titulo="Ideas para más adelante" estado="pendiente" />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {SUGERENCIAS.map((s) => (
-            <div key={s.titulo} className="rounded-xl border border-dashed border-border bg-surface/50 p-5">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Sugerencia</span>
-              <h4 className="mt-1.5 text-sm font-semibold text-foreground">{s.titulo}</h4>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.detalle}</p>
+            <div key={s.titulo} className="rounded-2xl border border-dashed p-5" style={{ background: C.soft, borderColor: C.line }}>
+              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.muted }}>Sugerencia</span>
+              <h4 className="mt-1.5 text-sm font-semibold" style={{ color: C.ink }}>{s.titulo}</h4>
+              <p className="mt-1 text-xs leading-relaxed" style={{ color: C.sub }}>{s.detalle}</p>
             </div>
           ))}
         </div>
-        <p className="mt-4 text-xs text-muted-foreground">
+        <p className="mt-4 text-xs" style={{ color: C.muted }}>
           Estas ideas todavía no existen. Cuéntanos qué te gustaría ver primero.
         </p>
       </section>
@@ -1456,17 +1669,17 @@ function ResultadosTab() {
 function BloqueHeader({ titulo, estado, sub }: { titulo: string; estado: "disponible" | "pendiente"; sub?: string }) {
   return (
     <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1">
-      <h2 className="text-lg font-semibold text-foreground">{titulo}</h2>
+      <h2 className="text-lg font-semibold" style={{ color: C.ink }}>{titulo}</h2>
       {estado === "disponible" ? (
-        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
+        <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider" style={{ background: "rgba(15,138,79,0.12)", color: C.brand }}>
           Ya disponible
         </span>
       ) : (
-        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider" style={{ background: C.soft, color: C.muted }}>
           Aún no existen
         </span>
       )}
-      {sub && <span className="w-full text-xs text-muted-foreground sm:w-auto">{sub}</span>}
+      {sub && <span className="w-full text-xs sm:w-auto" style={{ color: C.muted }}>{sub}</span>}
     </div>
   );
 }
@@ -1474,10 +1687,10 @@ function BloqueHeader({ titulo, estado, sub }: { titulo: string; estado: "dispon
 // Tarjeta de estadística cálida (número grande + explicación en llano)
 function ResultCard({ label, value, sub }: { label: string; value: string | number; sub: string }) {
   return (
-    <div className="rounded-xl border border-border bg-surface p-5">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-2 text-3xl font-semibold tabular-nums text-foreground">{value}</div>
-      <div className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{sub}</div>
+    <div className="rounded-2xl p-5" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+      <div className="text-xs" style={{ color: C.muted }}>{label}</div>
+      <div className="mt-2 text-3xl font-semibold tabular-nums" style={{ color: C.ink }}>{value}</div>
+      <div className="mt-1.5 text-xs leading-relaxed" style={{ color: C.sub }}>{sub}</div>
     </div>
   );
 }
@@ -1485,8 +1698,8 @@ function ResultCard({ label, value, sub }: { label: string; value: string | numb
 function BigNumber({ value, sub }: { value: string | number; sub: string }) {
   return (
     <div>
-      <div className="text-3xl font-semibold tabular-nums text-foreground">{value}</div>
-      <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{sub}</div>
+      <div className="text-3xl font-semibold tabular-nums" style={{ color: C.ink }}>{value}</div>
+      <div className="mt-1 text-xs leading-relaxed" style={{ color: C.sub }}>{sub}</div>
     </div>
   );
 }
@@ -1494,13 +1707,13 @@ function BigNumber({ value, sub }: { value: string | number; sub: string }) {
 // Columna de mercado: título + filas [etiqueta, valor]
 function MercadoCol({ titulo, filas }: { titulo: string; filas: [string, string | number][] }) {
   return (
-    <div className="rounded-xl border border-border bg-surface p-5">
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{titulo}</h4>
+    <div className="rounded-2xl p-5" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+      <h4 className="text-[11px] font-bold uppercase tracking-wide" style={{ color: C.brand }}>{titulo}</h4>
       <dl className="mt-3 space-y-3">
         {filas.map(([label, value]) => (
           <div key={label} className="flex items-baseline justify-between gap-3">
-            <dt className="text-xs text-muted-foreground">{label}</dt>
-            <dd className="shrink-0 text-sm font-semibold tabular-nums text-foreground">{value}</dd>
+            <dt className="text-xs" style={{ color: C.sub }}>{label}</dt>
+            <dd className="shrink-0 text-sm font-semibold tabular-nums" style={{ color: C.ink }}>{value}</dd>
           </div>
         ))}
       </dl>
@@ -1589,38 +1802,41 @@ function DesempenoTab() {
   );
 }
 
+// Primitivos alineados al _kit (mismo look que Resumen/Simulador/Comparador) para
+// que TODO el dashboard sea congruente: tarjetas rounded-2xl, paleta C, tipografía.
 function StatTile({ label, value, sub }: { label: string; value: string | number; sub: string }) {
   return (
-    <div className="rounded-lg border border-border bg-surface p-4">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{value}</div>
-      <div className="mt-0.5 text-xs text-muted-foreground">{sub}</div>
+    <div className="flex flex-col justify-center rounded-2xl px-4 py-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+      <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.muted }}>{label}</div>
+      <div className="mt-1 text-[26px] font-bold leading-none tabular-nums" style={{ color: C.ink }}>{value}</div>
+      <div className="mt-1 text-[11px] leading-snug" style={{ color: C.sub }}>{sub}</div>
     </div>
   );
 }
 
-// unit: "%" para tasas reales 0–100 (asistencia, ocupación); "/100" para scores
-// (evita mostrar un score como si fuera un porcentaje — no es lo mismo).
+// unit: "%" para tasas reales 0–100; "/100" para scores. Gauge de arco (igual que _kit).
 function RingStat({ label, percent, sub, unit = "%" }: { label: string; percent: number | null; sub: string; unit?: "%" | "/100" }) {
-  const value = percent ?? 0;
-  const data = [{ value }, { value: Math.max(0, 100 - value) }];
-
+  const v = percent ?? 0;
+  const R = 22, CIRC = 2 * Math.PI * R;
+  const col = v >= 66 ? C.brand : v >= 33 ? C.warn : C.bad;
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-border bg-surface p-4">
-      <div className="relative h-14 w-14 shrink-0">
-        <PieChart width={56} height={56}>
-          <Pie data={data} dataKey="value" innerRadius={20} outerRadius={28} startAngle={90} endAngle={-270} stroke="none">
-            <Cell fill="#0F8A4F" />
-            <Cell fill="var(--muted)" />
-          </Pie>
-        </PieChart>
-        <div className={`absolute inset-0 flex items-center justify-center font-semibold tabular-nums text-foreground ${unit === "/100" ? "text-[10px]" : "text-xs"}`}>
+    <div className="flex items-center gap-3 rounded-2xl px-4 py-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+      <div className="relative shrink-0" style={{ width: 56, height: 56 }}>
+        <svg width={56} height={56} viewBox="0 0 56 56">
+          <circle cx={28} cy={28} r={R} fill="none" stroke={C.soft} strokeWidth={6} />
+          {percent != null && (
+            <circle cx={28} cy={28} r={R} fill="none" stroke={col} strokeWidth={6} strokeLinecap="round"
+              strokeDasharray={`${CIRC * (v / 100)} ${CIRC}`} transform="rotate(-90 28 28)" />
+          )}
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center font-bold tabular-nums"
+          style={{ color: C.ink, fontSize: unit === "/100" ? 10 : 12 }}>
           {percent != null ? `${percent}${unit}` : "—"}
         </div>
       </div>
       <div>
-        <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="mt-0.5 text-xs text-muted-foreground">{sub}</div>
+        <div className="text-[12px] font-semibold" style={{ color: C.ink }}>{label}</div>
+        <div className="mt-0.5 text-[11px]" style={{ color: C.muted }}>{sub}</div>
       </div>
     </div>
   );

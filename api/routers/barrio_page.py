@@ -52,6 +52,7 @@ class RealtorCard(BaseModel):
     agencia_nombre: Optional[str]
     rating_promedio: Optional[float]
     n_resenas: int
+    tier: Optional[str] = None
 
 
 class BarrioPageOut(BaseModel):
@@ -105,12 +106,47 @@ LIMIT 2
 """
 
 
+# Realtor Preferido: los 2 que "tocan" en la rotación fija de los slots de la comuna.
+_PREFERIDOS_SQL = """
+SELECT a.id::text, a.nombre, a.foto_url, a.bio, ag.nombre AS agencia_nombre,
+       rev.rating_promedio, rev.n_resenas, a.tier
+FROM agent a
+LEFT JOIN LATERAL (SELECT ag2.nombre FROM agency_member am JOIN agency ag2 ON ag2.id = am.agency_id
+                   WHERE am.agent_id = a.id LIMIT 1) ag ON true
+LEFT JOIN LATERAL (
+    SELECT ROUND(AVG(calificacion)::numeric, 1)::float8 AS rating_promedio, COUNT(*)::int AS n_resenas
+    FROM agent_review WHERE agent_id = a.id
+) rev ON true
+WHERE a.id = ANY($1::uuid[]) AND a.estado = 'activo'
+"""
+
+
+async def _preferidos_rotados(pool, zona: str, barrio_id: Optional[int] = None) -> list:
+    """Hasta 2 realtors preferidos: slots del BARRIO primero, los de la comuna completan.
+    Rotación por ventana de tiempo (sin escrituras → seguro detrás de caché). Vacío → fallback sponsorship."""
+    from api.services.realtor_preferido_service import elegir_rotados, slots_activos
+    async with pool.acquire() as conn:
+        elegidos: list = []
+        if barrio_id is not None:
+            elegidos = elegir_rotados([r["agent_id"] for r in await slots_activos(conn, "barrio", str(barrio_id))], 2)
+        if len(elegidos) < 2:
+            com = [r["agent_id"] for r in await slots_activos(conn, "comuna", zona)]
+            for a in elegir_rotados(com, 2):
+                if len(elegidos) < 2 and a not in elegidos:
+                    elegidos.append(a)
+        if not elegidos:
+            return []
+        rows = {r["id"]: r for r in await conn.fetch(_PREFERIDOS_SQL, elegidos)}
+    return [rows[str(a)] for a in elegidos if str(a) in rows]
+
+
 @router.get("", response_model=BarrioPageOut)
 @limiter.limit("60/minute")
 async def get_barrio_page(
     request: Request,
     cd_comuna: Optional[int] = Query(None),
     municipio: Optional[str] = Query(None, max_length=120),
+    barrio_id: Optional[int] = Query(None),
     pool=Depends(get_pool),
 ):
     muni = municipio.upper() if municipio else None
@@ -126,6 +162,14 @@ async def get_barrio_page(
     except Exception:
         logger.exception("Error inesperado")
         raise HTTPException(status_code=500, detail="Error interno del servidor")
+
+    try:
+        preferidos = await _preferidos_rotados(pool, zona, barrio_id)
+    except Exception:  # tabla aún no migrada u otro fallo: no tumbar la página
+        logger.exception("preferidos_rotados")
+        preferidos = []
+    if preferidos:
+        realtors = preferidos
 
     return BarrioPageOut(
         embajador=EmbajadorOut(**dict(emb)) if emb else None,

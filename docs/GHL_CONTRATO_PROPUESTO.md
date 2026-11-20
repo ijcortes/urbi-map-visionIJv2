@@ -88,36 +88,81 @@ referidor nunca llega a escribir ahí — el stub falla antes).
 
 ## 1. Eventos → Custom Object "Event"
 
-✅ Verificado: `_upsert_evento_from_ghl` (stub) y dispatcher en
-`api/routers/ghl_webhook.py` existen, `push_evento_to_ghl` (stub) en
-`ghl_client.py` también — nada implementado, solo el esqueleto.
+✅ **Nuestro lado CONSTRUIDO (2026-11-08) — listo para entregar a Talal.**
+- **Entrada (GHL → nosotros): LIVE.** `_upsert_evento_from_ghl` en
+  `api/routers/ghl_webhook.py` implementado — recibe el payload de abajo,
+  upsert en `public.eventos`. Solo falta que Talal cree el workflow + webhook.
+- **Salida (nosotros → GHL): CONSTRUIDA pero sin wire.** `push_evento_to_ghl` /
+  `sync_evento` en `ghl_client.py` implementados con estos mismos campos. NO
+  conectados a ningún call site todavía: `custom_objects.event` aún no existe
+  del lado GHL y hay creds en `.env` → cablear dispararía POSTs 400 reales.
+  Wire de `submit_evento`/`aprobar_evento`/`editar_evento` cuando Talal
+  confirme el objeto creado.
 
 Tabla real: `public.eventos`. Dirección: **bidireccional** — GHL es la
-fuente (crea/edita/aprueba/rechaza), empuja hacia nuestra API vía webhook.
+fuente (crea/edita/aprueba/rechaza), empuja hacia nuestra API vía webhook;
+nosotros empujamos los eventos subidos por usuarios (form `/eventos/crear`).
 
-| Campo GHL propuesto | Columna nuestra | Tipo | Nota |
+Object key GHL propuesto: `custom_objects.event` (Talal confirma el key real).
+
+| Campo GHL | Columna nuestra | Tipo | Nota |
 |---|---|---|---|
-| `event_title` | titulo | texto | |
+| `event_title` | titulo | texto | **requerido** para crear |
 | `event_description` | descripcion | texto largo | |
-| `category` | categoria | picklist* | 9 valores nuestros — picklist real sin confirmar |
-| `audience_type` | tipo_audiencia | picklist* | social/profesional/activo — sin confirmar |
-| `municipality` | barrio_id → municipio | texto | vía join, GHL no tiene FK a nuestra tabla de barrios |
-| `neighborhood` | barrio_id → nombre | texto | |
-| `start_date` / `end_date` | fecha_inicio / fecha_fin | fecha+hora | |
-| `price` / `currency` | precio / moneda | número / texto | |
+| `category` | categoria | picklist | valores abajo |
+| `audience_type` | tipo_audiencia | picklist | social / profesional / activo |
+| `municipality` | barrio_id → municipio | texto | salida: vía join (display). Entrada: ignorado, usamos `website_barrio_id` |
+| `neighborhood` | barrio_id → nombre | texto | ídem — display en GHL, no round-trip |
+| `start_date` / `end_date` | fecha_inicio / fecha_fin | ISO 8601 | start_date **requerido** para crear |
+| `price` | precio | número | COP |
+| `currency` | — | texto | constante `"cop"` (eventos no tiene columna moneda) |
 | `is_free` | gratuito | yes/no | |
-| `external_url` | url_externo | texto | |
+| `external_url` | url_externo | texto | link Luma/Eventbrite/etc |
 | `photo_url` | foto_url | texto | |
 | `organizer` | organizador | texto | |
 | `max_attendees` | max_asistentes | número | |
-| `is_active` | activo | yes/no | resultado de aprobar/rechazar — GHL lo cambia, nosotros lo reflejamos |
+| `is_active` | activo | yes/no | aprobar/rechazar — GHL lo cambia, lo reflejamos |
 | `is_featured` | destacado | yes/no | |
-| `featured_scope` | destacado_nivel | picklist: barrio/comuna/ciudad | ✅ columna verificada, migración 0079 |
-| `featured_zone_code` | destacado_zona_codigo | texto | |
+| `featured_scope` | destacado_nivel | picklist: barrio/comuna/ciudad | migración 0079 |
+| `featured_zone_code` | destacado_zona_codigo | texto | barrio_id o cd_comuna como texto |
+| `source` | fuente | texto | interno/luma/meetup/eventbrite/facebook |
+| `website_event_id` | id | texto | **id interno — campo de identidad del round-trip** |
+| `website_barrio_id` | barrio_id | texto | id interno del barrio (entrada lo usa para resolver barrio_id) |
 
-**Workflow GHL:** trigger "Event record created/updated" → Webhook →
-`POST /api/v1/webhook/ghl` con `object_type: "evento"` + `properties`. Un
-solo webhook cubre creación (pendiente) y cambio de estado.
+**Picklists (valores que definimos nosotros — Talal crea el option con estos keys):**
+- `category`: `networking`, `happy_hour`, `musica`, `deporte`, `gastronomia`, `cultura`, `bienestar`, `tech`, `social`
+- `audience_type`: `social`, `profesional`, `activo`
+- `featured_scope`: `barrio`, `comuna`, `ciudad`
+
+**Identidad / dedup:** mapeo en `public.ghl_object_mapping`
+(`object_type='evento'`, `internal_object_id`=nuestro id, `ghl_object_id`=record
+id de GHL). La entrada resuelve el evento por `website_event_id` si viene; si no,
+por `ghl_object_id` vía ese mapeo; si tampoco, INSERT nuevo con `fuente='interno'`
+y `fuente_id` NULL (no inventamos un id en el índice UNIQUE(fuente,fuente_id) —
+la identidad vive en el mapeo). Entrada NO re-emite salida (anti-loop).
+
+**Workflow GHL (lo que arma Talal):** trigger "Event record created/updated" →
+Custom Webhook → `POST https://<api>/api/v1/webhook/ghl`, header
+`X-Webhook-Secret: <GHL_WEBHOOK_SECRET>`, body:
+
+```json
+{
+  "object_type": "evento",
+  "ghl_object_id": "<record id de GHL>",
+  "properties": {
+    "event_title": "Noche de Jazz",
+    "start_date": "2026-11-20T19:00:00-05:00",
+    "category": "musica",
+    "is_free": "no",
+    "price": 50000,
+    "is_active": "yes",
+    "website_event_id": "777",
+    "website_barrio_id": "123"
+  }
+}
+```
+Un solo webhook cubre creación (pendiente) y cambio de estado (aprobar/destacar).
+Payload incompleto en un INSERT (sin `event_title` o `start_date`) → 400 limpio.
 
 ---
 
@@ -129,7 +174,7 @@ solo webhook cubre creación (pendiente) y cambio de estado.
 (`_tienda_campos_to_custom`, confirmado leyendo el código: subcategoría,
 barrio, whatsapp, instagram, google_place_id, precio_rango, verified,
 featured, featured_badge, featured_since, operating_hours, google_rating,
-active). Falta la entrada (GHL → nosotros).
+active). La entrada (GHL → nosotros) **ya está construida** — ver abajo.
 
 🔧 **Gap real confirmado de nuevo esta sesión:** `_tienda_campos_to_custom`
 sigue sin mandar `destacado_nivel`/`destacado_zona_codigo` (migración 0079,
@@ -143,8 +188,46 @@ custom field en el Business object de GHL.
 | `featured_zone_code` | destacado_zona_codigo | texto | ídem — no existe hoy |
 | ~~`business_status`~~ | ~~activo~~ | — | ❌ 2026-10-03: no se crea. GHL ya tiene `business_listing_status` (Pending/Approved/Published/Rejected) + `active`; en el inbound ese `business_listing_status` → nuestro `activo` |
 
-**Entrada (GHL → nosotros):** `_upsert_tienda_from_ghl` en `ghl_webhook.py`
-ya existe como stub, listo para recibir en cuanto haya contrato.
+**Entrada (GHL → nosotros): ✅ CONSTRUIDA LIVE (2026-11-08).**
+`_upsert_tienda_from_ghl` en `ghl_webhook.py` implementado — reverse de los
+mapeos de salida, upsert en `public.tiendas`.
+- **Identidad:** `website_business_id` (nuestro id) si GHL lo trae; si no,
+  `ghl_object_id` vía `ghl_object_mapping` (ese mapeo ya lo mantiene el push de
+  salida); si tampoco, INSERT nuevo (negocio nacido en GHL, `activo=FALSE` hasta
+  aprobación). `name` requerido para crear → si falta, 400.
+- **`business_listing_status`** (Pending/Approved/Published/Rejected) → `activo`;
+  si no viene, cae a `active` (yes/no).
+- **`price_range`**: budget/moderate/upscale/luxury → `$`/`$$`/`$$$`/`$$$$`.
+- **Omitido en entrada:** `operating_hours` (jsonb `horario` — encoding fiddly,
+  bajo valor); `municipality`/`neighborhood`/`city` (display only — barrio_id se
+  resuelve vía `website_barrio_id` si viene, si no queda NULL y lo asigna admin).
+- Anti-loop: la entrada NO llama `sync_tienda` (no re-emite salida).
+
+**Formulario self-serve (nuestro lado):** `/negocios/crear` (`src/routes/negocios/crear.tsx`)
+→ `POST /business/mi-negocio` (authed, `activo=FALSE` → moderación). CTA del
+directorio (`local-business`) ya apunta ahí. (Distinto de `/negocios/unirse`,
+que es el funnel PAGO Featured/Hotspot → `leads_negocio`.)
+
+**Pendiente de Talal para el round-trip completo:** agregar al Business object los
+custom fields `website_business_id` + `website_barrio_id` (id interno oculto, para
+que la entrada resuelva sin adivinar) y `featured_scope`/`featured_zone_code`
+(migración 0079). El push de salida NO los manda todavía (es LIVE — agregarlos
+antes de que existan en GHL daría 400). Payload de entrada esperado:
+
+```json
+{
+  "object_type": "tienda",
+  "ghl_object_id": "<business id de GHL>",
+  "properties": {
+    "name": "Café Pergamino",
+    "business_subcategory": "cafes",
+    "price_range": "moderate",
+    "business_listing_status": "Approved",
+    "website_business_id": "42",
+    "website_barrio_id": "123"
+  }
+}
+```
 
 ---
 

@@ -16,7 +16,7 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 _CALCULAR_INTERESTS_SQL = """
 INSERT INTO public.user_interests (
     usuario_id, top_barrios, inversion_preferida, tipo_inmueble_top,
-    categorias_eventos_top, total_sesiones, total_eventos, dias_activo,
+    categorias_eventos_top, categorias_tiendas_top, total_sesiones, total_eventos, dias_activo,
     ultimo_activo, engagement_score, inversion_intent_score, updated_at
 )
 SELECT
@@ -52,6 +52,15 @@ SELECT
           AND sub.created_at > NOW() - INTERVAL '30 days'
         GROUP BY metadata->>'categoria' ORDER BY COUNT(*) DESC LIMIT 3
     ) AS categorias_eventos_top,
+    ARRAY(
+        SELECT metadata->>'categoria'
+        FROM public.user_events sub
+        WHERE sub.usuario_id = ue.usuario_id
+          AND sub.event_type LIKE 'negocio_%'
+          AND sub.metadata->>'categoria' IS NOT NULL
+          AND sub.created_at > NOW() - INTERVAL '30 days'
+        GROUP BY metadata->>'categoria' ORDER BY COUNT(*) DESC LIMIT 3
+    ) AS categorias_tiendas_top,
     COUNT(DISTINCT us.id) AS total_sesiones,
     COUNT(ue.id) AS total_eventos,
     COUNT(DISTINCT DATE(ue.created_at)) AS dias_activo,
@@ -76,6 +85,7 @@ ON CONFLICT (usuario_id) DO UPDATE SET
     inversion_preferida = EXCLUDED.inversion_preferida,
     tipo_inmueble_top = EXCLUDED.tipo_inmueble_top,
     categorias_eventos_top = EXCLUDED.categorias_eventos_top,
+    categorias_tiendas_top = EXCLUDED.categorias_tiendas_top,
     total_sesiones = EXCLUDED.total_sesiones,
     total_eventos = EXCLUDED.total_eventos,
     dias_activo = EXCLUDED.dias_activo,

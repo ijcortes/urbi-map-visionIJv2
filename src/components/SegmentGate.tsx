@@ -14,24 +14,22 @@ export function SegmentGate({ onChoose }: { onChoose: (s: Segmento) => void }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onChoose]);
 
-  const btn = "flex min-h-[56px] w-full flex-col items-start rounded-xl border px-4 py-3 text-left transition";
+  const btn = "flex min-h-[48px] w-full flex-col items-start rounded-xl border px-3 py-2 text-left transition";
   return (
     <div
       data-testid="segment-gate"
       role="dialog"
-      aria-modal="true"
+      aria-modal="false"
       aria-labelledby="segment-gate-title"
-      className="fixed inset-0 z-[120] flex items-end justify-center bg-black/45 p-3 sm:items-center"
-      onClick={() => onChoose("residencial")}
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-[120] flex justify-center p-3"
     >
       <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl"
+        className="pointer-events-auto w-full max-w-xs rounded-2xl bg-white p-4 shadow-2xl"
         style={{ paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))" }}
       >
         <h2 id="segment-gate-title" className="text-lg font-semibold text-neutral-900">¿Qué estás buscando?</h2>
         <p className="mt-1 text-sm text-neutral-600">Elige el tipo de inmueble. Puedes cambiarlo cuando quieras.</p>
-        <div className="mt-4 grid gap-3">
+        <div className="mt-3 grid grid-cols-2 gap-2">
           <button
             ref={firstRef}
             type="button"

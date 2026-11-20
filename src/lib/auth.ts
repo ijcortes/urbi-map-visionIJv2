@@ -124,7 +124,15 @@ export const auth = {
 };
 
 const TOKEN_KEY = "medellin-social.token";
-const REFRESH_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000; // refresh if < 7 days left
+// Debe ser MENOR que la vida del token (JWT_EXPIRY_HOURS, default 168h=7d). Si es
+// igual, un token recién emitido ya cuenta como "por expirar" y se refresca en el
+// PRIMER page-load tras login: el refresh mete el token viejo al blacklist mientras
+// las queries autenticadas de la página (p.ej. el dashboard del realtor dispara
+// varias a la vez) todavía lo usan → 401 → apiClient desloguea al usuario recién
+// logueado. A 2 días solo refresca cerca del vencimiento real.
+// ponytail: queda una ventana de carrera los últimos ~2 días de vida del token;
+// el fix completo sería que apiFetch reintente 1 vez el 401 tras refrescar.
+const REFRESH_THRESHOLD_MS = 2 * 24 * 60 * 60 * 1000; // refresh if < 2 days left
 
 function _decodeJwtExp(token: string): number | null {
   try {

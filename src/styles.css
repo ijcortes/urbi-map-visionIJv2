@@ -227,6 +227,24 @@ body {
 /* ── Responsive: Comunidad Navbar ──────────────────────────────────────── */
 .filtros-tabs::-webkit-scrollbar { display: none; }
 
+/* ── Comunidad filter bar (eventos / negocios) ─────────────────────────── */
+/* Desvanecido al borde derecho del riel de categorías → sugiere scroll.
+   El card es blanco, así que el gradiente va a #fff. */
+.flt-fade { position: relative; }
+.flt-fade::after {
+  content: ""; position: absolute; top: 0; bottom: 0; right: 0; width: 36px;
+  pointer-events: none; border-radius: 0 12px 12px 0;
+  background: linear-gradient(90deg, rgba(255,255,255,0), #fff);
+}
+/* Hover de ítem de menú (FilterDropdown); el ítem seleccionado trae bg inline */
+.flt-opt:hover { background: #F3F0E8; }
+
+/* Tarjeta de negocio (lista + destacados): la transition ya estaba declarada
+   inline pero no animaba nada. Hover "gentle" — sombra más honda + borde cálido,
+   SIN levantar ni cursor:pointer (el click del cuerpo solo trackea, no navega). */
+.neg-card { transition: box-shadow .15s, border-color .15s; }
+.neg-card:hover { box-shadow: 0 6px 20px rgba(20,32,29,.13); border-color: #D3C7AF; }
+
 /* ── Map navbar tabs: scroll instead of colliding with the centered logo on laptop widths ── */
 .map-nav-tabs { scrollbar-width: none; -ms-overflow-style: none; }
 .map-nav-tabs::-webkit-scrollbar { display: none; }

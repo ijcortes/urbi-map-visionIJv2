@@ -186,7 +186,7 @@ async def batch_listings(
             END AS yield_estimado,
             m.m2_mediana::int AS precio_m2_mediana_barrio,
             m.arr_mediana::int AS arriendo_p50_barrio,
-            (CURRENT_DATE - lm.fecha_primera_vez::date)::int
+            (CURRENT_DATE - g.fecha_primera_vez::date)::int
                 AS dias_en_mercado,
             ctx.yield_bruto_pct,
             ctx.score_corto,
@@ -207,7 +207,6 @@ async def batch_listings(
             ON m.barrio_id = l.barrio_id
             AND m.tipo_inmueble IS NOT DISTINCT FROM l.tipo_inmueble
         LEFT JOIN analytics.barrios_contexto ctx ON ctx.barrio_id = l.barrio_id
-        LEFT JOIN raw.listings_metrocuadrado lm ON lm.url = l.url AND l.fuente = 'metrocuadrado'
         """,
         id_list,
     )

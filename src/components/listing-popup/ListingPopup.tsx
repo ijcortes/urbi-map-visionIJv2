@@ -2,13 +2,16 @@ import { tipoInmuebleLabel } from "@/lib/tipoInmueble";
 import { Name } from "@/lib/i18n";
 import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bath, Bed, Building2, ChevronRight, MapPin, Maximize2, X } from "@/lib/icons";
+import { Bath, Bed, Building2, ChevronRight, Heart, MapPin, Maximize2, Share2, X } from "@/lib/icons";
+import { toast } from "sonner";
 import { apiFetch } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { usePriceFormat } from "@/hooks/usePriceFormat";
 import { formatNumber, M2_PER_FT2 } from "@/lib/format";
 import type { ApiListing, ApiListingDetail } from "@/lib/adapters";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useFavoritosListings, favKey } from "@/hooks/useFavoritosListings";
+import { auth } from "@/lib/auth";
 import { PopupGallery } from "./PopupGallery";
 import { OriginalListingLink } from "@/components/OriginalListingLink";
 
@@ -31,6 +34,25 @@ type Props = {
 export function ListingPopup({ listing, onClose, onViewMore }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { formatPrice, formatSecondary, formatPricePerArea, unit, lang } = usePriceFormat();
+  const { isFav, toggle } = useFavoritosListings();
+  const favK = favKey(listing);
+
+  const handleShare = async () => {
+    const shareUrl = `${window.location.origin}/map?listing=${listing.id}`;
+    try {
+      if (typeof navigator !== "undefined" && navigator.share) {
+        await navigator.share({ title: "Medellín Social", url: shareUrl });
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        toast.success(lang === "en" ? "Link copied" : "Link copiado");
+      }
+    } catch { /* el usuario canceló el share nativo */ }
+  };
+
+  const handleFav = () => {
+    if (!auth.get()) { toast.info(lang === "en" ? "Sign in to save" : "Inicia sesión para guardar"); return; }
+    toggle(favK, listing.barrio_id);
+  };
 
   // Same queryKey as ListingDrawer → shared cache; opening the drawer after is free.
   const { data: detail, isLoading } = useQuery<ApiListingDetail>({
@@ -134,14 +156,37 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
               ? `${tipoInmuebleLabel(d?.tipo_inmueble ?? listing.tipo_inmueble, "en")} in ${ubicacion || "Medellín"}`
               : `${tipoInmueble ?? "Inmueble"} en ${ubicacion || "Medellín"}`}
           />
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Cerrar"
-            className="absolute right-2 top-2 z-10 grid h-7 w-7 place-items-center rounded-full bg-black/50 text-white transition hover:bg-black/70"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          {/* Acciones arriba: compartir + guardar (corazón) + cerrar. Círculos
+              blancos/oscuros sobre la foto → contraste claro (antes el corazón se
+              perdía). Compartir arriba para que se entienda y sea fácil. */}
+          <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleShare}
+              aria-label={lang === "en" ? "Share" : "Compartir"}
+              title={lang === "en" ? "Share" : "Compartir"}
+              className="grid h-8 w-8 place-items-center rounded-full bg-white/95 text-[#111418] shadow-md transition hover:bg-white hover:scale-105"
+            >
+              <Share2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleFav}
+              aria-label={isFav(favK) ? "Quitar de guardados" : "Guardar"}
+              title={isFav(favK) ? (lang === "en" ? "Remove from saved" : "Quitar de guardados") : (lang === "en" ? "Save" : "Guardar")}
+              className="grid h-8 w-8 place-items-center rounded-full bg-white/95 shadow-md transition hover:bg-white hover:scale-105"
+            >
+              <Heart className="h-4 w-4" style={{ color: isFav(favK) ? "#CE1126" : "#5B5F5C" }} fill={isFav(favK) ? "#CE1126" : "none"} />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Cerrar"
+              className="grid h-8 w-8 place-items-center rounded-full bg-black/55 text-white shadow-md transition hover:bg-black/75"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
           {tipoOp && (
             <span
               className="absolute left-2 top-2 z-10 rounded px-2 py-0.5 text-[10px] font-bold"
@@ -220,6 +265,7 @@ export function ListingPopup({ listing, onClose, onViewMore }: Props) {
         <div className="shrink-0 space-y-2 border-t p-3" style={{ borderColor: "#E5E0D5" }}>
           <OriginalListingLink
             listing={{ url: detail?.url ?? listing.url, fuente: detail?.fuente ?? listing.fuente }}
+            variant="secondary"
             className="w-full"
           />
           <button

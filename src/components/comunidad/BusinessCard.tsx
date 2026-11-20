@@ -3,9 +3,43 @@ import { Name } from "@/lib/i18n";
 import type { TiendaData } from '@/hooks/useTiendas'
 import { CATEGORIA_LABELS, CATEGORIA_COLORS, CATEGORIA_EMOJI } from '@/lib/categorias_comunidad'
 import { safeHref } from '@/lib/utils'
+import { track } from '@/lib/tracking'
+import { useImpression } from '@/lib/impressions'
 import { K as TOKENS } from "@/design/tokens";
 
 const K = TOKENS;
+
+// Click anywhere on a business card = category engagement. Feeds the B2B funnel
+// (and user_interests.categorias_tiendas_top once the cron reads 'negocio_%').
+function trackNegocioView(tienda: TiendaData) {
+  track('negocio_view', {
+    entity_type: 'negocio',
+    entity_id: String(tienda.id),
+    barrio_id: tienda.barrio_id ?? undefined,
+    metadata: { categoria: tienda.categoria ?? null },
+  })
+}
+
+// Alcance (capa 1): payload de impresión para useImpression.
+function negocioImpression(tienda: TiendaData) {
+  return {
+    entity_type: 'negocio',
+    entity_id: String(tienda.id),
+    barrio_id: tienda.barrio_id ?? undefined,
+    categoria: tienda.categoria,
+  }
+}
+
+// Intención (capa 3): click a WhatsApp / Maps / Web = el negocio recibe un lead.
+// La señal de conversión que convierte "vistas" en funnel con tasas.
+function trackNegocioAction(tienda: TiendaData, action: 'wa' | 'maps' | 'web') {
+  track(`negocio_${action}_click`, {
+    entity_type: 'negocio',
+    entity_id: String(tienda.id),
+    barrio_id: tienda.barrio_id ?? undefined,
+    metadata: { categoria: tienda.categoria ?? null },
+  })
+}
 
 function Stars({ rating }: { rating: number | null | undefined }) {
   if (!rating) return null
@@ -51,18 +85,21 @@ function ActionButtons({ tienda, compact }: { tienda: TiendaData; compact?: bool
     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
       {wa && (
         <a href={wa} target="_blank" rel="noopener noreferrer"
+          onClick={() => trackNegocioAction(tienda, 'wa')}
           style={{ ...btnBase, background: K.green, color: '#fff' }}>
           💬 WA
         </a>
       )}
       {mapsUrl && (
         <a href={mapsUrl} target="_blank" rel="noopener noreferrer"
+          onClick={() => trackNegocioAction(tienda, 'maps')}
           style={{ ...btnBase, background: '#4285F4', color: '#fff' }}>
           📍 Maps
         </a>
       )}
       {webHref && (
         <a href={webHref} target="_blank" rel="noopener noreferrer"
+          onClick={() => trackNegocioAction(tienda, 'web')}
           style={{ ...btnBase, background: K.coralLight, color: K.coral }}>
           🌐 Web
         </a>
@@ -87,9 +124,10 @@ export function BusinessCardDirectory({ tienda }: { tienda: TiendaData }) {
 
   const primaryBtn = wa || mapsUrl
   const secondaryBtn = wa ? mapsUrl : null
+  const impRef = useImpression(negocioImpression(tienda))
 
   return (
-    <div style={{
+    <div ref={impRef} className="neg-card" onClick={() => trackNegocioView(tienda)} style={{
       background: '#fff',
       border: '1px solid #E5E0D5',
       borderRadius: 12,
@@ -123,7 +161,7 @@ export function BusinessCardDirectory({ tienda }: { tienda: TiendaData }) {
             borderRadius: 4, letterSpacing: '0.4px', whiteSpace: 'nowrap',
             maxWidth: 'calc(100% - 16px)', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
-            ★ {catLabel}
+            {catLabel}
           </div>
         )}
       </div>
@@ -185,7 +223,8 @@ export function BusinessCardDirectory({ tienda }: { tienda: TiendaData }) {
         {/* Botones */}
         <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
           {primaryBtn && (
-            <a href={primaryBtn} target="_blank" rel="noopener noreferrer" style={{
+            <a href={primaryBtn} target="_blank" rel="noopener noreferrer"
+              onClick={() => trackNegocioAction(tienda, wa ? 'wa' : 'maps')} style={{
               flex: 1, textAlign: 'center', padding: '7px 0',
               background: wa ? '#25D366' : '#4285F4',
               borderRadius: 7, fontSize: 11, color: '#fff',
@@ -196,7 +235,8 @@ export function BusinessCardDirectory({ tienda }: { tienda: TiendaData }) {
             </a>
           )}
           {secondaryBtn && (
-            <a href={secondaryBtn} target="_blank" rel="noopener noreferrer" style={{
+            <a href={secondaryBtn} target="_blank" rel="noopener noreferrer"
+              onClick={() => trackNegocioAction(tienda, 'maps')} style={{
               flex: '0 0 auto', padding: '7px 10px',
               background: '#F3F0E8', border: '1px solid #E5E0D5',
               borderRadius: 7, fontSize: 11, color: '#111418',
@@ -207,7 +247,8 @@ export function BusinessCardDirectory({ tienda }: { tienda: TiendaData }) {
             </a>
           )}
           {!primaryBtn && !secondaryBtn && safeHref(tienda.website) && (
-            <a href={safeHref(tienda.website)} target="_blank" rel="noopener noreferrer" style={{
+            <a href={safeHref(tienda.website)} target="_blank" rel="noopener noreferrer"
+              onClick={() => trackNegocioAction(tienda, 'web')} style={{
               flex: 1, textAlign: 'center', padding: '7px 0',
               background: '#F3F0E8', border: '1px solid #E5E0D5',
               borderRadius: 7, fontSize: 11, color: '#111418',
@@ -226,13 +267,13 @@ export function BusinessCardList({ tienda }: { tienda: TiendaData }) {
   const catLabel = tienda.categoria ? (CATEGORIA_LABELS[tienda.categoria] ?? tienda.categoria) : null
   const catColor = tienda.categoria ? (CATEGORIA_COLORS[tienda.categoria] ?? K.line) : K.line
   const catEmoji = tienda.categoria ? (CATEGORIA_EMOJI[tienda.categoria] ?? '⭐') : '⭐'
+  const impRef = useImpression(negocioImpression(tienda))
 
   return (
-    <div style={{
+    <div ref={impRef} className="neg-card" onClick={() => trackNegocioView(tienda)} style={{
       display: 'flex', gap: 14, padding: 14,
       background: '#fff', border: `1px solid ${K.line}`, borderRadius: 12,
       boxShadow: '0 1px 3px rgba(20,32,29,.05)',
-      transition: 'box-shadow .15s, border-color .15s',
     }}>
       {/* Foto */}
       <div style={{

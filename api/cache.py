@@ -29,10 +29,12 @@ SELECT
         )
     )::bigint AS m2_mediana,
     CASE
-        WHEN COUNT(*) FILTER (WHERE tipo_operacion = 'arriendo') >= 3
+        WHEN COUNT(*) FILTER (WHERE tipo_operacion = 'arriendo'
+                              AND precio_cop BETWEEN 300000 AND 50000000) >= 3
         THEN PERCENTILE_CONT(0.5) WITHIN GROUP (
                  ORDER BY precio_cop::float
-             ) FILTER (WHERE tipo_operacion = 'arriendo')::bigint
+             ) FILTER (WHERE tipo_operacion = 'arriendo'
+                       AND precio_cop BETWEEN 300000 AND 50000000)::bigint
         ELSE NULL
     END AS arr_mediana,
     ROUND(
@@ -56,17 +58,21 @@ SELECT
         )
     )::bigint AS m2_p75,
     CASE
-        WHEN COUNT(*) FILTER (WHERE tipo_operacion = 'arriendo') >= 3
+        WHEN COUNT(*) FILTER (WHERE tipo_operacion = 'arriendo'
+                              AND precio_cop BETWEEN 300000 AND 50000000) >= 3
         THEN PERCENTILE_CONT(0.25) WITHIN GROUP (
                  ORDER BY precio_cop::float
-             ) FILTER (WHERE tipo_operacion = 'arriendo')::bigint
+             ) FILTER (WHERE tipo_operacion = 'arriendo'
+                       AND precio_cop BETWEEN 300000 AND 50000000)::bigint
         ELSE NULL
     END AS arr_p25,
     CASE
-        WHEN COUNT(*) FILTER (WHERE tipo_operacion = 'arriendo') >= 3
+        WHEN COUNT(*) FILTER (WHERE tipo_operacion = 'arriendo'
+                              AND precio_cop BETWEEN 300000 AND 50000000) >= 3
         THEN PERCENTILE_CONT(0.75) WITHIN GROUP (
                  ORDER BY precio_cop::float
-             ) FILTER (WHERE tipo_operacion = 'arriendo')::bigint
+             ) FILTER (WHERE tipo_operacion = 'arriendo'
+                       AND precio_cop BETWEEN 300000 AND 50000000)::bigint
         ELSE NULL
     END AS arr_p75,
     now()
@@ -123,6 +129,11 @@ _PLAUSIBLE = {
     "PPM2_VENTA_MIN": 300000, "PPM2_VENTA_MAX": 60000000,
     "PPM2_ARRIENDO_MIN": 2000, "PPM2_ARRIENDO_MAX": 400000,
     "STACK_MIN": 5,
+    # Above STACK_NULL listings share the EXACT same raw coordinate: that is never a real building,
+    # it is a portal "city-centre" fallback for listings it could not geocode (metrocuadrado returned
+    # ~900 El Poblado/Laureles/etc. listings at the La Candelaria centroid). Jittering 45m still leaves
+    # a huge false downtown blob, so these get NO map pin (coord nulled); the listing stays in list/search.
+    "STACK_NULL": 50,
 }
 
 _REFRESH_STG_LISTINGS_TMPL = """
@@ -140,7 +151,16 @@ WITH todas_fuentes_raw AS (
            precio                                   AS precio_cop,
            NULL::bigint                             AS precio_usd,
            area_m2, habitaciones, banos::numeric    AS banos,
-           barrio_raw, barrio_id, direccion_raw,
+           barrio_raw,
+           -- Resolver barrio_id espacialmente cuando el loader lo dejó NULL (coords
+           -- válidas pero sin barrio asignado) -> así el listing aparece en la vista
+           -- por-barrio, no solo en el mapa. COALESCE: solo corre el PIP para los NULL
+           -- (~14k mc, ~316ms indexado GIST). Mismo patrón que la rama 'propio'.
+           COALESCE(barrio_id, (SELECT b.id FROM raw.barrios b
+             WHERE lat IS NOT NULL AND lon IS NOT NULL
+               AND ST_Contains(b.geometry, ST_SetSRID(ST_MakePoint(lon::float, lat::float), 4326))
+             LIMIT 1))                               AS barrio_id,
+           direccion_raw,
            lat, lon,
            CASE WHEN lat IS NOT NULL AND lon IS NOT NULL
                 THEN ST_SetSRID(ST_MakePoint(lon::float, lat::float), 4326) END AS geom,
@@ -156,7 +176,13 @@ WITH todas_fuentes_raw AS (
            precio::bigint                            AS precio_cop,
            NULL::bigint                             AS precio_usd,
            area_m2, habitaciones, banos::numeric    AS banos,
-           barrio_raw, barrio_id, direccion_raw,
+           barrio_raw,
+           -- barrio_id espacial para los NULL (ver nota en la rama metrocuadrado arriba).
+           COALESCE(barrio_id, (SELECT b.id FROM raw.barrios b
+             WHERE lat IS NOT NULL AND lon IS NOT NULL
+               AND ST_Contains(b.geometry, ST_SetSRID(ST_MakePoint(lon::float, lat::float), 4326))
+             LIMIT 1))                               AS barrio_id,
+           direccion_raw,
            lat::double precision, lon::double precision,
            CASE WHEN lat IS NOT NULL AND lon IS NOT NULL
                 THEN ST_SetSRID(ST_MakePoint(lon::float, lat::float), 4326) END AS geom,
@@ -223,7 +249,7 @@ WITH todas_fuentes_raw AS (
            lat::double precision, lon::double precision,
            CASE WHEN lat IS NOT NULL AND lon IS NOT NULL
                 THEN ST_SetSRID(ST_MakePoint(lon::float, lat::float), 4326) END,
-           url, NULL::text[], fecha_scraping, dedup_hash, NULL::integer,
+           url, fotos, fecha_scraping, dedup_hash, NULL::integer,
            amoblado,
            NULL::text AS antiguedad, amenidades, NULL::numeric AS administracion,
            NULL::text AS nombre_edificio
@@ -364,9 +390,12 @@ apilados AS (
 SELECT listing_uid, fuente, tier, tipo_operacion, tipo_inmueble, precio_cop, precio_usd,
        precio_min_cluster, precio_max_cluster, precio_variable,
        area_m2, precio_m2, habitaciones, banos, barrio_raw, barrio_id, direccion_raw,
-       CASE WHEN stack_n >= {STACK_MIN} THEN lat + jr * cos(ja) ELSE lat END AS lat,
-       CASE WHEN stack_n >= {STACK_MIN} THEN lon + jr * sin(ja) ELSE lon END AS lon,
-       CASE WHEN stack_n >= {STACK_MIN} AND lat IS NOT NULL
+       CASE WHEN stack_n >= {STACK_NULL} THEN NULL
+            WHEN stack_n >= {STACK_MIN} THEN lat + jr * cos(ja) ELSE lat END AS lat,
+       CASE WHEN stack_n >= {STACK_NULL} THEN NULL
+            WHEN stack_n >= {STACK_MIN} THEN lon + jr * sin(ja) ELSE lon END AS lon,
+       CASE WHEN stack_n >= {STACK_NULL} THEN NULL
+            WHEN stack_n >= {STACK_MIN} AND lat IS NOT NULL
             THEN ST_SetSRID(ST_MakePoint(lon + jr * sin(ja), lat + jr * cos(ja)), 4326)
             ELSE geom END AS geom,
        url, fotos, fecha_scraping, n_duplicados, estrato_real, amoblado, antiguedad, amenidades,
@@ -381,7 +410,7 @@ for _k, _v in _PLAUSIBLE.items():
 
 _INSERT_LISTINGS_GEOREF = """
 INSERT INTO analytics.listings_georef_new
-    (url, lat, lon, url_activa, estrato_real, uso_suelo_pot, estrato_manzana, refreshed_at)
+    (url, lat, lon, url_activa, estrato_real, uso_suelo_pot, estrato_manzana, fecha_primera_vez, refreshed_at)
 SELECT DISTINCT ON (l.url)
     l.url,
     l.lat,
@@ -390,9 +419,21 @@ SELECT DISTINCT ON (l.url)
     l.estrato_real AS estrato_real,
     pot.areagraluso,
     em.estrato,
+    fpv.fecha_primera_vez,
     now()
 FROM staging.stg_listings_unificado l
 JOIN raw.barrios b ON b.id = l.barrio_id
+-- First-seen (dias_en_mercado universal): keyed por url desde cada tabla fuente.
+-- Corre por hora en el refresh (no per-request). Propios: url staging = id::text.
+LEFT JOIN (
+    SELECT url, fecha_primera_vez FROM raw.listings_metrocuadrado
+    UNION ALL SELECT url, fecha_primera_vez FROM raw.listings_fincaraiz
+    UNION ALL SELECT url, fecha_primera_vez FROM raw.listings_habi
+    UNION ALL SELECT url, fecha_primera_vez FROM raw.listings_casadolcecasa
+    UNION ALL SELECT url, fecha_primera_vez FROM raw.listings_premium
+    UNION ALL SELECT url, fecha_primera_vez FROM raw.listings_renta_media
+    UNION ALL SELECT id::text AS url, created_at AS fecha_primera_vez FROM public.listing
+) fpv ON fpv.url = l.url
 -- Uso de suelo POT: point-in-polygon con buffer 0.0003° (~30m) para costuras
 -- de reproyección — ST_Contains exacto llega a 72.6% de cobertura en
 -- Medellín, el buffer sube a ~96% (verificado 2026-08-25). ORDER BY prefiere
@@ -522,6 +563,11 @@ async def refresh_listings_cache(pool: Any) -> None:
                 await conn.execute("CREATE INDEX ON staging.stg_listings_unificado_new (url)")
                 await conn.execute("CREATE INDEX ON staging.stg_listings_unificado_new (barrio_id)")
                 await _create_listing_filter_indexes(conn, "staging.stg_listings_unificado_new")
+                # Un swap previo que murió entre el rename y el DROP deja un _old
+                # huérfano → el rename de abajo revienta ("relation ..._old already
+                # exists") y el refresh falla CADA vez (startup + horario) → stale.
+                # Dropearlo aquí hace el swap idempotente frente a ese residuo.
+                await conn.execute("DROP TABLE IF EXISTS staging.stg_listings_unificado_old")
                 async with conn.transaction():
                     await conn.execute(
                         "ALTER TABLE staging.stg_listings_unificado RENAME TO stg_listings_unificado_old"
@@ -532,11 +578,30 @@ async def refresh_listings_cache(pool: Any) -> None:
                 await conn.execute("DROP TABLE staging.stg_listings_unificado_old")
                 logger.info("[cache] stg_listings_unificado refreshed (swap)")
 
-                # barrios_medianas queries stg_listings_unificado — only run when stg exists
+                # barrios_medianas: swap-table en vez de TRUNCATE+INSERT. El TRUNCATE
+                # toma ACCESS EXCLUSIVE; con lectores constantes de /barrios no conseguía
+                # el lock → statement_timeout (600s) → el refresh fallaba a mitad y dejaba
+                # las medianas congeladas (pasó: 12 días stale desde 2026-10-27). El INSERT
+                # en sí tarda <1s; el problema era el lock, no la query. Se llena una tabla
+                # nueva y el RENAME final es instantáneo; los lectores golpean la vieja
+                # hasta el swap. Mismo patrón que stg_listings_unificado / listings_georef.
+                await conn.execute("DROP TABLE IF EXISTS analytics.barrios_medianas_new")
+                await conn.execute(
+                    "CREATE TABLE analytics.barrios_medianas_new "
+                    "(LIKE analytics.barrios_medianas INCLUDING DEFAULTS INCLUDING INDEXES)"
+                )
+                await conn.execute(
+                    _INSERT_BARRIOS_MEDIANAS.replace(
+                        "INSERT INTO analytics.barrios_medianas ",
+                        "INSERT INTO analytics.barrios_medianas_new ", 1),
+                    timeout=heavy_timeout,
+                )
+                await conn.execute("DROP TABLE IF EXISTS analytics.barrios_medianas_old")
                 async with conn.transaction():
-                    await conn.execute("TRUNCATE analytics.barrios_medianas")
-                    await conn.execute(_INSERT_BARRIOS_MEDIANAS, timeout=heavy_timeout)
-                logger.info("[cache] barrios_medianas refreshed")
+                    await conn.execute("ALTER TABLE analytics.barrios_medianas RENAME TO barrios_medianas_old")
+                    await conn.execute("ALTER TABLE analytics.barrios_medianas_new RENAME TO barrios_medianas")
+                await conn.execute("DROP TABLE analytics.barrios_medianas_old")
+                logger.info("[cache] barrios_medianas refreshed (swap)")
 
                 # listings_georef queries stg_listings_unificado — only run when stg exists.
                 # Swap-table instead of TRUNCATE+INSERT: el INSERT hace 2 LATERAL joins
@@ -551,6 +616,7 @@ async def refresh_listings_cache(pool: Any) -> None:
                     "(LIKE analytics.listings_georef INCLUDING ALL)"
                 )
                 await conn.execute(_INSERT_LISTINGS_GEOREF, timeout=heavy_timeout)
+                await conn.execute("DROP TABLE IF EXISTS analytics.listings_georef_old")
                 async with conn.transaction():
                     await conn.execute(
                         "ALTER TABLE analytics.listings_georef RENAME TO listings_georef_old"
@@ -578,6 +644,76 @@ async def refresh_listings_cache(pool: Any) -> None:
             )
         except Exception:
             logger.error("[cache] no se pudo enviar alerta de fallo de cache", exc_info=True)
+
+
+# ── Insert incremental on-publish ────────────────────────────────────────────
+# Un listing propio recién publicado aparecía en el mapa solo tras el refresh
+# horario (hasta ~1h de espera). Estas dos inserciones de UNA fila meten el
+# listing a las tablas vivas al instante; el refresh horario lo re-deriva igual
+# desde `listing` (estado='publicado') → sin doble conteo, es solo el puente.
+# INSERT de 1 fila toma ROW EXCLUSIVE (no ACCESS EXCLUSIVE) → no bloquea lectores.
+#
+# keep in sync con la rama '_ls' de _REFRESH_STG_LISTINGS_TMPL (misma lista de 31
+# columnas, mismos mapeos). Sin dedup/cluster/stacking: una fila nueva no agrupa
+# con nada (n_duplicados=1, precio_variable=false, geo_aproximada=false).
+_INSERT_ONE_LISTING_STG = """
+INSERT INTO staging.stg_listings_unificado
+    (listing_uid, fuente, tier, tipo_operacion, tipo_inmueble,
+     precio_cop, precio_usd, precio_min_cluster, precio_max_cluster, precio_variable,
+     area_m2, precio_m2, habitaciones, banos, barrio_raw, barrio_id,
+     direccion_raw, lat, lon, geom, url, fotos, fecha_scraping, n_duplicados, estrato_real,
+     amoblado, antiguedad, amenidades, administracion, nombre_edificio, geo_aproximada)
+SELECT
+    l.id::text || '_ls',
+    'propio',
+    CASE WHEN l.destacado THEN 'agente_premium' ELSE 'standard' END,
+    lower(trim(l.operacion::text)), lower(trim(l.tipo_inmueble::text)),
+    l.precio::bigint, NULL::bigint,
+    l.precio::bigint, l.precio::bigint, false,
+    COALESCE(l.area_m2, 0)::numeric,
+    CASE WHEN COALESCE(l.area_m2, 0) > 0 THEN l.precio / l.area_m2 END,
+    l.habitaciones, l.banos::numeric, l.barrio,
+    (SELECT b.id FROM raw.barrios b
+       WHERE l.geom IS NOT NULL AND ST_Contains(b.geometry, l.geom) LIMIT 1),
+    l.direccion_aprox,
+    ST_Y(l.geom)::double precision, ST_X(l.geom)::double precision, l.geom,
+    l.id::text,
+    (SELECT array_agg(m.url ORDER BY m.orden) FROM listing_media m WHERE m.listing_id = l.id),
+    COALESCE(l.published_at, l.created_at), 1, l.estrato,
+    l.amoblado, l.antiguedad_anios::text, l.amenidades, l.administracion,
+    l.nombre_edificio, false
+FROM listing l
+WHERE l.id = $1::uuid AND l.estado = 'publicado' AND l.precio > 0
+"""
+
+# georef: reutiliza _INSERT_LISTINGS_GEOREF (una sola fuente de verdad) retargeteado
+# a la tabla viva y filtrado a este url. Lee de staging → la fila de staging ya
+# debe existir (se inserta antes, misma txn).
+_INSERT_ONE_LISTING_GEOREF = (
+    _INSERT_LISTINGS_GEOREF
+    .replace("analytics.listings_georef_new", "analytics.listings_georef", 1)
+    .replace("ORDER BY l.url", "AND l.url = $1\nORDER BY l.url", 1)
+)
+
+
+async def insert_listing_into_cache(pool: Any, listing_id: str) -> None:
+    """Mete un listing recién-publicado a las tablas vivas del mapa al instante
+    (sin esperar el refresh horario). Idempotente: borra la fila previa primero.
+    Best-effort — el caller la envuelve en try/except; el refresh horario es el
+    respaldo si esto falla. ponytail: si cae justo durante un refresh (swap), la
+    fila entra a la tabla _old por descartar → el listing sale ≤1h tarde, nunca
+    rompe nada."""
+    url = str(listing_id)
+    uid = url + "_ls"
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "DELETE FROM staging.stg_listings_unificado WHERE listing_uid = $1", uid)
+            await conn.execute(
+                "DELETE FROM analytics.listings_georef WHERE url = $1", url)
+            await conn.execute(_INSERT_ONE_LISTING_STG, url)
+            await conn.execute(_INSERT_ONE_LISTING_GEOREF, url)
+    logger.info("[cache] listing %s insertado al mapa (on-publish)", url)
 
 
 async def _cleanup_token_blacklist(pool: Any) -> None:

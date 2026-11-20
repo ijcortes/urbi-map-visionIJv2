@@ -9,6 +9,7 @@ import { BusinessCardDirectory, BusinessCardList } from '@/components/comunidad/
 import { useTiendas, useGrupoCounts } from '@/hooks/useTiendas'
 import { useBarriosRaw } from '@/hooks/useBarrios'
 import { GRUPOS_TIENDAS } from '@/lib/categorias_comunidad'
+import { FilterDropdown, FilterToggle } from '@/components/comunidad/FilterDropdown'
 import { MAPBOX_TOKEN } from '@/lib/mapboxToken'
 import { buildNegocioPopupContent } from '@/lib/negocioPopup'
 import { API_ENDPOINTS } from '@/config/api'
@@ -486,16 +487,6 @@ function Pill({ active, onClick, label, activeBg, activeColor }: { active: boole
   )
 }
 
-function GroupLabel({ children }: { children: string }) {
-  return (
-    <span style={{
-      fontSize: 11, fontWeight: 700, color: K.tealDeep,
-      textTransform: 'uppercase', letterSpacing: '.07em',
-      marginBottom: 8, display: 'block',
-    }}>{children}</span>
-  )
-}
-
 // ── Página principal ──────────────────────────────────────────────────────────
 
 const PANEL_H = 'calc(100vh - 210px)'
@@ -560,7 +551,7 @@ function LocalBusinessPage() {
       <div style={{ padding: isMobile ? '1.25rem 1rem 1rem' : '2rem 2rem 1.5rem', background: '#FAF8F3', borderBottom: '0.5px solid #E5E0D5' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
           <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6E726E', margin: '0 0 4px' }}>
-            <Name>{barrio.nombre}</Name> · Medellín
+            <Name>{barrio.nombre}</Name> · {!barrio.municipio_nombre ? 'Medellín' : barrio.slug === 'todos' ? 'Antioquia' : t('Valle de Aburrá', 'Aburrá Valley')}
           </p>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
             <div>
@@ -572,7 +563,7 @@ function LocalBusinessPage() {
               </p>
             </div>
             <a
-              href="/negocios/unirse"
+              href="/negocios/crear"
               style={{
                 background: K.teal, color: '#fff', fontWeight: 700,
                 fontSize: 13, padding: '9px 18px', borderRadius: 8,
@@ -606,28 +597,26 @@ function LocalBusinessPage() {
                   {t('Patrocinado', 'Sponsored')}
                 </span>
               </div>
-              <div style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 4 }}>
-                {featured.map(neg => (
-                  <div key={neg.id} style={{ minWidth: 240, maxWidth: 240, flexShrink: 0 }}>
-                    <BusinessCardDirectory tienda={neg} />
-                  </div>
-                ))}
+              <div className="flt-fade">
+                <div className="filtros-tabs" style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 4 }}>
+                  {featured.map(neg => (
+                    <div key={neg.id} style={{ minWidth: 240, maxWidth: 240, flexShrink: 0 }}>
+                      <BusinessCardDirectory tienda={neg} />
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Filtros ── */}
+      {/* ── Filtros — una sola barra: riel de grupos + controles compactos ── */}
       <div style={{ padding: isMobile ? '0.75rem 1rem' : '1rem 2rem', borderBottom: '0.5px solid #E5E0D5', background: '#FAF8F3' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-          <div style={isMobile
-            ? { display: 'flex', flexDirection: 'column', gap: 12 }
-            : { background: '#fff', border: `1px solid ${K.line}`, borderRadius: 14, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 16 }
-          }>
-            {/* Categoría — grupos + subcategorías */}
-            <div>
-              <GroupLabel>{t('Categoría', 'Category')}</GroupLabel>
+          <div style={{ background: '#fff', border: `1px solid ${K.line}`, borderRadius: 14 }}>
+            {/* Riel de grupos (con conteos) — faceta principal, scroll horizontal con desvanecido */}
+            <div className="flt-fade" style={{ padding: '14px 16px 12px', borderBottom: `1px solid ${K.line}` }}>
               <div className="filtros-tabs" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
                 <Pill active={!grupo} onClick={() => { setGrupo(null); setCategoria(undefined); reset() }} label={<>
                   {t('Todos', 'All')}
@@ -640,35 +629,32 @@ function LocalBusinessPage() {
                   </>} />
                 ))}
               </div>
-
-              {grupoActual && (
-                <div className="filtros-tabs" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
-                  {[{ key: undefined as string | undefined, label: t('Todos', 'All') },
-                    ...grupoActual.categorias.map(c => ({ key: c.key, label: `${c.emoji} ${lang === 'es' ? c.label : c.labelEn}` }))
-                  ].map(({ key, label }) => (
-                    <Pill key={key ?? '__all'} active={categoria === key} onClick={() => { setCategoria(key); reset() }} label={label} activeBg={K.tealDeep} />
-                  ))}
-                </div>
-              )}
             </div>
 
-            {/* Extra + limpiar */}
-            <div style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10,
-              paddingTop: 14, borderTop: `1px solid ${K.line}`,
-            }}>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <Pill active={soloTop} onClick={() => { setSoloTop(v => !v); reset() }}
-                  label={`⭐ ${t('Solo 5 estrellas', '5-star only')}`} activeBg={K.amarillo} activeColor="#111418" />
-                <Pill active={conWhatsapp} onClick={() => { setConWhatsapp(v => !v); reset() }}
-                  label={`💬 ${t('Con WhatsApp', 'Has WhatsApp')}`} activeBg="#25D366" activeColor="#fff" />
-              </div>
+            {/* Controles — subcategoría contextual (solo si hay grupo) + toggles + limpiar */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '12px 16px' }}>
+              {grupoActual && (
+                <FilterDropdown
+                  icon="🏷️" placeholder={t('Subcategoría', 'Subcategory')}
+                  value={categoria ?? '__all'}
+                  options={[
+                    { value: '__all', label: t('Todas', 'All') },
+                    ...grupoActual.categorias.map(c => ({ value: c.key, label: `${c.emoji} ${lang === 'es' ? c.label : c.labelEn}` })),
+                  ]}
+                  onChange={v => { setCategoria(v === '__all' ? undefined : v); reset() }}
+                />
+              )}
+              <FilterToggle on={soloTop} onClick={() => { setSoloTop(v => !v); reset() }}
+                label={`⭐ ${t('5 estrellas', '5-star')}`} onBg={K.amarillo} onColor="#111418" />
+              <FilterToggle on={conWhatsapp} onClick={() => { setConWhatsapp(v => !v); reset() }}
+                label={`💬 ${t('WhatsApp', 'WhatsApp')}`} onBg="#25D366" onColor="#fff" />
+              <span style={{ flex: '1 1 auto', minWidth: 8 }} />
               {anyFilterActive && (
                 <button onClick={clearAllFilters} style={{
                   border: 'none', background: 'none', color: K.coral,
-                  fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', padding: '4px 2px',
+                  fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', padding: '4px 2px', whiteSpace: 'nowrap',
                 }}>
-                  {t('Limpiar filtros ✕', 'Clear filters ✕')}
+                  {t('Limpiar ✕', 'Clear ✕')}
                 </button>
               )}
             </div>
@@ -709,7 +695,11 @@ function LocalBusinessPage() {
 
           {!isLoading && hasArea && tiendas.length > 0 && (
             <>
-              <div style={{ padding: '12px 16px', fontSize: 12, color: K.muted, fontWeight: 600 }}>
+              <div style={{
+                position: 'sticky', top: 0, zIndex: 2,
+                padding: '12px 16px', fontSize: 12, color: K.muted, fontWeight: 600,
+                background: K.surface, borderBottom: `1px solid ${K.line}`,
+              }}>
                 {tiendas.length} {t('de', 'of')} {total} {t('negocios', 'businesses')}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '0 14px 14px' }}>

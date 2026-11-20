@@ -30,7 +30,7 @@ class AsignadorError(ValueError):
 # Horas que un intake puede quedarse en 'asignado' sin que el realtor lo acepte
 # antes de volver al pool (equivalente a "si no contesta la llamada, va a
 # moderación" de Zillow: el proceso nunca se atasca en un humano).
-ASIGNADO_TIMEOUT_HORAS = int(os.getenv("ASIGNADO_TIMEOUT_HORAS", "48"))
+ASIGNADO_TIMEOUT_HORAS = int(os.getenv("ASIGNADO_TIMEOUT_HORAS", "24"))  # #23: 48->24 (más agresivo con lentos)
 
 
 async def sweep_asignados_vencidos(pool: Any) -> int:
@@ -142,7 +142,9 @@ async def asignar_intake(intake: Any, pool: Any) -> Dict[str, Any]:
         if owner_agent:
             async with pool.acquire() as conn:
                 await conn.execute(
-                    "UPDATE intake SET agent_id = $1, estado = 'asignado' "
+                    # updated_at = NOW(): el reloj del timeout de 24h cuenta desde la
+                    # asignación (mismo motivo que tomar_del_pool).
+                    "UPDATE intake SET agent_id = $1, estado = 'asignado', updated_at = NOW() "
                     "WHERE id = $2 AND estado = 'nuevo'",
                     owner_agent, intake.id,
                 )
@@ -178,8 +180,12 @@ async def tomar_del_pool(intake_id: str, agent: Any, pool: Any) -> Dict[str, Any
         raise AsignadorError("El agente debe estar activo para tomar del pool")
 
     async with pool.acquire() as conn:
+        # updated_at = NOW() resetea el reloj del timeout: el sweep cuenta las 24h
+        # desde que el realtor TOMÓ, no desde que se creó/pooleó. Sin esto, un
+        # intake que esperó >24h en el pool vuelve al pool en el primer sweep tras
+        # tomarlo (los leads más añejos — los que más urge tomar — quedan intomables).
         row = await conn.fetchrow(
-            "UPDATE intake SET agent_id = $1, estado = 'asignado' "
+            "UPDATE intake SET agent_id = $1, estado = 'asignado', updated_at = NOW() "
             "WHERE id = $2 AND estado = 'en_pool' AND agent_id IS NULL "
             "RETURNING id",
             agent.id, intake_id,

@@ -82,7 +82,10 @@ RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin app \
 #     10:00 miércoles      dbt_run.py (scores post-remates)
 #   ingest / mantenimiento:
 #     03:30 día 1 del mes  load_barrios.py
-#     04:00 lunes          load_pois.py --build-analytics
+#     04:00 lunes          load_pois.py --build-analytics  && compute_barrios_pois.py
+#                          (load_pois TRUNCA+reconstruye cols viejas; compute RELLENA
+#                           cols nuevas colegios/canchas/internet/ruido/icfes/obra/walk.
+#                           Encadenados con && — compute SIEMPRE tras load_pois o se pierden.)
 #     09:30 diario         scraping.link_checker      (reemplaza validate_listings_urls.py semanal)
 #     12:00 día 1 del mes  run_seguridad_mensual.py
 #     11:00 diario         fetch_usd_rate.py          (parametros_diario)
@@ -92,24 +95,42 @@ RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin app \
 # line every job died instantly with "/bin/sh: python3: not found" — cron fired on
 # schedule, scripts never ran, prod data froze. cron honors NAME=value lines in the
 # crontab file (both /etc/cron.d and user crontabs).
+# Cada job va envuelto en scripts/run_job.py <nombre> <cmd...>. El wrapper graba
+# la corrida en raw.cron_runs (inicio/fin/duración/exit/tail — almacén durable que
+# sobrevive restarts, el /var/log/urbi/*.log se pierde) y alerta por Sentry si el
+# job revienta o sale != 0. Antes las fallas se tragaban en el logfile: cron
+# disparaba, el script moría, y se veía igual a "corrió y no hizo nada".
+# El redirect a /var/log/urbi/*.log se conserva: full log para `railway logs`/exec
+# mientras vive el contenedor. load_pois && load_pois_overpass && compute van
+# encadenados (run_job propaga el exit del hijo, el && respeta el orden):
+# load_pois TRUNCA raw.pois y carga 11 tipos base; load_pois_overpass hace UPSERT
+# de los 20 tipos (añade colegio/supermercado/farmacia/paradero/cancha/encicla/
+# policía/bomberos sin truncar); recién entonces compute_barrios_pois calcula
+# n_colegios_1km/n_canchas_1km/dist_policia_km sobre la tabla COMPLETA. Sin
+# overpass en el medio, el TRUNCATE de load_pois borraba esos 9 POIs ricos cada
+# lunes y las columnas salían 0/NULL (ver docs/ARCHITECTURE.md §7.6).
 RUN printf '%s\n' \
     "PATH=/usr/local/bin:/usr/bin:/bin" \
-    "0 3 * * * app cd /app && python3 scripts/refresh_data.py >> /var/log/urbi/refresh.log 2>&1" \
-    "0 */6 * * * app cd /app && python3 scraping/run_comunidad.py >> /var/log/urbi/comunidad.log 2>&1" \
-    "30 9 * * * app cd /app && python3 -m scraping.link_checker --limit 2000 >> /var/log/urbi/link_check.log 2>&1" \
-    "0 8 * * * app cd /app && python3 scripts/run_listings_metrocuadrado.py >> /var/log/urbi/listings_m2.log 2>&1" \
-    "0 13 * * * app cd /app && python3 scripts/data_quality_check.py >> /var/log/urbi/data_quality.log 2>&1" \
-    "0 9 */3 * * app cd /app && python3 scripts/run_renta_corta.py >> /var/log/urbi/renta_corta.log 2>&1" \
-    "30 5 * * * app cd /app && python3 scripts/translate_descripciones.py >> /var/log/urbi/translate.log 2>&1" \
-    "0 7 * * * app cd /app && python3 scripts/run_analytics_usuarios.py >> /var/log/urbi/analytics_usuarios.log 2>&1" \
-    "0 8 * * 0 app cd /app && python3 scripts/run_airbnb_semanal.py >> /var/log/urbi/airbnb_semanal.log 2>&1" \
-    "30 7 * * 1 app cd /app && python3 scripts/run_dbt_full_refresh.py >> /var/log/urbi/dbt_full_refresh.log 2>&1" \
-    "0 10 * * 3 app cd /app && python3 scripts/dbt_run.py run --select score_largo_plazo barrios_score_consolidado >> /var/log/urbi/remates_dbt.log 2>&1" \
-    "30 3 1 * * app cd /app && python3 scripts/load_barrios.py >> /var/log/urbi/ingest_barrios.log 2>&1" \
-    "0 4 * * 1 app cd /app && python3 scripts/load_pois.py --build-analytics >> /var/log/urbi/ingest_pois.log 2>&1" \
-    "0 12 1 * * app cd /app && python3 scripts/run_seguridad_mensual.py >> /var/log/urbi/seguridad_mensual.log 2>&1" \
-    "0 11 * * * app cd /app && python3 scripts/fetch_usd_rate.py >> /var/log/urbi/parametros_diario.log 2>&1" \
-    "15 11 * * 1 app cd /app && python3 scripts/fetch_trm.py >> /var/log/urbi/trm_semanal.log 2>&1" \
+    "0 3 * * * app cd /app && python3 scripts/run_job.py refresh python3 scripts/refresh_data.py >> /var/log/urbi/refresh.log 2>&1" \
+    "0 */6 * * * app cd /app && python3 scripts/run_job.py comunidad python3 scraping/run_comunidad.py >> /var/log/urbi/comunidad.log 2>&1" \
+    "30 9 * * * app cd /app && python3 scripts/run_job.py link_check python3 -m scraping.link_checker --limit 15000 >> /var/log/urbi/link_check.log 2>&1" \
+    "0 8 * * * app cd /app && python3 scripts/run_job.py listings_m2 python3 scripts/run_listings_metrocuadrado.py >> /var/log/urbi/listings_m2.log 2>&1" \
+    "0 13 * * * app cd /app && python3 scripts/run_job.py data_quality python3 scripts/data_quality_check.py >> /var/log/urbi/data_quality.log 2>&1" \
+    "0 15 */3 * * app cd /app && python3 scripts/run_job.py qc_report python3 scripts/qc_report.py --no-email >> /var/log/urbi/qc_report.log 2>&1" \
+    "0 9 */3 * * app cd /app && python3 scripts/run_job.py renta_corta python3 scripts/run_renta_corta.py >> /var/log/urbi/renta_corta.log 2>&1" \
+    "30 5 * * * app cd /app && python3 scripts/run_job.py translate python3 scripts/translate_descripciones.py >> /var/log/urbi/translate.log 2>&1" \
+    "0 7 * * * app cd /app && python3 scripts/run_job.py analytics_usuarios python3 scripts/run_analytics_usuarios.py >> /var/log/urbi/analytics_usuarios.log 2>&1" \
+    "0 8 * * 0 app cd /app && python3 scripts/run_job.py airbnb_semanal python3 scripts/run_airbnb_semanal.py >> /var/log/urbi/airbnb_semanal.log 2>&1" \
+    "15 6 * * * app cd /app && python3 scripts/run_job.py realtor_slots python3 scripts/run_realtor_slots.py >> /var/log/urbi/realtor_slots.log 2>&1" \
+    "30 7 * * 1 app cd /app && python3 scripts/run_job.py dbt_full_refresh python3 scripts/run_dbt_full_refresh.py >> /var/log/urbi/dbt_full_refresh.log 2>&1" \
+    "0 10 * * 3 app cd /app && python3 scripts/run_job.py remates_dbt python3 scripts/dbt_run.py run --select score_largo_plazo barrios_score_consolidado >> /var/log/urbi/remates_dbt.log 2>&1" \
+    "30 3 1 * * app cd /app && python3 scripts/run_job.py ingest_barrios python3 scripts/load_barrios.py >> /var/log/urbi/ingest_barrios.log 2>&1" \
+    "0 4 * * 1 app cd /app && python3 scripts/run_job.py ingest_pois python3 scripts/load_pois.py --build-analytics >> /var/log/urbi/ingest_pois.log 2>&1 && python3 scripts/run_job.py ingest_pois_overpass python3 scripts/load_pois_overpass.py >> /var/log/urbi/ingest_pois.log 2>&1 && python3 scripts/run_job.py compute_barrios_pois python3 scripts/compute_barrios_pois.py >> /var/log/urbi/ingest_pois.log 2>&1" \
+    "0 12 1 * * app cd /app && python3 scripts/run_job.py seguridad_mensual python3 scripts/run_seguridad_mensual.py >> /var/log/urbi/seguridad_mensual.log 2>&1" \
+    "0 11 * * * app cd /app && python3 scripts/run_job.py parametros_diario python3 scripts/fetch_usd_rate.py >> /var/log/urbi/parametros_diario.log 2>&1" \
+    "15 11 * * 1 app cd /app && python3 scripts/run_job.py trm_semanal python3 scripts/fetch_trm.py >> /var/log/urbi/trm_semanal.log 2>&1" \
+    "0 14 * * * app cd /app && python3 scripts/run_job.py alertas python3 scripts/alertas_notificar.py >> /var/log/urbi/alertas.log 2>&1" \
+    "0 * * * * app cd /app && python3 scripts/run_job.py sweep_asignados python3 scripts/sweep_asignados.py >> /var/log/urbi/sweep_asignados.log 2>&1" \
     > /etc/cron.d/urbidata \
     && chmod 0644 /etc/cron.d/urbidata \
     && crontab /etc/cron.d/urbidata

@@ -7,6 +7,7 @@ below if new tables were added and don't fall into an existing domain.
 """
 import os
 import re
+from datetime import date
 import psycopg2
 
 DATABASE_URL = os.environ["DATABASE_URL"]
@@ -328,7 +329,7 @@ def gen_mermaid(group_tables):
 doc = []
 doc.append("# Base de datos — Medellín Social\n")
 doc.append(
-    "*Generado 2026-08-17 directamente desde `information_schema` de la DB local "
+    f"*Generado {date.today().isoformat()} directamente desde `information_schema` de la DB local "
     "(refleja el schema real, no solo lo que dicen las migraciones — ver "
     "`project_data_gap_prod` en memoria sobre drift local↔prod). "
     "Se excluyeron las tablas internas de Airflow que quedaron en este mismo Postgres "

@@ -6,6 +6,8 @@ aceptar_intake → crea listing en 'borrador' con la agency/agent asignados y en
 """
 from __future__ import annotations
 
+import json
+import logging
 import uuid
 from typing import Any, Dict, List
 
@@ -15,9 +17,43 @@ from api.schemas.intake_cuestionario import (
 from api.services.zona_service import resolver_zona
 from api.utils import ghl_client
 
+logger = logging.getLogger(__name__)
+
 
 class IntakeError(ValueError):
     """Validation or domain error in intake flow."""
+
+
+async def _enrich_listing_from_scraped(conn: Any, listing_id: str, url: str) -> None:
+    """Reclamo de un listing scrapeado: copia su data rica al listing recién
+    materializado para que el realtor EDITE en vez de re-digitar. Trae fotos (por
+    URL, sin re-subir) + estrato + amenidades + administración. Descripción y
+    parqueaderos los completa el realtor (no están en el stg). COALESCE: no pisa
+    lo que el intake ya puso. El listing nace sin media → sin duplicar fotos."""
+    scr = await conn.fetchrow(
+        """SELECT fotos, estrato_real, amenidades, administracion
+           FROM staging.stg_listings_unificado WHERE url = $1 LIMIT 1""",
+        url,
+    )
+    if not scr:
+        return
+    estrato = int(scr["estrato_real"]) if scr["estrato_real"] is not None else None
+    await conn.execute(
+        """UPDATE listing SET
+             estrato        = COALESCE($2, estrato),
+             amenidades     = COALESCE($3, amenidades),
+             administracion = COALESCE($4, administracion),
+             updated_at     = NOW()
+           WHERE id = $1""",
+        listing_id, estrato, scr["amenidades"], scr["administracion"],
+    )
+    for i, foto_url in enumerate((scr["fotos"] or [])[:20]):
+        if foto_url:
+            await conn.execute(
+                "INSERT INTO listing_media (listing_id, url, orden, es_portada) "
+                "VALUES ($1, $2, $3, $4)",
+                listing_id, foto_url, i, i == 0,
+            )
 
 
 def _aplica(preg: Pregunta, payload: Dict[str, Any]) -> bool:
@@ -204,6 +240,18 @@ async def aceptar_intake(
             return existente
         # Cambió a un estado sin listing (p.ej. descartado) entre el check y el UPDATE.
         raise IntakeError(f"Intake {intake_id} ya no está 'asignado' y no tiene listing")
+
+    # Reclamo de scrapeado → hereda data rica (post-commit, falla-suave: si revienta
+    # el listing ya quedó aceptado). Gate por declaraciones.origen == 'reclamo'.
+    try:
+        decl = getattr(intake, "declaraciones", None)
+        if isinstance(decl, str):
+            decl = json.loads(decl) if decl else {}
+        if isinstance(decl, dict) and decl.get("origen") == "reclamo" and decl.get("listing_url"):
+            async with pool.acquire() as conn:
+                await _enrich_listing_from_scraped(conn, listing_id, decl["listing_url"])
+    except Exception:
+        logger.exception("aceptar_intake: enrich desde scrapeado falló (listing %s)", listing_id)
 
     await ghl_client.sync_listing(listing_id)
     await ghl_client.link_agency_to_listing(listing_id, agency_id)

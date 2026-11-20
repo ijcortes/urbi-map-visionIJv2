@@ -133,7 +133,45 @@ export type Desempeno = {
     mediana_horas_respuesta: number | null;
     ranking: { posicion: number; total: number } | null;
   };
+  // Standing (incentivo): puntaje compuesto + ranking. Degrada honesto: null si
+  // no hay actividad suficiente (no inventa un puesto sobre ceros).
+  standing: {
+    puntaje: number | null;             // 0–100
+    cierres_reportados_12m: number;
+    ranking: { posicion: number; total: number } | null;
+    nota: string;
+  };
   zonas: RoiZona[];
+};
+
+// Comparables de cierre (reciprocidad: solo quien reporta cierres los ve).
+export type Comparable = {
+  precio: number | null;
+  precio_m2: number | null;
+  moneda: string;
+  fecha: string;
+  area_m2: number | null;
+  barrio: string | null;
+  tipo_inmueble: string;
+  operacion: string;
+  verificado: boolean;
+};
+
+export type ComparablesResponse = {
+  acceso: boolean;
+  cierres_reportados: number;
+  cierres_necesarios?: number;
+  motivo?: string;
+  verificados?: number;        // comparables cruzados con registro (SNR)
+  autoreportados?: number;     // autoreportados sin verificar
+  comparables: Comparable[];
+};
+
+export type CerrarListingInput = {
+  precio_cierre: number;
+  matricula_inmobiliaria: string;       // obligatoria en el backend
+  fecha_cierre?: string;                // ISO date; default hoy
+  cedula_catastral?: string;
 };
 
 export type EstadoVisita = "pendiente" | "confirmada" | "realizada" | "cancelada" | "no_asistio";
@@ -177,6 +215,16 @@ export type ListingPatch = {
   habitaciones?: number;
   banos?: number;
   direccion_aprox?: string;
+  // Ficha completa: ubicación (pin) + resto de campos
+  lat?: number;
+  lon?: number;
+  tipo_inmueble?: string;
+  estrato?: number;
+  parqueaderos?: number;
+  antiguedad_anios?: number;
+  nombre_edificio?: string;
+  administracion?: number;
+  amenidades?: string[];
 };
 
 export type DDItemEstado = "pendiente" | "verificado" | "rechazado";
@@ -267,6 +315,10 @@ export interface RealtorDashboardApi {
   actualizarListing(listingId: string, campos: ListingPatch): Promise<void>;
   /** POST /api/v1/realtor/listings/:id/fotos (multipart) */
   subirFotosListing(listingId: string, files: File[]): Promise<void>;
+  /** POST /api/v1/realtor/listings/:id/cerrar — marca vendido + graba el cierre (incentivo) */
+  cerrarListing(listingId: string, input: CerrarListingInput): Promise<void>;
+  /** GET /api/v1/realtor/comparables — comparables de cierre (gated por reciprocidad) */
+  getComparables(params?: { barrioId?: number; tipoInmueble?: string; operacion?: string; meses?: number }): Promise<ComparablesResponse>;
 }
 
 // ── Mock ───────────────────────────────────────────────────────────────────────
@@ -465,7 +517,12 @@ const mockApi: RealtorDashboardApi = {
       interesados_90d: 3,
       calificacion_servicio: {
         grado: "B", nota: "Respondes bien",
-        mediana_horas_respuesta: 6.2, ranking: { posicion: 3, total: 8 },
+        mediana_horas_respuesta: 6.2, ranking: null,  // el ranking vive en `standing` (backend real lo deja null acá)
+      },
+      standing: {
+        puntaje: 72, cierres_reportados_12m: 2,
+        ranking: { posicion: 3, total: 8 },
+        nota: "Reportar cierres y responder rápido sube tu puntaje.",
       },
       vistas_30d: 328,
       vistas_total: 3425,
@@ -552,6 +609,22 @@ const mockApi: RealtorDashboardApi = {
   async putDisponibilidad(_franjas) {
     await _d(300);
   },
+  async cerrarListing(_listingId, _input) {
+    await _d(400);
+  },
+  async getComparables(_params) {
+    await _d(300);
+    return {
+      acceso: true,
+      cierres_reportados: 2,
+      verificados: 1,
+      autoreportados: 1,
+      comparables: [
+        { precio: 445_000_000, precio_m2: 6_900_000, moneda: "COP", fecha: "2026-09-12", area_m2: 64, barrio: "El Poblado", tipo_inmueble: "apartamento", operacion: "venta", verificado: true },
+        { precio: 520_000_000, precio_m2: 7_300_000, moneda: "COP", fecha: "2026-10-01", area_m2: 71, barrio: "El Poblado", tipo_inmueble: "apartamento", operacion: "venta", verificado: false },
+      ],
+    } satisfies ComparablesResponse;
+  },
 };
 
 // ── HTTP — api/routers/realtor.py ──────────────────────────────────────────────
@@ -573,6 +646,16 @@ const httpApi: RealtorDashboardApi = {
   getDueDiligence:      (id)   => apiFetch<DDChecklist>        (`${API_BASE_URL}/intake/${id}/due-diligence`),
   verificarDDItem:      (id, estado, nota) => apiFetch<void>   (`${API_BASE_URL}/due-diligence/${id}/verificar`, { method: "POST", body: JSON.stringify({ estado, nota }) }),
   actualizarListing:    (id, campos) => apiFetch<void>         (`${API_BASE_URL}/realtor/listings/${id}`, { method: "PATCH", body: JSON.stringify(campos) }),
+  cerrarListing:        (id, input)  => apiFetch<void>         (`${API_BASE_URL}/realtor/listings/${id}/cerrar`, { method: "POST", body: JSON.stringify(input) }),
+  getComparables:       (p) => {
+    const qs = new URLSearchParams();
+    if (p?.barrioId != null) qs.set("barrio_id", String(p.barrioId));
+    if (p?.tipoInmueble)     qs.set("tipo_inmueble", p.tipoInmueble);
+    if (p?.operacion)        qs.set("operacion", p.operacion);
+    if (p?.meses != null)    qs.set("meses", String(p.meses));
+    const q = qs.toString();
+    return apiFetch<ComparablesResponse>(`${API_BASE_URL}/realtor/comparables${q ? `?${q}` : ""}`);
+  },
   editarPerfil:         (bio)  => apiFetch<void>               (`${API_BASE_URL}/realtor/me`, { method: "PATCH", body: JSON.stringify({ bio }) }),
   async subirFotoPerfil(file) {
     // multipart — no puede pasar por apiFetch (fuerza Content-Type JSON)

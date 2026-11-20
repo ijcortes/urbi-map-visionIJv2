@@ -1,6 +1,6 @@
 # Base de datos — Medellín Social
 
-*Generado 2026-08-17 directamente desde `information_schema` de la DB local (refleja el schema real, no solo lo que dicen las migraciones — ver `project_data_gap_prod` en memoria sobre drift local↔prod). Se excluyeron las tablas internas de Airflow que quedaron en este mismo Postgres (`ab_*`, `dag*`, `task_*`, `xcom`, etc. — ver `project_airflow_stack`).*
+*Generado 2026-11-08 directamente desde `information_schema` de la DB local (refleja el schema real, no solo lo que dicen las migraciones — ver `project_data_gap_prod` en memoria sobre drift local↔prod). Se excluyeron las tablas internas de Airflow que quedaron en este mismo Postgres (`ab_*`, `dag*`, `task_*`, `xcom`, etc. — ver `project_airflow_stack`).*
 
 **Para editar visualmente:** pega uno de estos DBML completo en [drawsql.app](https://drawsql.app) (botón Import) o [dbdiagram.io](https://dbdiagram.io) — divididos en 2 porque son dominios distintos (analytics es solo lectura derivada, no tiene FKs declaradas hacia el resto):
 - [`schema_analytics.dbml`](./database/schema_analytics.dbml) — solo el schema `analytics` (scoring/derivadas de barrio)
@@ -43,6 +43,15 @@ erDiagram
         boolean onboarding_completado
         character_varying origen_registro
         boolean email_verificado
+        text ghl_contact_id
+        text customer_type
+        text telefono
+        integer token_version
+        text google_sub
+        boolean habeas_data_aceptado
+        timestamp_without_time_zone habeas_data_fecha
+        character_varying habeas_data_version
+        boolean consent_whatsapp
     }
     PERFIL_INVERSOR {
         integer id PK
@@ -181,6 +190,7 @@ erDiagram
         boolean telefono_verificado
         text otp_codigo
         timestamp_with_time_zone otp_expira
+        integer otp_intentos
     }
     AGENT {
         uuid id PK
@@ -193,6 +203,8 @@ erDiagram
         timestamp_with_time_zone created_at
         timestamp_with_time_zone updated_at
         text motivo_estado
+        text bio
+        boolean verificado
     }
     AGENCY {
         uuid id PK
@@ -372,6 +384,10 @@ erDiagram
         boolean destacado
         integer vistas
         jsonb declaraciones
+        integer barrio_id
+        text nombre_edificio
+        text matricula_inmobiliaria
+        text cedula_catastral
     }
     LISTING_MEDIA {
         uuid id PK
@@ -435,6 +451,10 @@ erDiagram
         timestamp_with_time_zone updated_at
         text resultado
         uuid agent_id
+        text intencion
+        text presupuesto
+        text plazo
+        text credito
     }
     LISTINGS_PROPIOS {
         integer id PK
@@ -505,6 +525,7 @@ erDiagram
         timestamp_with_time_zone fecha_creacion
         timestamp_with_time_zone updated_at
         boolean cancelacion_solicitada
+        text ghl_subscription_id
     }
     SUSCRIPCIONES_NEGOCIO {
         integer id PK
@@ -574,27 +595,6 @@ erDiagram
         integer ciudad_id
         timestamp_without_time_zone created_at
     }
-    AFILIADOS {
-        integer id PK
-        integer usuario_id
-        integer ciudad_id
-        character_varying codigo_referido
-        numeric comision_pct
-        integer total_referidos
-        numeric total_ganado_usd
-        boolean activo
-        timestamp_without_time_zone created_at
-    }
-    APLICACIONES_AFILIADO {
-        integer id PK
-        character_varying nombre
-        character_varying email
-        character_varying telefono
-        character_varying canal
-        character_varying estado
-        integer ciudad_id
-        timestamp_without_time_zone created_at
-    }
     EMBAJADORES {
         integer id PK
         integer usuario_id
@@ -610,40 +610,19 @@ erDiagram
         boolean activo
         boolean verificado
         timestamp_without_time_zone created_at
-    }
-    APLICACIONES_EMBAJADOR {
-        integer id PK
-        character_varying nombre
-        character_varying email
-        character_varying telefono
-        integer barrio_id
-        text experiencia
-        text motivacion
-        character_varying estado
-        integer ciudad_id
-        timestamp_without_time_zone created_at
+        character_varying video_url
+        integer post_id
     }
     REFERIDOS {
         integer id PK
-        integer afiliado_id
-        integer embajador_id
         integer tienda_id
         integer suscripcion_id
         numeric comision_usd
         character_varying estado
         timestamp_without_time_zone created_at
-    }
-    CALLBACK_REQUEST {
-        integer id PK
-        timestamp_with_time_zone created_at
-        integer priority_weight
-        json callback_data
-        character_varying callback_type
-        character_varying processor_subdir
+        integer referidor_id
     }
     SUSCRIPCIONES_NEGOCIO ||--o{ DEALS : "suscripcion_id"
-    AFILIADOS ||--o{ REFERIDOS : "afiliado_id"
-    EMBAJADORES ||--o{ REFERIDOS : "embajador_id"
     SUSCRIPCIONES_NEGOCIO ||--o{ REFERIDOS : "suscripcion_id"
     PLANES_NEGOCIO ||--o{ SUSCRIPCIONES_NEGOCIO : "plan_id"
 ```
@@ -678,6 +657,8 @@ erDiagram
         timestamp_without_time_zone updated_at
         character_varying tipo_audiencia
         character_varying moneda
+        character_varying destacado_nivel
+        character_varying destacado_zona_codigo
     }
     TIENDAS {
         integer id PK
@@ -709,6 +690,8 @@ erDiagram
         character_varying plan
         boolean featured_badge
         date featured_desde
+        character_varying destacado_nivel
+        character_varying destacado_zona_codigo
     }
     NOTICIAS {
         integer id PK
@@ -718,6 +701,7 @@ erDiagram
         timestamp_without_time_zone fecha_publicacion
         boolean activa
         timestamp_without_time_zone created_at
+        integer barrio_id
     }
     POSTS_BARRIO {
         integer id PK
@@ -741,10 +725,10 @@ erDiagram
         timestamp_without_time_zone created_at
     }
     TRM {
-        smallint id PK
         numeric valor
         date vigencia
         timestamp_with_time_zone updated_at
+        text moneda PK
     }
     CONFIGURACION_MAPA {
         integer usuario_id PK
@@ -820,6 +804,13 @@ erDiagram
         smallint piso
         text antiguedad
         numeric administracion
+        timestamp_with_time_zone last_seen_at
+        boolean destacado
+        text anunciante_tipo
+        text moneda
+        boolean precio_incluye_admin
+        text area_tipo
+        integer duplicado_de
     }
     RAW_LISTINGS_METROCUADRADO {
         integer id PK
@@ -857,6 +848,12 @@ erDiagram
         smallint piso
         text antiguedad
         numeric administracion
+        timestamp_with_time_zone last_seen_at
+        boolean destacado
+        text anunciante_tipo
+        text moneda
+        boolean precio_incluye_admin
+        text area_tipo
     }
     RAW_LISTINGS_PREMIUM {
         integer id PK
@@ -892,6 +889,8 @@ erDiagram
         character_varying dedup_hash
         character_varying fuente_tipo
         geometry geom
+        timestamp_without_time_zone fecha_primera_vez
+        boolean activo
     }
     RAW_LISTINGS_RENTA_MEDIA {
         integer id PK
@@ -916,6 +915,8 @@ erDiagram
         text descripcion
         text[] fotos
         text[] amenidades
+        timestamp_without_time_zone fecha_primera_vez
+        boolean activo
     }
     RAW_LISTINGS_CASADOLCECASA {
         bigint id PK
@@ -946,6 +947,7 @@ erDiagram
         boolean activo
         jsonb raw_data
         timestamp_with_time_zone fecha_scraping
+        timestamp_without_time_zone fecha_primera_vez
     }
     RAW_LISTINGS_PRECIO_HISTORIAL {
         integer id PK
@@ -967,13 +969,6 @@ erDiagram
         boolean activa
         timestamp_with_time_zone first_seen
         timestamp_with_time_zone last_seen
-    }
-    RAW_LISTING_VISTAS {
-        integer id PK
-        character_varying listing_url
-        integer usuario_id
-        character_varying ip_hash
-        timestamp_without_time_zone created_at
     }
     RAW_FAVORITOS_LISTINGS {
         integer id PK
@@ -1103,6 +1098,7 @@ erDiagram
         character_varying uso_suelo_dominante
         integer uso_suelo_score
         integer ciudad_id
+        text codigo
     }
     RAW_COMUNAS {
         integer id PK
@@ -1113,6 +1109,7 @@ erDiagram
         jsonb raw_props
         geometry geometry
         timestamp_with_time_zone cargado_en
+        integer ciudad_id
     }
     RAW_ESTRATOS {
         integer id PK
@@ -1136,6 +1133,7 @@ erDiagram
         geometry geometry
         timestamp_without_time_zone fecha_sincronizacion
         text fuente
+        bigint id PK
     }
     RAW_CATASTRO_MEDELLIN {
         integer id PK
@@ -1155,26 +1153,7 @@ erDiagram
         bigint vl_avaluo_total
         character_varying cd_ind_ru_ur
         timestamp_without_time_zone fecha_carga
-    }
-    RAW_CATASTRO_MEDELLIN_VIGENTE {
-        integer id PK
-        character_varying matricula_anonimizada
-        integer cd_comuna
-        character_varying ds_comuna
-        numeric nm_ar_lote
-        numeric nm_ar_constru
-        numeric area_desenglobe
-        integer cd_uso
-        integer cd_tipo
-        integer cd_uso_lote
-        integer cd_tipo_lote
-        character_varying ds_uso_tipo
-        bigint vl_av_lote
-        bigint vl_av_constru
-        bigint vl_avaluo_total
-        character_varying cd_ind_ru_ur
         character_varying cd_vig_pred
-        timestamp_without_time_zone fecha_carga
     }
     RAW_COMPRAVENTAS_ORIPS {
         integer id PK
@@ -1186,55 +1165,6 @@ erDiagram
         bigint valor_cop
         text oficina_registro
         timestamp_without_time_zone fecha_carga
-    }
-    RAW_CRIMINALIDAD_COMUNAS {
-        integer id PK
-        smallint anio
-        text conducta
-        text codigo_comuna
-        integer cantidad_casos
-        timestamp_with_time_zone cargado_en
-    }
-    RAW_CRIMINALIDAD_COMUNAS_MES {
-        integer id PK
-        smallint anio
-        smallint mes
-        text conducta
-        text codigo_comuna
-        integer cantidad_casos
-        timestamp_with_time_zone cargado_en
-    }
-    RAW_CRIMINALIDAD_MUNICIPIOS {
-        integer id PK
-        text municipio
-        text departamento
-        integer anio
-        text conducta
-        integer cantidad_casos
-        text fuente
-        timestamp_with_time_zone cargado_en
-    }
-    RAW_IPVN_DANE {
-        integer id PK
-        smallint anio
-        character trimestre
-        text estrato
-        numeric indice
-        numeric variacion_trimestral_pct
-        numeric variacion_anual_pct
-        text tipo_vivienda
-        timestamp_with_time_zone cargado_en
-    }
-    RAW_IPVU_BANREP {
-        integer id PK
-        smallint anio
-        character trimestre
-        numeric indice_nominal
-        numeric indice_real
-        numeric variacion_trimestral_pct
-        numeric variacion_anual_pct
-        text fuente
-        timestamp_with_time_zone cargado_en
     }
     RAW_POIS {
         integer id PK
@@ -1253,6 +1183,7 @@ erDiagram
         integer cod_subcat_uso
         geometry geometry
         text fuente
+        bigint id PK
     }
     RAW_TRAFICO_MUESTRAS {
         bigint id PK
@@ -1292,6 +1223,8 @@ erDiagram
         text direccion_raw
         text barrio_raw
         integer barrio_id
+        double_precision lat
+        double_precision lon
         text url
         timestamp_with_time_zone fecha_scraping
         boolean activo
@@ -1331,27 +1264,9 @@ erDiagram
         text antiguedad
         text[] amenidades
         boolean verificado
-    }
-    STAGING_STG_LISTINGS_V1_DEPRECATED {
-        integer id
-        text fuente
-        text tipo_operacion
-        text tipo_inmueble
-        numeric precio
-        numeric area_m2
-        integer habitaciones
-        integer banos
-        text direccion_raw
-        text barrio_raw
-        integer barrio_id
-        text url
-        timestamp_with_time_zone fecha_scraping
-        boolean activo
-        numeric precio_m2
-        date fecha_publicacion
-        integer dias_en_mercado
-        numeric precio_venta_real
-        numeric precio_arriendo_real
+        numeric administracion
+        text nombre_edificio
+        boolean geo_aproximada
     }
     STAGING_STG_AIRBNB_SEGMENTADO {
         bigint listing_id
@@ -1560,8 +1475,8 @@ erDiagram
         timestamp_with_time_zone calculado_en
     }
     ANALYTICS_BARRIOS_MEDIANAS {
-        integer barrio_id
-        text tipo_inmueble
+        integer barrio_id PK
+        text tipo_inmueble PK
         bigint m2_mediana
         bigint arr_mediana
         timestamp_with_time_zone refreshed_at
@@ -1618,6 +1533,19 @@ erDiagram
         numeric dist_colegio_km
         integer walk_score
         integer transit_score
+        integer n_parques_inf_500m
+        integer n_canchas_1km
+        numeric dist_encicla_km
+        integer n_policia_1km
+        numeric dist_policia_km
+        integer n_bomberos_2km
+        numeric avg_internet_mbps
+        integer n_tests_internet
+        numeric score_icfes_municipio
+        numeric dist_obra_publica_km
+        text nombre_obra_cercana
+        numeric db_ruido_dia_cercano
+        numeric dist_ruido_km
     }
     ANALYTICS_BARRIOS_TRAFICO_PERFIL {
         integer barrio_id PK
@@ -1639,16 +1567,16 @@ erDiagram
         text comuna
         text codigo_comuna
         boolean zona_turistica
-        bigint casos_residente_3anios
+        numeric casos_residente_3anios
         numeric casos_residente_por_1000hab
-        bigint casos_totales_3anios
+        numeric casos_totales_3anios
         numeric casos_por_1000hab
         integer score_seguridad_residente
-        bigint ranking_seguridad
         integer score_seguridad_transito
         text tendencia
-        text categoria_seguridad
         text nota_seguridad
+        bigint ranking_seguridad
+        text categoria_seguridad
     }
     ANALYTICS_BARRIOS_VERDE {
         integer barrio_id
@@ -1759,6 +1687,9 @@ erDiagram
         boolean url_activa
         integer estrato_real
         timestamp_with_time_zone refreshed_at
+        character_varying uso_suelo_pot
+        integer estrato_manzana
+        timestamp_without_time_zone fecha_primera_vez
     }
     ANALYTICS_LISTINGS_VS_CATASTRO {
         text listing_uid
@@ -1783,7 +1714,7 @@ erDiagram
         timestamp_with_time_zone fecha_scraping
         integer cd_comuna
         bigint n_predios_catastro
-        numeric avaluo_m2_catastro
+        double_precision avaluo_m2_catastro
         double_precision avaluo_m2_catastro_mediana
         numeric area_construccion_prom
         text catastro_nivel
@@ -1791,7 +1722,7 @@ erDiagram
         text categoria_precio_catastro
     }
     ANALYTICS_CATASTRO_COMUNAS_STATS {
-        text comuna
+        text comuna PK
         integer total_predios
         numeric pct_apartamento
         integer area_mediana_apto_m2
@@ -1915,4 +1846,8 @@ erDiagram
         bigint n_listings_total
     }
 ```
+
+## Otras tablas (sin agrupar)
+
+`analytics.zona_tiempos_recorrido`, `analytics.zonas_nivel_precio`, `public.admin_audit_log`, `public.agent_review`, `public.alertas_precio`, `public.aplicacion_referidor`, `public.aplicaciones_pasantia`, `public.comunidad_post`, `public.ghl_account_mapping`, `public.ghl_object_mapping`, `public.ghl_push_failures`, `public.hotspots`, `public.listing_link_digest_log`, `public.listing_link_health`, `public.listing_link_reports`, `public.listing_link_review_used`, `public.listing_link_transitions`, `public.listing_reclamo`, `public.magic_link_tokens`, `public.propiedad_evento`, `public.referidor`, `public.stripe_events`, `public.throttle_hits`, `raw._bk_apartaestudio_0105`, `raw.api_cost_ledger`, `raw.barrio_alias`, `raw.criminalidad`, `raw.cron_runs`, `raw.data_quality_runs`, `raw.descripcion_traduccion`, `raw.icfes_municipio`, `raw.indices_precio_vivienda`, `raw.internet_speed_tiles`, `raw.listings_habi`, `raw.obras_publicas_planeadas`, `raw.poblacion_comuna`, `raw.poblacion_municipio`, `raw.ruido_estaciones`, `raw.scrape_runs`
 

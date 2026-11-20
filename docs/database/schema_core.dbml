@@ -90,16 +90,15 @@ Enum sponsorship_zona_nivel {
   "municipio"
 }
 
-Table afiliados {
-  "id" int [pk, not null]
-  "usuario_id" int
-  "ciudad_id" int
-  "codigo_referido" varchar [not null]
-  "comision_pct" numeric
-  "total_referidos" int
-  "total_ganado_usd" numeric
-  "activo" bool
-  "created_at" timestamp
+Table admin_audit_log {
+  "id" bigint [pk, not null]
+  "admin_email" text [not null]
+  "accion" text [not null]
+  "entidad" text [not null]
+  "entidad_id" text
+  "detalle" jsonb
+  "ip" text
+  "created_at" timestamptz [not null]
 }
 
 Table agency {
@@ -141,6 +140,8 @@ Table agent {
   "created_at" timestamptz [not null]
   "updated_at" timestamptz [not null]
   "motivo_estado" text
+  "bio" text
+  "verificado" bool [not null]
 }
 
 Table agent_disponibilidad {
@@ -149,6 +150,15 @@ Table agent_disponibilidad {
   "dia_semana" smallint [not null]
   "hora_inicio" time [not null]
   "hora_fin" time [not null]
+  "created_at" timestamptz [not null]
+}
+
+Table agent_review {
+  "id" uuid [pk, not null]
+  "agent_id" uuid [not null]
+  "user_id" int [not null]
+  "calificacion" smallint [not null]
+  "comentario" text
   "created_at" timestamptz [not null]
 }
 
@@ -228,22 +238,25 @@ Table agentes {
   "aprobado_por" text
 }
 
-Table aplicaciones_afiliado {
+Table alertas_precio {
   "id" int [pk, not null]
+  "usuario_id" int [not null]
+  "barrio_id" int
+  "tipo_operacion" text
+  "precio_max" bigint
+  "tipo_inmueble" text
+  "activa" bool [not null]
+  "fecha_creacion" timestamptz [not null]
+  "ultima_notificacion" timestamptz
+}
+
+Table aplicacion_referidor {
+  "id" int [pk, not null]
+  "tipo" varchar [not null]
   "nombre" varchar [not null]
   "email" varchar [not null]
   "telefono" varchar
   "canal" varchar
-  "estado" varchar
-  "ciudad_id" int
-  "created_at" timestamp
-}
-
-Table aplicaciones_embajador {
-  "id" int [pk, not null]
-  "nombre" varchar [not null]
-  "email" varchar [not null]
-  "telefono" varchar
   "barrio_id" int
   "experiencia" text
   "motivacion" text
@@ -252,13 +265,17 @@ Table aplicaciones_embajador {
   "created_at" timestamp
 }
 
-Table callback_request {
+Table aplicaciones_pasantia {
   "id" int [pk, not null]
-  "created_at" timestamptz [not null]
-  "priority_weight" int [not null]
-  "callback_data" json [not null]
-  "callback_type" varchar(20) [not null]
-  "processor_subdir" varchar(2000)
+  "nombre" varchar [not null]
+  "email" varchar [not null]
+  "telefono" varchar
+  "programa_semestre" varchar [not null]
+  "ruta_interes" varchar [not null]
+  "mensaje" text
+  "estado" varchar
+  "ciudad_id" int
+  "created_at" timestamp
 }
 
 Table ciudades {
@@ -280,6 +297,25 @@ Table comparaciones_historial {
   "filtro_inversion" text
   "nombre" text
   "fecha_creacion" timestamptz [not null]
+}
+
+Table comunidad_post {
+  "id" int [pk, not null]
+  "autor_nombre" varchar [not null]
+  "autor_email" varchar [not null]
+  "autor_handle" varchar
+  "titulo" varchar [not null]
+  "cuerpo" text [not null]
+  "imagen_url" varchar
+  "enlace_url" varchar
+  "barrio_id" int
+  "municipio" varchar
+  "categoria" varchar
+  "estado" varchar [not null]
+  "created_at" timestamp
+  "destacado" bool [not null]
+  "destacado_nivel" varchar
+  "destacado_zona_codigo" varchar
 }
 
 Table configuracion_mapa {
@@ -348,6 +384,8 @@ Table embajadores {
   "activo" bool
   "verificado" bool
   "created_at" timestamp
+  "video_url" varchar
+  "post_id" int
 }
 
 Table eventos {
@@ -376,6 +414,8 @@ Table eventos {
   "updated_at" timestamp
   "tipo_audiencia" varchar
   "moneda" varchar(10)
+  "destacado_nivel" varchar
+  "destacado_zona_codigo" varchar
 }
 
 Table favoritos {
@@ -388,12 +428,63 @@ Table favoritos {
   "tipo" varchar
 }
 
+Table ghl_account_mapping {
+  "id" bigint [pk, not null]
+  "client_id" int [not null]
+  "ghl_location_id" text [not null]
+  "ghl_user_id" text
+  "snapshot_id" text
+  "created_at" timestamptz [not null]
+}
+
+Table ghl_object_mapping {
+  "id" bigint [pk, not null]
+  "object_type" text [not null]
+  "internal_object_id" text [not null]
+  "ghl_object_id" text [not null]
+  "ghl_location_id" text
+  "sync_status" text [not null]
+  "sync_error" text
+  "last_synced_at" timestamptz
+  "created_at" timestamptz [not null]
+}
+
+Table ghl_push_failures {
+  "id" bigint [pk, not null]
+  "object_type" text [not null]
+  "internal_object_id" text [not null]
+  "error" text
+  "attempts" int [not null]
+  "first_failed_at" timestamptz [not null]
+  "last_failed_at" timestamptz [not null]
+  "resolved_at" timestamptz
+}
+
 Table historial {
   "id" int [pk, not null]
   "usuario_id" int
   "tipo" varchar [not null]
   "barrio_id" int
   "metadata" jsonb
+  "created_at" timestamp
+}
+
+Table hotspots {
+  "id" int [pk, not null]
+  "tienda_id" int [not null]
+  "categoria_experiencia" varchar [not null]
+  "descripcion" varchar [not null]
+  "descripcion_larga" varchar
+  "foto_url" varchar
+  "barrio_id" int
+  "ciudad_id" int
+  "fecha_inicio" date
+  "fecha_fin" date
+  "activo" bool
+  "destacado" bool
+  "suscripcion_id" int [not null]
+  "vistas" int
+  "clicks" int
   "created_at" timestamp
 }
 
@@ -489,6 +580,71 @@ Table listing {
   "destacado" bool [not null]
   "vistas" int [not null]
   "declaraciones" jsonb
+  "barrio_id" int
+  "nombre_edificio" text
+  "matricula_inmobiliaria" text
+  "cedula_catastral" text
+}
+
+Table listing_link_digest_log {
+  "id" int [pk, not null]
+  "sent_at" timestamptz [not null]
+  "kind" text [not null]
+  "n_items" int [not null]
+  "n_recipients" int [not null]
+}
+
+Table listing_link_health {
+  "url" text [pk, not null]
+  "fuente" text [not null]
+  "url_status" text [not null]
+  "last_result" text
+  "http_status" int
+  "final_url" text
+  "last_checked_at" timestamptz
+  "last_ok_at" timestamptz
+  "consecutive_failures" int [not null]
+  "consecutive_gone" int [not null]
+  "first_gone_at" timestamptz
+  "last_gone_at" timestamptz
+  "check_error" text
+  "priority" int [not null]
+  "report_count" int [not null]
+  "review_notified_at" timestamptz
+  "review_batch" int
+  "review_decision" text
+  "reviewed_at" timestamptz
+  "keep_until" timestamptz
+  "deactivated_at" timestamptz
+  "deactivation_reason" text
+  "created_at" timestamptz [not null]
+  "review_generation" int [not null]
+  "first_notified_at" timestamptz
+  "last_gone_confirmed_at" timestamptz
+}
+
+Table listing_link_reports {
+  "url" text [pk, not null]
+  "ip_hash" text [pk, not null]
+  "reported_at" timestamptz [not null]
+}
+
+Table listing_link_review_used {
+  "jti" text [pk, not null]
+  "action" text [not null]
+  "target" text [not null]
+  "used_at" timestamptz [not null]
+}
+
+Table listing_link_transitions {
+  "id" bigint [pk, not null]
+  "url" text [not null]
+  "tabla" text [not null]
+  "prev_activo" bool
+  "prev_url_activa" bool
+  "prev_url_validada_at" timestamptz
+  "created_at" timestamptz [not null]
+  "reverted_at" timestamptz
 }
 
 Table listing_media {
@@ -506,6 +662,21 @@ Table listing_moderacion {
   "motivo" text
   "moderador_id" text [not null]
   "created_at" timestamptz [not null]
+}
+
+Table listing_reclamo {
+  "id" uuid [pk, not null]
+  "usuario_id" int [not null]
+  "listing_url" text [not null]
+  "fuente" text
+  "estado" text [not null]
+  "nombre_contacto" text
+  "telefono" text
+  "email_contacto" text
+  "matricula_declarada" text
+  "mensaje" text
+  "created_at" timestamptz [not null]
+  "resolved_at" timestamptz
 }
 
 Table listings_propios {
@@ -550,6 +721,15 @@ Table listings_propios {
   "fecha_publicacion" timestamp
 }
 
+Table magic_link_tokens {
+  "id" int [pk, not null]
+  "email" text [not null]
+  "token" text [not null]
+  "expires_at" timestamptz [not null]
+  "used" bool [not null]
+  "created_at" timestamptz [not null]
+}
+
 Table noticias {
   "id" int [pk, not null]
   "fuente" varchar [not null]
@@ -558,6 +738,7 @@ Table noticias {
   "fecha_publicacion" timestamp
   "activa" bool
   "created_at" timestamp
+  "barrio_id" int
 }
 
 Table owner {
@@ -571,6 +752,7 @@ Table owner {
   "telefono_verificado" bool [not null]
   "otp_codigo" text
   "otp_expira" timestamptz
+  "otp_intentos" int [not null]
 }
 
 Table password_reset_tokens {
@@ -628,15 +810,47 @@ Table posts_barrio {
   "created_at" timestamp
 }
 
+Table propiedad_evento {
+  "id" uuid [pk, not null]
+  "matricula_inmobiliaria" text
+  "cedula_catastral" text
+  "listing_id" uuid
+  "tipo_evento" text [not null]
+  "precio" numeric
+  "moneda" text [not null]
+  "fecha" date [not null]
+  "agent_id" uuid
+  "verificado" bool [not null]
+  "created_at" timestamptz [not null]
+  "visita_solicitud_id" uuid
+}
+
+Table referidor {
+  "id" int [pk, not null]
+  "tipo" varchar [not null]
+  "usuario_id" int
+  "barrio_id" int
+  "ciudad_id" int
+  "codigo" varchar [not null]
+  "bio" text
+  "foto_url" varchar
+  "instagram" varchar
+  "comision_pct" numeric
+  "total_referidos" int
+  "total_ganado_usd" numeric
+  "activo" bool
+  "verificado" bool
+  "created_at" timestamp
+}
+
 Table referidos {
   "id" int [pk, not null]
-  "afiliado_id" int
-  "embajador_id" int
   "tienda_id" int
   "suscripcion_id" int
   "comision_usd" numeric
   "estado" varchar
   "created_at" timestamp
+  "referidor_id" int
 }
 
 Table simulaciones_historial {
@@ -665,6 +879,12 @@ Table sponsorship {
   "estado" sponsorship_estado [not null]
   "created_at" timestamptz [not null]
   "updated_at" timestamptz [not null]
+}
+
+Table stripe_events {
+  "event_id" text [pk, not null]
+  "tipo" text
+  "recibido_at" timestamptz [not null]
 }
 
 Table suscripciones_negocio {
@@ -703,6 +923,13 @@ Table suscripciones_usuario {
   "fecha_creacion" timestamptz
   "updated_at" timestamptz
   "cancelacion_solicitada" bool
+  "ghl_subscription_id" text
+}
+
+Table throttle_hits {
+  "id" bigint [pk, not null]
+  "key" text [not null]
+  "hit_at" timestamptz [not null]
 }
 
 Table tiendas {
@@ -735,6 +962,8 @@ Table tiendas {
   "plan" varchar
   "featured_badge" bool
   "featured_desde" date
+  "destacado_nivel" varchar
+  "destacado_zona_codigo" varchar
 }
 
 Table token_blacklist {
@@ -745,10 +974,10 @@ Table token_blacklist {
 }
 
 Table trm {
-  "id" smallint [pk, not null]
   "valor" numeric [not null]
   "vigencia" date
   "updated_at" timestamptz
+  "moneda" text [pk, not null]
 }
 
 Table user_events {
@@ -824,6 +1053,15 @@ Table usuarios {
   "onboarding_completado" bool
   "origen_registro" varchar
   "email_verificado" bool [not null]
+  "ghl_contact_id" text
+  "customer_type" text
+  "telefono" text
+  "token_version" int [not null]
+  "google_sub" text
+  "habeas_data_aceptado" bool
+  "habeas_data_fecha" timestamp
+  "habeas_data_version" varchar
+  "consent_whatsapp" bool
 }
 
 Table visita_solicitud {
@@ -839,6 +1077,16 @@ Table visita_solicitud {
   "updated_at" timestamptz [not null]
   "resultado" text
   "agent_id" uuid
+  "intencion" text
+  "presupuesto" text
+  "plazo" text
+  "credito" text
+}
+
+Table "raw._bk_apartaestudio_0105" {
+  "tbl" text [pk, not null]
+  "id" bigint [pk, not null]
+  "habitaciones" int
 }
 
 Table "raw.airbnb_barrios" {
@@ -947,6 +1195,22 @@ Table "raw.airbnb_mercado_valle" {
   "fecha_extraccion" timestamp
 }
 
+Table "raw.api_cost_ledger" {
+  "id" bigint [pk, not null]
+  "proveedor" text [not null]
+  "endpoint" text
+  "llamadas" int [not null]
+  "costo_usd_est" numeric
+  "created_at" timestamptz [not null]
+}
+
+Table "raw.barrio_alias" {
+  "alias_norm" text [pk, not null]
+  "alias" text [not null]
+  "barrio_id" int [not null]
+  "nota" text
+}
+
 Table "raw.barrios" {
   "id" int [pk, not null]
   "nombre" text
@@ -960,6 +1224,7 @@ Table "raw.barrios" {
   "uso_suelo_dominante" varchar
   "uso_suelo_score" int
   "ciudad_id" int
+  "codigo" text
 }
 
 Table "raw.catastro_medellin" {
@@ -980,27 +1245,7 @@ Table "raw.catastro_medellin" {
   "vl_avaluo_total" bigint
   "cd_ind_ru_ur" varchar
   "fecha_carga" timestamp
-}
-
-Table "raw.catastro_medellin_vigente" {
-  "id" int [pk, not null]
-  "matricula_anonimizada" varchar
-  "cd_comuna" int
-  "ds_comuna" varchar
-  "nm_ar_lote" numeric
-  "nm_ar_constru" numeric
-  "area_desenglobe" numeric
-  "cd_uso" int
-  "cd_tipo" int
-  "cd_uso_lote" int
-  "cd_tipo_lote" int
-  "ds_uso_tipo" varchar
-  "vl_av_lote" bigint
-  "vl_av_constru" bigint
-  "vl_avaluo_total" bigint
-  "cd_ind_ru_ur" varchar
   "cd_vig_pred" varchar
-  "fecha_carga" timestamp
 }
 
 Table "raw.compraventas_orips" {
@@ -1024,36 +1269,52 @@ Table "raw.comunas" {
   "raw_props" jsonb
   "geometry" geometry
   "cargado_en" timestamptz
+  "ciudad_id" int
 }
 
-Table "raw.criminalidad_comunas" {
+Table "raw.criminalidad" {
   "id" int [pk, not null]
+  "geo_nivel" varchar [not null]
+  "geo_codigo" text [not null]
+  "periodo_tipo" varchar [not null]
   "anio" smallint [not null]
+  "mes" smallint
   "conducta" text [not null]
-  "codigo_comuna" text [not null]
   "cantidad_casos" int [not null]
-  "cargado_en" timestamptz [not null]
-}
-
-Table "raw.criminalidad_comunas_mes" {
-  "id" int [pk, not null]
-  "anio" smallint [not null]
-  "mes" smallint [not null]
-  "conducta" text [not null]
-  "codigo_comuna" text [not null]
-  "cantidad_casos" int [not null]
-  "cargado_en" timestamptz [not null]
-}
-
-Table "raw.criminalidad_municipios" {
-  "id" int [pk, not null]
-  "municipio" text [not null]
   "departamento" text
-  "anio" int
-  "conducta" text
-  "cantidad_casos" int
   "fuente" text
-  "cargado_en" timestamptz
+  "cargado_en" timestamptz [not null]
+}
+
+Table "raw.cron_runs" {
+  "id" bigint [pk, not null]
+  "job" text [not null]
+  "started_at" timestamptz [not null]
+  "finished_at" timestamptz
+  "duration_s" float8
+  "exit_code" int
+  "ok" bool
+  "tail" text
+  "host_env" text
+}
+
+Table "raw.data_quality_runs" {
+  "id" bigint [pk, not null]
+  "fuente" text [not null]
+  "activos" int
+  "ultimo_scrape" timestamptz
+  "sin_fotos_pct" numeric
+  "implausibles" int
+  "problemas" text[]
+  "run_at" timestamptz [not null]
+}
+
+Table "raw.descripcion_traduccion" {
+  "url" text [pk, not null]
+  "src_lang" text [not null]
+  "descripcion_trad" text
+  "src_hash" text [not null]
+  "updated_at" timestamptz
 }
 
 Table "raw.estratos" {
@@ -1079,6 +1340,7 @@ Table "raw.estratos_manzana" {
   "geometry" geometry
   "fecha_sincronizacion" timestamp
   "fuente" text
+  "id" bigint [pk, not null]
 }
 
 Table "raw.favoritos_listings" {
@@ -1089,27 +1351,40 @@ Table "raw.favoritos_listings" {
   "created_at" timestamp
 }
 
-Table "raw.ipvn_dane" {
-  "id" int [pk, not null]
-  "anio" smallint [not null]
-  "trimestre" char(2) [not null]
-  "estrato" text [not null]
-  "indice" numeric
-  "variacion_trimestral_pct" numeric
-  "variacion_anual_pct" numeric
-  "tipo_vivienda" text
+Table "raw.icfes_municipio" {
+  "municipio" text [pk, not null]
+  "avg_punt_global" numeric
+  "n_estudiantes" int
   "cargado_en" timestamptz [not null]
 }
 
-Table "raw.ipvu_banrep" {
+Table "raw.indices_precio_vivienda" {
   "id" int [pk, not null]
+  "fuente" varchar [not null]
   "anio" smallint [not null]
   "trimestre" char(2) [not null]
+  "estrato" text
+  "tipo_vivienda" text
+  "indice" numeric
   "indice_nominal" numeric
   "indice_real" numeric
   "variacion_trimestral_pct" numeric
   "variacion_anual_pct" numeric
-  "fuente" text
+  "cargado_en" timestamptz [not null]
+}
+
+Table "raw.internet_speed_tiles" {
+  "id" int [pk, not null]
+  "tile_x" float8 [not null]
+  "tile_y" float8 [not null]
+  "avg_d_kbps" int
+  "avg_u_kbps" int
+  "avg_lat_ms" int
+  "tests" int
+  "devices" int
+  "anio" int [not null]
+  "trimestre" int [not null]
+  "geometry" geometry
   "cargado_en" timestamptz [not null]
 }
 
@@ -1124,14 +1399,6 @@ Table "raw.listing_media_mirror" {
   "activa" bool [not null]
   "first_seen" timestamptz [not null]
   "last_seen" timestamptz [not null]
-}
-
-Table "raw.listing_vistas" {
-  "id" int [pk, not null]
-  "listing_url" varchar [not null]
-  "usuario_id" int
-  "ip_hash" varchar(64)
-  "created_at" timestamp
 }
 
 Table "raw.listings_casadolcecasa" {
@@ -1163,6 +1430,7 @@ Table "raw.listings_casadolcecasa" {
   "activo" bool
   "raw_data" jsonb
   "fecha_scraping" timestamptz
+  "fecha_primera_vez" timestamp
 }
 
 Table "raw.listings_fincaraiz" {
@@ -1200,6 +1468,68 @@ Table "raw.listings_fincaraiz" {
   "piso" smallint
   "antiguedad" text
   "administracion" numeric
+  "last_seen_at" timestamptz
+  "destacado" bool
+  "anunciante_tipo" text
+  "moneda" text
+  "precio_incluye_admin" bool
+  "area_tipo" text
+  "duplicado_de" int
+}
+
+Table "raw.listings_habi" {
+  "id" int [pk, not null]
+  "fuente" text
+  "tipo_operacion" text
+  "tipo_inmueble" text
+  "precio" numeric
+  "precio_anterior" numeric
+  "discount_rate" numeric
+  "area_m2" numeric
+  "habitaciones" int
+  "banos" int
+  "parqueaderos" smallint
+  "piso" smallint
+  "num_ascensores" smallint
+  "direccion_raw" text
+  "barrio_raw" text
+  "url" text
+  "property_nid" bigint
+  "property_uuid" text
+  "fecha_scraping" timestamptz
+  "activo" bool
+  "barrio_id" int
+  "raw_data" jsonb
+  "fecha_publicacion" timestamp
+  "dedup_hash" varchar
+  "geom" geometry
+  "lat" numeric
+  "lon" numeric
+  "municipio_raw" text
+  "estrato_real" int
+  "descripcion" text
+  "amenidades" text[]
+  "fotos" text[]
+  "antiguedad" int
+  "administracion" numeric
+  "url_360" text
+  "correo_contacto" text
+  "telefono_contacto" text
+  "contacto_zona" text
+  "has_three_checks" bool
+  "inventory_type_id" int
+  "property_moment_id" int
+  "es_inventario_propio" bool
+  "is_private" bool
+  "remodelado" bool
+  "publicado_status" int
+  "fecha_primera_vez" timestamp
+  "last_seen_at" timestamptz
+  "destacado" bool
+  "anunciante_tipo" text
+  "moneda" text
+  "precio_incluye_admin" bool
+  "area_tipo" text
 }
 
 Table "raw.listings_metrocuadrado" {
@@ -1238,6 +1568,12 @@ Table "raw.listings_metrocuadrado" {
   "piso" smallint
   "antiguedad" text
   "administracion" numeric
+  "last_seen_at" timestamptz
+  "destacado" bool
+  "anunciante_tipo" text
+  "moneda" text
+  "precio_incluye_admin" bool
+  "area_tipo" text
 }
 
 Table "raw.listings_precio_historial" {
@@ -1284,6 +1620,8 @@ Table "raw.listings_premium" {
   "dedup_hash" varchar
   "fuente_tipo" varchar
   "geom" geometry
+  "fecha_primera_vez" timestamp
+  "activo" bool [not null]
 }
 
 Table "raw.listings_renta_media" {
@@ -1309,6 +1647,20 @@ Table "raw.listings_renta_media" {
   "descripcion" text
   "fotos" text[]
   "amenidades" text[]
+  "fecha_primera_vez" timestamp
+  "activo" bool [not null]
+}
+
+Table "raw.obras_publicas_planeadas" {
+  "id" int [pk, not null]
+  "nombre" text [not null]
+  "tipo" text [not null]
+  "descripcion" text
+  "municipio" text
+  "fecha_estimada" text
+  "fuente" text
+  "geometry" geometry
+  "cargado_en" timestamptz [not null]
 }
 
 Table "raw.parametros_sistema" {
@@ -1316,6 +1668,21 @@ Table "raw.parametros_sistema" {
   "valor" text [not null]
   "fuente" text
   "updated_at" timestamptz
+}
+
+Table "raw.poblacion_comuna" {
+  "comuna" text [pk, not null]
+  "codigo" text
+  "poblacion" int [not null]
+  "fuente" text
+  "cargado_en" timestamptz [not null]
+}
+
+Table "raw.poblacion_municipio" {
+  "municipio" text [pk, not null]
+  "poblacion" int [not null]
+  "fuente" text
+  "cargado_en" timestamptz [not null]
 }
 
 Table "raw.pois" {
@@ -1336,6 +1703,34 @@ Table "raw.pot_usos_medellin" {
   "cod_subcat_uso" int
   "geometry" geometry
   "fuente" text
+  "id" bigint [pk, not null]
+}
+
+Table "raw.ruido_estaciones" {
+  "id" int [pk, not null]
+  "codigo" int [not null]
+  "red" text [not null]
+  "nombre" text
+  "municipio" text
+  "db_prom_dia" numeric
+  "db_prom_noche" numeric
+  "ventana" text
+  "fecha_inicio" text
+  "fecha_fin" text
+  "geometry" geometry
+  "cargado_en" timestamptz [not null]
+}
+
+Table "raw.scrape_runs" {
+  "id" bigint [pk, not null]
+  "fuente" text [not null]
+  "config_key" text [not null]
+  "modo" text [not null]
+  "total_hits" int
+  "seen" int [not null]
+  "pages_failed" int [not null]
+  "complete" bool [not null]
+  "run_at" timestamptz [not null]
 }
 
 Table "raw.trafico_muestras" {
@@ -1407,6 +1802,8 @@ Table "staging.stg_listings" {
   "direccion_raw" text
   "barrio_raw" text
   "barrio_id" int
+  "lat" float8
+  "lon" float8
   "url" text
   "fecha_scraping" timestamptz
   "activo" bool
@@ -1447,28 +1844,9 @@ Table "staging.stg_listings_unificado" {
   "antiguedad" text
   "amenidades" text[]
   "verificado" bool
-}
-
-Table "staging.stg_listings_v1_deprecated" {
-  "id" int
-  "fuente" text
-  "tipo_operacion" text
-  "tipo_inmueble" text
-  "precio" numeric
-  "area_m2" numeric
-  "habitaciones" int
-  "banos" int
-  "direccion_raw" text
-  "barrio_raw" text
-  "barrio_id" int
-  "url" text
-  "fecha_scraping" timestamptz
-  "activo" bool
-  "precio_m2" numeric
-  "fecha_publicacion" date
-  "dias_en_mercado" int
-  "precio_venta_real" numeric
-  "precio_arriendo_real" numeric
+  "administracion" numeric
+  "nombre_edificio" text
+  "geo_aproximada" bool
 }
 
 Table "staging.stg_seguridad" {
@@ -1502,14 +1880,14 @@ Table "staging.stg_valorizacion" {
   "calculado_en" timestamptz
 }
 
-Ref: afiliados."ciudad_id" > ciudades."id"
-Ref: afiliados."usuario_id" > usuarios."id"
 Ref: agency_invite."agency_id" > agency."id"
 Ref: agency_invite."agent_id" > agent."id"
 Ref: agency_member."agency_id" > agency."id"
 Ref: agency_member."agent_id" > agent."id"
 Ref: agent."usuario_id" > usuarios."id"
 Ref: agent_disponibilidad."agent_id" > agent."id"
+Ref: agent_review."agent_id" > agent."id"
+Ref: agent_review."user_id" > usuarios."id"
 Ref: agente_reviews."agente_id" > agentes."id"
 Ref: agente_reviews."usuario_id" > usuarios."id"
 Ref: agente_solicitudes."agente_id" > agentes."id"
@@ -1517,10 +1895,12 @@ Ref: agente_solicitudes."listing_id" > listings_propios."id"
 Ref: agente_solicitudes."user_id" > usuarios."id"
 Ref: agentes."ciudad_id" > ciudades."id"
 Ref: agentes."usuario_id" > usuarios."id"
-Ref: aplicaciones_afiliado."ciudad_id" > ciudades."id"
-Ref: aplicaciones_embajador."barrio_id" > "raw.barrios"."id"
-Ref: aplicaciones_embajador."ciudad_id" > ciudades."id"
+Ref: alertas_precio."usuario_id" > usuarios."id"
+Ref: aplicacion_referidor."barrio_id" > "raw.barrios"."id"
+Ref: aplicacion_referidor."ciudad_id" > ciudades."id"
+Ref: aplicaciones_pasantia."ciudad_id" > ciudades."id"
 Ref: comparaciones_historial."usuario_id" > usuarios."id"
+Ref: comunidad_post."barrio_id" > "raw.barrios"."id"
 Ref: configuracion_mapa."usuario_id" > usuarios."id"
 Ref: deals."barrio_id" > "raw.barrios"."id"
 Ref: deals."ciudad_id" > ciudades."id"
@@ -1531,12 +1911,17 @@ Ref: due_diligence_item."verificado_por" > agent."id"
 Ref: email_verification_tokens."usuario_id" > usuarios."id"
 Ref: embajadores."barrio_id" > "raw.barrios"."id"
 Ref: embajadores."ciudad_id" > ciudades."id"
+Ref: embajadores."post_id" > comunidad_post."id"
 Ref: embajadores."usuario_id" > usuarios."id"
 Ref: eventos."barrio_id" > "raw.barrios"."id"
 Ref: eventos."ciudad_id" > ciudades."id"
 Ref: eventos."subido_por" > usuarios."id"
 Ref: favoritos."usuario_id" > usuarios."id"
+Ref: ghl_account_mapping."client_id" > usuarios."id"
 Ref: historial."usuario_id" > usuarios."id"
+Ref: hotspots."barrio_id" > "raw.barrios"."id"
+Ref: hotspots."ciudad_id" > ciudades."id"
+Ref: hotspots."tienda_id" > tiendas."id"
 Ref: intake."agent_id" > agent."id"
 Ref: intake."listing_id" > listing."id"
 Ref: intake."owner_id" > owner."id"
@@ -1545,20 +1930,26 @@ Ref: leads_negocio."barrio_id" > "raw.barrios"."id"
 Ref: leads_negocio."ciudad_id" > ciudades."id"
 Ref: listing."agency_id" > agency."id"
 Ref: listing."agent_id" > agent."id"
+Ref: listing."barrio_id" > "raw.barrios"."id"
 Ref: listing."owner_id" > owner."id"
 Ref: listing."verificado_por" > agent."id"
 Ref: listing_media."listing_id" > listing."id"
 Ref: listing_moderacion."listing_id" > listing."id"
+Ref: listing_reclamo."usuario_id" > usuarios."id"
 Ref: listings_propios."barrio_id" > "raw.barrios"."id"
 Ref: listings_propios."ciudad_id" > ciudades."id"
 Ref: listings_propios."user_id" > usuarios."id"
+Ref: noticias."barrio_id" > "raw.barrios"."id"
 Ref: owner."usuario_id" > usuarios."id"
 Ref: password_reset_tokens."usuario_id" > usuarios."id"
 Ref: perfil_inversor."usuario_id" > usuarios."id"
 Ref: posts_barrio."barrio_id" > "raw.barrios"."id"
 Ref: posts_barrio."usuario_id" > usuarios."id"
-Ref: referidos."afiliado_id" > afiliados."id"
-Ref: referidos."embajador_id" > embajadores."id"
+Ref: propiedad_evento."visita_solicitud_id" > visita_solicitud."id"
+Ref: referidor."barrio_id" > "raw.barrios"."id"
+Ref: referidor."ciudad_id" > ciudades."id"
+Ref: referidor."usuario_id" > usuarios."id"
+Ref: referidos."referidor_id" > referidor."id"
 Ref: referidos."suscripcion_id" > suscripciones_negocio."id"
 Ref: referidos."tienda_id" > tiendas."id"
 Ref: simulaciones_historial."usuario_id" > usuarios."id"
@@ -1585,8 +1976,8 @@ Ref: "raw.airbnb_barrios"."barrio_id" > "raw.barrios"."id"
 Ref: "raw.airbnb_listings_portal"."barrio_id" > "raw.barrios"."id"
 Ref: "raw.airbnb_mercado_valle"."barrio_id" > "raw.barrios"."id"
 Ref: "raw.barrios"."ciudad_id" > ciudades."id"
+Ref: "raw.comunas"."ciudad_id" > ciudades."id"
 Ref: "raw.favoritos_listings"."usuario_id" > usuarios."id"
-Ref: "raw.listing_vistas"."usuario_id" > usuarios."id"
 Ref: "raw.listings_fincaraiz"."barrio_id" > "raw.barrios"."id"
 Ref: "raw.listings_metrocuadrado"."barrio_id" > "raw.barrios"."id"
 Ref: "raw.listings_premium"."barrio_id" > "raw.barrios"."id"

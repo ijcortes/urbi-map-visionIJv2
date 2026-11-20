@@ -10,7 +10,8 @@ Env:
   LINK_REVIEW_SECRET      HMAC signing key (>= 16 chars; required to create action links)
   LINK_REVIEW_BASE_URL    public API base used in e-mail links, e.g. https://api.example.com
   LINK_REVIEW_TOKEN_TTL_DAYS (default 7) / LINK_REVIEW_REMINDER_DAYS (7) / LINK_REVIEW_KEEP_DAYS (30)
-  LINK_AUTO_RETIRE_AFTER_DAYS  optional; default OFF. Counted from the FIRST successful notification (first_notified_at)
+  LINK_AUTO_RETIRE_AFTER_DAYS  optional; default OFF. Counted from first_gone_at (the checker's first 'gone'),
+                               so dead links drop off the map on checker evidence alone — no e-mail/human needed.
   LINK_AUTO_RETIRE_EVIDENCE_HOURS (48) auto-retire also needs a conclusive 'gone' check this recent, source not braked
   LINK_REVIEW_FALLBACK_DIR     where the digest HTML goes when e-mail cannot be sent (default ./link_review_digests)
 """
@@ -227,9 +228,12 @@ async def apply_decision(conn, action: str, target: str, who: str = "email-link"
 
 async def auto_retire(conn, braked: list[str] | tuple[str, ...] = ()) -> int:
     """Opt-in only (LINK_AUTO_RETIRE_AFTER_DAYS > 0). Retires a candidate only when ALL hold:
-    the grace period since the FIRST successful notification (first_notified_at, never reset by
-    reminders) has elapsed; the latest check was a conclusive 'gone' (not blocked/error/gone_suspect);
-    that gone evidence is recent (LINK_AUTO_RETIRE_EVIDENCE_HOURS, default 48); its source is not braked."""
+    the grace period since first_gone_at (the checker's first 'gone' for this episode) has elapsed;
+    the latest check was a conclusive 'gone' (not blocked/error/gone_suspect); that gone evidence is
+    recent (LINK_AUTO_RETIRE_EVIDENCE_HOURS, default 48); its source is not braked. The clock keys off
+    the checker's OWN evidence (first_gone_at), NOT first_notified_at: a never-delivered review digest
+    must not block cleanup. The two-strike pending_review gate + mass-gone brake stay the false-positive
+    guards, and retire remains reversible (reactivate_listing)."""
     days = float(os.getenv("LINK_AUTO_RETIRE_AFTER_DAYS", "0") or 0)
     if days <= 0:
         return 0
@@ -237,7 +241,7 @@ async def auto_retire(conn, braked: list[str] | tuple[str, ...] = ()) -> int:
     urls = [r["url"] for r in await conn.fetch(
         """SELECT url FROM public.listing_link_health
             WHERE url_status='pending_review' AND last_result='gone'
-              AND first_notified_at IS NOT NULL AND first_notified_at < now() - make_interval(secs => $1)
+              AND first_gone_at IS NOT NULL AND first_gone_at < now() - make_interval(secs => $1)
               AND last_gone_confirmed_at > now() - make_interval(secs => $2)
               AND NOT (fuente = ANY($3::text[]))""", days * 86400, evidence * 3600, list(braked))]
     n = 0
@@ -364,8 +368,9 @@ async def maybe_send_digest(conn, *, sender: Sender | None, braked: list[str], a
         log.warning("LINK_REVIEW_EMAILS %s: digest written to %s instead of e-mail",
                     "unset" if not to else "delivery failed", f)
     if cands:
-        # first_notified_at is IMMUTABLE once set (reminders only move review_notified_at) and only starts
-        # the auto-retire grace clock after a delivery that carried working action links.
+        # first_notified_at is IMMUTABLE once set (reminders only move review_notified_at). It records WHEN a
+        # human was first told; auto-retire no longer keys off it (it uses first_gone_at), so this is for the
+        # digest/reminder bookkeeping only.
         await conn.execute(
             "UPDATE public.listing_link_health SET review_notified_at=$2, review_batch=$3, "
             "first_notified_at = CASE WHEN $4 THEN COALESCE(first_notified_at, $2) ELSE first_notified_at END "

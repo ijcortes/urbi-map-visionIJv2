@@ -75,9 +75,11 @@ export const Route = createFileRoute("/simulador")({
       throw redirect({ to: "/login" });
     }
     const u = JSON.parse(raw);
-    if (u.plan !== "agente" && u.esAgente !== true) {
-      throw redirect({ to: "/planes", search: { audiencia: "agente" } });
+    // El simulador vive ahora DENTRO del centro de agente (tab), no como página suelta.
+    if (u.plan === "agente" || u.esAgente === true) {
+      throw redirect({ href: "/realtor/dashboard?tab=simulador" });
     }
+    throw redirect({ to: "/planes", search: { audiencia: "agente" } });
   },
   component: SimuladorPage,
 });

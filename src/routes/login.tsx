@@ -2,10 +2,23 @@ import { seo } from "@/lib/seo";
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useLogin, useMagicLinkRequest } from "@/hooks/useAuth";
-import { useLang, FlagCO, FlagUS } from "@/lib/i18n";
 import { AlertCircle, Mail } from "@/lib/icons";
 import { GoogleSignInButton } from "@/components/GoogleSignInButton";
+import { useT } from "@/lib/i18n";
+import { BarrioProvider } from "@/components/comunidad/BarrioContext";
+import { ComunidadNavbar } from "@/components/comunidad/ComunidadNavbar";
 import { K as TOKENS } from "@/design/tokens";
+
+// Tras loguear, vuelve a donde el usuario pretendía ir (?redirect=/ruta). Solo
+// rutas internas ("/..."): rechaza "//host", "/\host" y URLs absolutas para que
+// nadie use ?redirect= como open-redirect fuera del sitio.
+export function safeRedirect(fallback = "/map"): string {
+  try {
+    const r = new URLSearchParams(window.location.search).get("redirect");
+    if (r && r.startsWith("/") && !r.startsWith("//") && !r.startsWith("/\\")) return r;
+  } catch { /* SSR / no window */ }
+  return fallback;
+}
 
 export const Route = createFileRoute("/login")({
   head: () => seo({ title: "Ingresar · Medellín Social", description: "Ingresa a tu cuenta de Medellín Social.", path: "/login" }),
@@ -15,6 +28,7 @@ export const Route = createFileRoute("/login")({
 const K = TOKENS;
 
 function LoginPage() {
+  const t = useT();
   const navigate = useNavigate();
   const login = useLogin();
   const magicLink = useMagicLinkRequest();
@@ -33,7 +47,7 @@ function LoginPage() {
     setError("");
     try {
       await login.mutateAsync({ email, password });
-      navigate({ to: "/map" });
+      navigate({ to: safeRedirect() as never });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Credenciales inválidas.");
     }
@@ -69,13 +83,13 @@ function LoginPage() {
               </div>
             </div>
             <p style={{ fontFamily: K.manrope, fontSize: 14, color: K.ink, margin: 0 }}>
-              Revisa <strong>{email}</strong>. El link es válido por 15 minutos y funciona una sola vez.
+              {t(`Revisa ${email}. El link es válido por 15 minutos y funciona una sola vez.`, `Check ${email}. The link is valid for 15 minutes and works once.`)}
             </p>
             <button
               onClick={() => { setMagicSent(false); setMode("password"); }}
               style={{ background: "none", border: "none", color: K.teal, fontFamily: K.manrope, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
             >
-              ← Volver
+              {t("← Volver", "← Back")}
             </button>
           </div>
         ) : (
@@ -100,7 +114,7 @@ function LoginPage() {
               onClick={() => { setError(""); setMode("password"); }}
               style={{ background: "none", border: "none", color: K.muted, fontFamily: K.manrope, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
             >
-              ← Ingresar con contraseña
+              {t("← Ingresar con contraseña", "← Sign in with password")}
             </button>
           </form>
         )}
@@ -141,7 +155,7 @@ function LoginPage() {
             onClick={() => { setError(""); setMode("magic"); }}
             style={{ background: "none", border: "none", padding: 0, color: K.teal, fontSize: 13, fontFamily: K.manrope, fontWeight: 600, cursor: "pointer" }}
           >
-            Ingresar sin contraseña
+            {t("Ingresar sin contraseña", "Sign in without a password")}
           </button>
           <Link
             to="/forgot-password"
@@ -152,20 +166,32 @@ function LoginPage() {
         </div>
         {error && <ErrorBanner message={error} />}
         <AuthButton disabled={login.isPending}>
-          {login.isPending ? "Entrando…" : "Iniciar sesión"}
+          {login.isPending ? t("Entrando…", "Signing in…") : t("Iniciar sesión", "Sign in")}
         </AuthButton>
         <GoogleSignInButton
           onSuccess={() => {
-            navigate({ to: "/map" });
+            navigate({ to: safeRedirect() as never });
           }}
           onError={setError}
         />
-        <p style={{ textAlign: "center", fontSize: 13, fontFamily: K.manrope, color: K.muted, margin: 0 }}>
-          ¿No tienes cuenta?{" "}
-          <Link to="/register" style={{ color: K.teal, fontWeight: 700, textDecoration: "none" }}>
-            Regístrate
-          </Link>
-        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "4px 0" }}>
+          <span style={{ flex: 1, height: 1, background: K.line }} />
+          <span style={{ fontSize: 12, fontFamily: K.manrope, color: K.muted }}>{t("¿No tienes cuenta?", "No account yet?")}</span>
+          <span style={{ flex: 1, height: 1, background: K.line }} />
+        </div>
+        <Link
+          to="/register"
+          onClick={() => localStorage.setItem("registro_origen", "mls")}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: "100%", padding: "13px", borderRadius: 999,
+            border: `1.5px solid ${K.teal}`, background: "transparent",
+            color: K.tealDeep, fontFamily: "'Inter', system-ui, sans-serif",
+            fontSize: 14, fontWeight: 800, textDecoration: "none",
+          }}
+        >
+          {t("Crear cuenta nueva", "Create a new account")}
+        </Link>
       </form>
     </AuthShell>
   );
@@ -183,7 +209,7 @@ export function AuthShell({
   children: React.ReactNode;
 }) {
   return (
-    <>
+    <BarrioProvider initialSlug="todos">
       <style>{`
         .auth-input:focus {
           border-color: #0F8A4F !important;
@@ -197,8 +223,25 @@ export function AuthShell({
           color: #9aada6;
           font-weight: 400;
         }
+        /* Móvil: alto natural, scroll normal de página. */
+        .auth-shell { display: flex; flex-direction: column; min-height: 100dvh; }
+        .auth-row { display: flex; flex: 1; min-height: 0; }
+        .auth-form-col { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 20px 24px; position: relative; }
+        /* margin:auto centra vertical cuando sobra espacio; si el form es más alto
+           que el área, en vez de centrar-y-recortar, fluye desde arriba y scrollea. */
+        .auth-form-wrap { width: 100%; max-width: 400px; margin: auto 0; }
+        /* Desktop: encaja a pantalla, nunca scrollea la página; si un form no cabe
+           (pantallas bajas), scrollea SOLO su columna. */
+        @media (min-width: 1024px) {
+          .auth-shell { height: 100dvh; min-height: 0; overflow: hidden; }
+          .auth-form-col { overflow-y: auto; }
+        }
       `}</style>
-      <div style={{ display: "flex", minHeight: "100dvh", background: K.paper, fontFamily: K.manrope }}>
+      {/* Mismo navbar que el home (ComunidadLayout sin compact): masthead + barra
+          + ticker + tricolor. Da camino de vuelta al mapa/comunidad + ES/EN. */}
+      <div className="auth-shell" style={{ background: K.paper, fontFamily: K.manrope }}>
+        <ComunidadNavbar />
+        <div className="auth-row">
         {/* Left editorial column — desktop only */}
         <div
           className="hidden lg:flex"
@@ -241,42 +284,22 @@ export function AuthShell({
             )}
             {/* Stats pills */}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {["54K+ propiedades", "606 barrios", "12K+ negocios"].map(s => (
+              {["100K+ propiedades", "606 barrios", "12K+ negocios"].map(s => (
                 <span key={s} style={{ fontFamily: K.manrope, fontSize: ".68rem", fontWeight: 600, color: "rgba(255,255,255,.7)", background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.16)", padding: "4px 11px", borderRadius: 999 }}>
                   {s}
                 </span>
               ))}
             </div>
+            <p style={{ fontFamily: K.manrope, fontSize: ".75rem", fontWeight: 600, color: "rgba(255,255,255,.72)", margin: "14px 0 0", letterSpacing: ".2px" }}>
+              Datos para tomar mejores decisiones
+            </p>
           </div>
         </div>
 
         {/* Right form column */}
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "48px 24px",
-            position: "relative",
-            background: K.paper,
-          }}
-        >
-          {/* Language toggle */}
-          <div style={{ position: "absolute", top: 16, right: 16 }}>
-            <AuthLangToggle />
-          </div>
-
-          {/* Mobile logo */}
-          <div className="lg:hidden" style={{ marginBottom: 28, textAlign: "center" }}>
-            <span style={{ fontFamily: K.serif, fontSize: "1.7rem", fontWeight: 900, color: K.ink }}>
-              Medellín Social
-            </span>
-          </div>
-
+        <div className="auth-form-col" style={{ background: K.paper }}>
           {/* Form area — no white card, form sits on paper */}
-          <div style={{ width: "100%", maxWidth: 400 }}>
+          <div className="auth-form-wrap">
             <h1 style={{
               fontFamily: K.serif,
               fontSize: "clamp(1.7rem, 3.5vw, 2rem)",
@@ -288,14 +311,15 @@ export function AuthShell({
             }}>
               {title}
             </h1>
-            <p style={{ fontFamily: K.manrope, fontSize: 14, color: K.muted, margin: "0 0 36px 0", lineHeight: 1.6 }}>
+            <p style={{ fontFamily: K.manrope, fontSize: 14, color: K.muted, margin: "0 0 22px 0", lineHeight: 1.55 }}>
               {subtitle}
             </p>
             {children}
           </div>
         </div>
+        </div>
       </div>
-    </>
+    </BarrioProvider>
   );
 }
 
@@ -304,7 +328,7 @@ export const inputStyle: React.CSSProperties = {
   background: "#fff",
   border: "1px solid #E5E0D5",
   borderRadius: 10,
-  padding: "13px 16px",
+  padding: "11px 16px",
   color: "#111418",
   fontFamily: "'Inter', system-ui, sans-serif",
   fontSize: 14,
@@ -353,32 +377,6 @@ export function ErrorBanner({ message }: { message: string }) {
     >
       <AlertCircle style={{ width: 14, height: 14, flexShrink: 0, color: "#CE1126" }} />
       {message}
-    </div>
-  );
-}
-
-function AuthLangToggle() {
-  const { lang, toggle } = useLang();
-  return (
-    <div style={{ display: "inline-flex", gap: 6 }}>
-      {(["es", "en"] as const).map(l => (
-        <button
-          key={l}
-          onClick={lang !== l ? toggle : undefined}
-          title={l === "es" ? "Español (Colombia)" : "English (USA)"}
-          style={{
-            borderRadius: 999,
-            border: `1.5px solid ${lang === l ? K.teal : K.line}`,
-            background: lang === l ? "#E7F4EC" : K.paper,
-            padding: "4px 8px",
-            cursor: lang === l ? "default" : "pointer",
-            display: "flex", alignItems: "center",
-            transition: "border-color 0.15s, background 0.15s",
-          }}
-        >
-          {l === "es" ? <FlagCO /> : <FlagUS />}
-        </button>
-      ))}
     </div>
   );
 }

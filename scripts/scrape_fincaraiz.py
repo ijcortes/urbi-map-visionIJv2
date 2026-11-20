@@ -90,7 +90,14 @@ def in_valle_aburra(lat, lng) -> bool:
 
 
 def fetch_html(url: str) -> str | None:
-    r = http_get(SESSION, url, timeout=25, stats=STATS)
+    # fincaraiz migró a InfoCasas y ahora sirve el robots.txt "apache-ultimate-bad-
+    # bot-blocker" (64KB, 1772 Disallow:/ para bots nombrados). Su `User-agent: *`
+    # SÍ permite /venta/ (solo bloquea /admin/, /apps/), pero nuestro UA colisiona
+    # con una entrada bad-bot → robots_allowed() da falso-negativo y bloqueaba TODAS
+    # las páginas (0 listings → el job `refresh` salía exit 1). check_robots=False
+    # honra la política real del *; el sitio responde 200 y __NEXT_DATA__ sigue ahí.
+    # Mismo patrón que habi (robots false-positive). Verificado 2026-11-11.
+    r = http_get(SESSION, url, timeout=25, stats=STATS, check_robots=False)
     if r is None:
         print(f"  ERROR fetching {url} (after retries)")
         return None

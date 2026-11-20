@@ -363,7 +363,7 @@ SELECT
     m.m2_mediana::int             AS precio_m2_mediana_barrio,
     g.url_activa                  AS disponible_actualmente,
     CASE WHEN _llh.url_status IS NULL OR _llh.url_status = 'blocked' THEN 'unknown' ELSE _llh.url_status END AS link_status,
-    (CURRENT_DATE - _lm.fecha_primera_vez::date)::int
+    (CURRENT_DATE - g.fecha_primera_vez::date)::int
                                   AS dias_en_mercado,
     NULL::timestamp               AS fecha_ultima_verificacion,
     ctx.yield_bruto_pct,
@@ -384,18 +384,19 @@ SELECT
     l.amoblado,
     l.verificado,
     COALESCE(_fav.favoritos_count, 0) AS favoritos_count,
-    COALESCE(mm.portada_r2, l.foto_principal) AS foto_principal,
+    -- ponytail: el backfill del espejo R2 corrió en modo STUB (bucket vacío) →
+    -- portada_r2 guardó URLs rotas (host vacío, objeto inexistente). Servir el CDN
+    -- original hasta que R2 esté realmente poblado; re-añadir COALESCE(mm.portada_r2,…) ahí.
+    l.foto_principal AS foto_principal,
     l.nombre_edificio
 FROM lraw l
 LEFT JOIN raw.barrios b                ON b.id = l.barrio_id
 LEFT JOIN analytics.listings_georef g  ON g.url = l.url
 LEFT JOIN public.listing_link_health _llh ON _llh.url = l.url
-LEFT JOIN raw.listing_media_mirror mm ON mm.url = l.url AND mm.activa
 LEFT JOIN analytics.barrios_medianas m ON m.barrio_id = l.barrio_id
                AND m.tipo_inmueble IS NOT DISTINCT FROM l.tipo_inmueble
 LEFT JOIN analytics.barrios_cd bc     ON bc.barrio_id = b.id
 LEFT JOIN analytics.barrios_contexto ctx ON ctx.barrio_id = l.barrio_id
-LEFT JOIN raw.listings_metrocuadrado _lm ON _lm.url = l.url AND l.fuente = 'metrocuadrado'
 LEFT JOIN (
     SELECT url, COUNT(*)::int AS favoritos_count
     FROM raw.favoritos_listings GROUP BY url
@@ -552,22 +553,38 @@ _BARRIO_CTX_KEYS = (
 # Datos del inmueble (precio, specs, fotos, descripción, historial, estrato,
 # amenidades, dias_en_mercado) son públicos y NO se tocan. El shape no cambia:
 # los campos siguen existiendo, van null para el público.
-_MARKET_INTEL_FIELDS = (
-    "buena_oferta", "pct_bajo_mediana",
-    "liquidez_score", "seguridad_score",
+#
+# Público (gancho del usuario gratis, roles doc): si está cara/barata
+# (buena_oferta, pct_bajo_mediana), valor/renta estimados del barrio
+# (precio_m2_mediana_barrio, p25/p75, arriendo_p50_barrio, arr_p25/p75),
+# avaluo_m2_catastro y el historial (var_anual_pct) — NO se gatean.
+# Gate de 3 niveles (doc de roles):
+#   Registrado (inversionista, gratis con registro): rentabilidad/yields +
+#     historial de precio (gancho de registro; anónimo ve el fallback degradado).
+#   Realtor (paga): scores de inversión + inteligencia profunda.
+# precio_historia pasó a PÚBLICO (estilo Zillow: el historial de precio no se gatea).
+_REGISTERED_FIELDS = ("yield_estimado", "yield_bruto_pct")
+# To-do §2: seguridad pasó de realtor-only a PÚBLICA (gratis para todos) — ya no
+# está en esta lista. Los scores de inversión y liquidez siguen siendo realtor.
+_REALTOR_FIELDS = (
+    "liquidez_score",
     "score_corto", "score_mediano", "score_largo",
-    "var_anual_pct", "precio_m2_mediana_barrio",
-    "precio_m2_p25", "precio_m2_p75", "arr_p25", "arr_p75",
-    "arriendo_p50_barrio", "yield_estimado", "yield_bruto_pct",
     "indice_nomada", "barrio_score", "barrio_yield",
-    "tiempo_estimado_venta", "avaluo_m2_catastro",
+    "tiempo_estimado_venta",
 )
+# Compat: algunos tests/refs esperan el set completo gated.
+_MARKET_INTEL_FIELDS = _REGISTERED_FIELDS + _REALTOR_FIELDS
 
 
-def _gate_market_fields(row_d: dict, agente: bool) -> dict:
-    """Único punto de gate server-side de inteligencia de mercado."""
-    if not agente:
-        for f in _MARKET_INTEL_FIELDS:
+def _gate_market_fields(row_d: dict, user: Optional[dict]) -> dict:
+    """Gate server-side de 3 niveles: público / registrado / realtor.
+    Anónimo no ve registrado+realtor; registrado no-agente no ve realtor; agente ve todo."""
+    if user is None:
+        for f in _REGISTERED_FIELDS + _REALTOR_FIELDS:
+            if f in row_d:
+                row_d[f] = None
+    elif not is_agente(user):
+        for f in _REALTOR_FIELDS:
             if f in row_d:
                 row_d[f] = None
     return row_d
@@ -811,7 +828,7 @@ async def get_all_listings(
         # Extraer ctx de barrio ANTES del gate — la personalización lo necesita
         # (comportamiento idéntico al actual para usuarios públicos).
         barrio_ctx = {k: row_d.get(k) for k in _BARRIO_CTX_KEYS} if perfil_dict else None
-        _gate_market_fields(row_d, _is_agente)
+        _gate_market_fields(row_d, current_user)
         _finalize_row(row_d, rate)
         if perfil_dict:
             score, razones = calcular_relevancia(row_d, barrio_ctx, perfil_dict)
@@ -837,6 +854,33 @@ async def get_all_listings(
         items.sort(key=lambda x: x.relevancia_score or 0.0, reverse=True)
         items = items[offset: offset + limit]
 
+    # Demanda insatisfecha (funnel): una búsqueda LOCALIZADA y CON FILTROS que no
+    # devolvió nada = un lead de venta ("N quieren X en barrio Y y no hay oferta").
+    # Se gatea para no registrar cargas por defecto ni paneos de viewport vacíos.
+    _tiene_filtro = any(v is not None for v in (tipo_inmueble, precio_min, precio_max, habitaciones, estrato_real))
+    _localizada = barrio_id is not None or cd_comuna is not None or bool(municipio)
+    if total == 0 and _localizada and _tiene_filtro:
+        try:
+            _ip = _client_ip(request)
+            _sid = f"anon-{hashlib.sha256(_ip.encode()).hexdigest()[:16]}" if _ip else "anon-unknown"
+            await pool.execute(
+                """INSERT INTO public.user_events
+                       (usuario_id, session_id, event_type, entity_type, barrio_id, metadata)
+                   VALUES ($1, $2, 'search_no_results', 'search', $3, $4::jsonb)""",
+                current_user["id"] if current_user else None,
+                _sid,
+                barrio_id,
+                json.dumps({
+                    "tipo_operacion": tipo_operacion,
+                    "tipo_inmueble": tipo_inmueble,
+                    "precio_min": precio_min, "precio_max": precio_max,
+                    "habitaciones": habitaciones, "estrato_real": estrato_real,
+                    "cd_comuna": cd_comuna, "municipio": municipio,
+                }, default=str),
+            )
+        except Exception:
+            logger.warning("search_no_results insert falló", exc_info=True)
+
     return ListingsAllResponse(
         total=total,
         listings=items,
@@ -851,7 +895,7 @@ WITH listing AS (
            listing_uid,
            fuente, tier, tipo_operacion, tipo_inmueble,
            precio_cop, area_m2, NULLIF(habitaciones, -1) AS habitaciones, banos,
-           direccion_raw, barrio_id, url, fotos, amenidades,
+           direccion_raw, barrio_id, lat, lon, url, fotos, amenidades,
            amoblado, COALESCE(verificado, FALSE) AS verificado,
            fecha_scraping, n_duplicados,
            precio_variable, precio_min_cluster, precio_max_cluster,
@@ -864,6 +908,11 @@ WITH listing AS (
            END AS pm2
     FROM staging.stg_listings_unificado
     WHERE ('x'||substr(md5(url),1,8))::bit(32)::int = $1
+    -- 402 listings devolvían popup VACÍO (HTTP 500): el id es hash 32-bit de md5(url) y el CTE
+    -- traía 2 filas con url duplicada en staging o colisión de hash → los subqueries escalares
+    -- (SELECT barrio_id/tipo_inmueble FROM listing) reventaban. LIMIT 1 garantiza 1 fila.
+    ORDER BY fecha_scraping DESC NULLS LAST
+    LIMIT 1
 ),
 p_range AS (
     SELECT
@@ -905,8 +954,8 @@ SELECT
     l.banos::float8,
     l.direccion_raw,
     l.url,
-    g.lat,
-    g.lon,
+    COALESCE(g.lat, l.lat) AS lat,
+    COALESCE(g.lon, l.lon) AS lon,
     g.url_activa AS disponible_actualmente,
     CASE WHEN _llh.url_status IS NULL OR _llh.url_status = 'blocked' THEN 'unknown' ELSE _llh.url_status END AS link_status,
     g.estrato_real,
@@ -947,7 +996,7 @@ SELECT
     COALESCE(lm.descripcion, lf.descripcion, lp.descripcion) AS descripcion,
     dt.descripcion_trad                AS descripcion_trad,
     dt.src_lang                        AS descripcion_src_lang,
-    (CURRENT_DATE - lm.fecha_primera_vez::date)::int
+    (CURRENT_DATE - g.fecha_primera_vez::date)::int
                                        AS dias_en_mercado,
     l.fecha_publicacion::text,
     NULL::timestamp AS fecha_ultima_verificacion,
@@ -968,7 +1017,8 @@ SELECT
          THEN (lm.raw_data->>'nroGarajes')::int END AS parqueaderos,
     CASE WHEN lm.raw_data->>'nroPiso' ~ '^\d+$'
          THEN (lm.raw_data->>'nroPiso')::int END    AS piso,
-    COALESCE(mm.fotos_r2, l.fotos, lp.fotos) AS fotos,
+    -- ponytail: backfill R2 en STUB → fotos_r2 = URLs rotas; servir galería original.
+    COALESCE(l.fotos, lp.fotos) AS fotos,
     pr.m2_p25::int  AS precio_m2_p25,
     pr.m2_p75::int  AS precio_m2_p75,
     pr.arr_p25::int AS arr_p25,
@@ -987,7 +1037,10 @@ SELECT
     COALESCE(_lp_owner.nombre_edificio, l.nombre_edificio) AS nombre_edificio
 FROM listing l
 JOIN raw.barrios b ON b.id = l.barrio_id
-JOIN analytics.listings_georef g ON g.url = l.url
+-- LEFT (no INNER): 5,326 staging listings (22% de los caros >p90) no están en
+-- listings_georef → el INNER los dropeaba y el detalle salía VACÍO (el mini-popup
+-- del pin sí, porque usa el viewport). Coords salen de staging vía COALESCE arriba.
+LEFT JOIN analytics.listings_georef g ON g.url = l.url
 LEFT JOIN public.listing_link_health _llh ON _llh.url = l.url
 LEFT JOIN analytics.barrios_medianas m
     ON m.barrio_id = l.barrio_id
@@ -995,8 +1048,6 @@ LEFT JOIN analytics.barrios_medianas m
 LEFT JOIN analytics.barrios_cd bc ON bc.barrio_id = l.barrio_id
 LEFT JOIN analytics.barrios_contexto ctx ON ctx.barrio_id = l.barrio_id
 LEFT JOIN analytics.barrios_liquidez liq ON liq.barrio_id = l.barrio_id
--- Espejo R2: galería redimensionada (webp) — prioridad sobre el CDN original.
-LEFT JOIN raw.listing_media_mirror mm ON mm.url = l.url AND mm.activa
 -- Avalúo catastral (Medellín) — agregado por comuna en listings_vs_catastro.
 LEFT JOIN (
     SELECT cd_comuna, MAX(avaluo_m2_catastro) AS avaluo_m2_catastro
@@ -1116,14 +1167,10 @@ _VIEWPORT_PANEL_CAP = 200
 # $24 ocultar_destacados. The thinned-points SQL adds $25 = grid cell size (deg).
 # Clusters group by comuna/municipio — no extra param needed.
 
-# dias_en_mercado only exists for metrocuadrado listings (fecha_primera_vez).
-# Dedupe on url first (url is not unique in the raw table) so the LEFT JOIN can't
-# inflate cluster COUNT/AVG. MIN = earliest sighting = most days on market.
-_VIEWPORT_DM_JOIN = (
-    "LEFT JOIN (SELECT url, MIN(fecha_primera_vez) AS fecha_primera_vez\n"
-    "           FROM raw.listings_metrocuadrado GROUP BY url) _dm\n"
-    "       ON _dm.url = l.url AND l.fuente = 'metrocuadrado'"
-)
+# dias_en_mercado ahora sale de analytics.listings_georef (g, keyed por url, todas
+# las fuentes) — ya joineado en los queries de viewport. El viejo join metrocuadrado-
+# only queda vacío para no tocar los dos .format(dm_join=...).
+_VIEWPORT_DM_JOIN = ""
 
 # ONE definition of "featured" (hidden by ocultar_destacados) for clusters, points and
 # panel list: a premium tier, or an own listing whose owner is on a pro/agente plan.
@@ -1150,11 +1197,11 @@ _VIEWPORT_EXTRA_WHERE = """\
   AND ($17::text[] IS NULL OR EXISTS (
         SELECT 1 FROM unnest($17::text[]) _ti WHERE lower(l.tipo_inmueble) LIKE _ti || '%'))
   AND ($18::text   IS NULL OR CASE $18
-        WHEN 'nuevo'    THEN COALESCE((CURRENT_DATE - _dm.fecha_primera_vez::date), 999) < 7
-        WHEN 'reciente' THEN COALESCE((CURRENT_DATE - _dm.fecha_primera_vez::date), 999) < 30
-        WHEN 'demorado' THEN COALESCE((CURRENT_DATE - _dm.fecha_primera_vez::date), 999) >= 90
-        WHEN 'mas30'    THEN COALESCE((CURRENT_DATE - _dm.fecha_primera_vez::date), 999) >= 30
-        WHEN 'mas60'    THEN COALESCE((CURRENT_DATE - _dm.fecha_primera_vez::date), 999) >= 60
+        WHEN 'nuevo'    THEN COALESCE((CURRENT_DATE - g.fecha_primera_vez::date), 999) < 7
+        WHEN 'reciente' THEN COALESCE((CURRENT_DATE - g.fecha_primera_vez::date), 999) < 30
+        WHEN 'demorado' THEN COALESCE((CURRENT_DATE - g.fecha_primera_vez::date), 999) >= 90
+        WHEN 'mas30'    THEN COALESCE((CURRENT_DATE - g.fecha_primera_vez::date), 999) >= 30
+        WHEN 'mas60'    THEN COALESCE((CURRENT_DATE - g.fecha_primera_vez::date), 999) >= 60
         ELSE TRUE END)
   AND ($19::text   IS NULL OR l.direccion_raw ILIKE '%' || $19 || '%')
   AND ($20::text[] IS NULL OR EXISTS (
@@ -1292,7 +1339,8 @@ SELECT
     l.lat, l.lon, l.barrio_id,
     b.nombre                     AS barrio_nombre,
     b.municipio                  AS municipio,
-    g.estrato_real
+    g.estrato_real,
+    (CURRENT_DATE - g.fecha_primera_vez::date)::int AS dias_en_mercado
 FROM lraw l
 LEFT JOIN analytics.listings_georef g  ON g.url = l.url
 LEFT JOIN public.listing_link_health _llh ON _llh.url = l.url
@@ -1607,6 +1655,12 @@ class AgentePerfil(BaseModel):
     miembro_desde: Optional[datetime] = None
     rating_promedio: Optional[float] = None
     n_resenas: int = 0
+    responde_rapido: bool = False            # #23: sello si mediana respuesta <= 12h (>=3 visitas)
+    mediana_resp_horas: Optional[float] = None
+    n_leads: int = 0                         # #23: leads (visitas) maduros 180d — base de las tasas
+    tasa_respuesta: Optional[float] = None   # % de leads respondidos (= contacto); None si <3 leads
+    tasa_oferta: Optional[float] = None      # % de leads que llegaron a oferta (etapa embudo); None si <3
+    tasa_conversion: Optional[float] = None  # % de leads que terminaron en venta atribuida; None si <3
     zonas: list[AgentePerfilZona] = []
     activos: list[AgentePerfilListing] = []
     cierres: list[AgentePerfilListing] = []
@@ -1620,7 +1674,10 @@ class AgentePerfil(BaseModel):
 _AGENTE_PERFIL_SQL = """
 SELECT a.id::text, a.nombre, a.foto_url, a.bio, a.telefono, a.created_at AS miembro_desde,
        agcy.agencia_nombre, COALESCE(agcy.agencia_verificada, false) AS agencia_verificada,
-       rev.rating_promedio, COALESCE(rev.n_resenas, 0) AS n_resenas
+       rev.rating_promedio, COALESCE(rev.n_resenas, 0) AS n_resenas,
+       resp.mediana_resp_horas, COALESCE(resp.n_resp, 0) AS n_resp,
+       COALESCE(resp.n_leads, 0) AS n_leads, COALESCE(resp.n_ofertas, 0) AS n_ofertas,
+       COALESCE(resp.n_conversiones, 0) AS n_conversiones
 FROM agent a
 LEFT JOIN LATERAL (
     SELECT ag.nombre AS agencia_nombre, ag.verificada AS agencia_verificada
@@ -1632,6 +1689,28 @@ LEFT JOIN (
            COUNT(*)::int AS n_resenas
     FROM agent_review GROUP BY agent_id
 ) rev ON rev.agent_id = a.id
+-- #23 responsividad estilo Zillow, sobre los leads (visitas) de 180 días,
+-- excluyendo los <48h (aún sin tiempo justo de responder):
+--   n_leads   = denominador      n_resp = estado<>'pendiente' (tasa de respuesta = contacto)
+--   n_ofertas = resultado='oferta' → tasa de oferta (etapa del embudo)
+--   n_conversiones = leads con una venta atribuida (propiedad_evento) → conversión real
+--   mediana   = horas en responder (solo respondidos; updated_at proxy de 1ra resp)
+LEFT JOIN LATERAL (
+    SELECT count(*) AS n_leads,
+           count(*) FILTER (WHERE v.estado <> 'pendiente') AS n_resp,
+           count(*) FILTER (WHERE v.resultado = 'oferta') AS n_ofertas,
+           count(*) FILTER (WHERE EXISTS (
+             SELECT 1 FROM propiedad_evento pe
+             WHERE pe.visita_solicitud_id = v.id AND pe.tipo_evento = 'venta'
+           )) AS n_conversiones,
+           percentile_cont(0.5) WITHIN GROUP (
+             ORDER BY EXTRACT(EPOCH FROM (v.updated_at - v.created_at)) / 3600.0
+           ) FILTER (WHERE v.estado <> 'pendiente') AS mediana_resp_horas
+    FROM visita_solicitud v
+    WHERE v.agent_id = a.id
+      AND v.created_at > NOW() - INTERVAL '180 days'
+      AND v.created_at < NOW() - INTERVAL '48 hours'
+) resp ON true
 WHERE a.id = $1 AND a.estado = 'activo'
 """
 
@@ -1690,11 +1769,22 @@ async def get_agente_perfil(request: Request, agent_id: str):
             precios.append(r["precio"])
         (cierres if r["estado"] == "cerrado" else activos).append(item)
 
+    # #23 tasas estilo Zillow: solo con >=3 leads maduros (cold-start neutral, no
+    # penaliza al agente nuevo). None -> el front las oculta.
+    n_leads = base["n_leads"]
+    def _tasa(n):
+        return round(n * 100.0 / n_leads, 1) if n_leads >= 3 else None
+
     return AgentePerfil(
         id=base["id"], nombre=base["nombre"], foto_url=base["foto_url"], bio=base["bio"],
         telefono=base["telefono"], agencia_nombre=base["agencia_nombre"],
         agencia_verificada=base["agencia_verificada"], miembro_desde=base["miembro_desde"],
         rating_promedio=base["rating_promedio"], n_resenas=base["n_resenas"],
+        responde_rapido=((base["n_resp"] or 0) >= 3 and base["mediana_resp_horas"] is not None
+                         and base["mediana_resp_horas"] <= 12),
+        mediana_resp_horas=round(float(base["mediana_resp_horas"]), 1) if base["mediana_resp_horas"] is not None else None,
+        n_leads=n_leads, tasa_respuesta=_tasa(base["n_resp"]), tasa_oferta=_tasa(base["n_ofertas"]),
+        tasa_conversion=_tasa(base["n_conversiones"]),
         zonas=[AgentePerfilZona(nivel=z["nivel"], nombre=z["nombre"]) for z in zonas
                if z["nombre"]],
         activos=activos, cierres=cierres, n_activos=len(activos), n_cierres=len(cierres),
@@ -1747,7 +1837,7 @@ async def get_listing_by_id(
     _finalize_row(row_d, await get_usd_rate())
     row_d["precio_historia"] = [dict(h) for h in historia] if historia else []
     # Inteligencia de mercado/barrio — solo agentes; el front solo decide UI.
-    _gate_market_fields(row_d, is_agente(current_user))
+    _gate_market_fields(row_d, current_user)
     return ListingDetail(**row_d)
 
 
@@ -1897,6 +1987,90 @@ async def get_similares(request: Request, listing_id: int):
     return [SimilarListing(**dict(r)) for r in rows]
 
 
+# ── "Entorno" por radio desde las coords del listing (#1) ─────────────────────
+# Los listings fuera de georef (otros municipios, sin barrio_id) no tienen fila en
+# analytics.barrios_pois_distancia → el drawer no mostraba POIs. Aquí calculamos
+# walk/transit/colegios por radio desde las coords del propio inmueble sobre raw.pois.
+# Fórmula y radios IDÉNTICOS a scripts/compute_barrios_pois.py para que un mismo punto
+# puntúe igual por barrio o por radio. Devuelve la MISMA forma que /barrios/{id}
+# (clave `conectividad`) para reusar el componente GettingAround sin cambios de UI.
+_LISTING_ENTORNO_SQL = """
+WITH listing AS (
+    SELECT COALESCE(g.lat, l.lat) AS lat, COALESCE(g.lon, l.lon) AS lon
+    FROM staging.stg_listings_unificado l
+    LEFT JOIN analytics.listings_georef g ON g.url = l.url
+    WHERE ('x'||substr(md5(l.url),1,8))::bit(32)::int = $1 AND l.url IS NOT NULL
+    ORDER BY l.fecha_scraping DESC NULLS LAST
+    LIMIT 1
+),
+pt AS (
+    SELECT ST_SetSRID(ST_MakePoint(lon, lat), 4326)            AS geom,
+           ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography AS geog
+    FROM listing
+    -- Guard contra coords basura: ~1% de staging trae lat/lon invertidos (lat≈-75,
+    -- lon≈6). Si el punto cae fuera del Valle de Aburrá, pt queda vacío → entorno
+    -- null → sección oculta (mejor nada que "colegio a 10.000 km").
+    WHERE lat BETWEEN 5.5 AND 7.0 AND lon BETWEEN -76.0 AND -75.0
+),
+facts AS (
+    SELECT
+        (SELECT count(*) FROM raw.pois p WHERE p.tipo='cafe'        AND ST_DWithin(p.geometry::geography, pt.geog, 500))  AS n_cafe,
+        (SELECT count(*) FROM raw.pois p WHERE p.tipo='restaurante' AND ST_DWithin(p.geometry::geography, pt.geog, 500))  AS n_rest,
+        (SELECT count(*) FROM raw.pois p WHERE p.tipo='bar'         AND ST_DWithin(p.geometry::geography, pt.geog, 500))  AS n_bar,
+        (SELECT count(*) FROM raw.pois p WHERE p.tipo='gimnasio'    AND ST_DWithin(p.geometry::geography, pt.geog, 1000)) AS n_gym,
+        (SELECT count(*) FROM raw.pois p WHERE p.tipo='colegio'     AND ST_DWithin(p.geometry::geography, pt.geog, 1000)) AS n_colegios_1km,
+        (SELECT round((ST_Distance(p.geometry::geography, pt.geog)/1000)::numeric, 3)
+            FROM raw.pois p WHERE p.tipo='colegio' ORDER BY p.geometry <-> pt.geom LIMIT 1) AS dist_colegio_km,
+        (SELECT round((ST_Distance(p.geometry::geography, pt.geog)/1000)::numeric, 3)
+            FROM raw.pois p WHERE p.tipo='metro'   ORDER BY p.geometry <-> pt.geom LIMIT 1) AS dist_metro_km,
+        (SELECT round((ST_Distance(p.geometry::geography, pt.geog)/1000)::numeric, 3)
+            FROM raw.pois p WHERE p.tipo='parque'  ORDER BY p.geometry <-> pt.geom LIMIT 1) AS dist_parque_km,
+        (SELECT round((ST_Distance(p.geometry::geography, pt.geog)/1000)::numeric, 3)
+            FROM raw.pois p WHERE p.tipo='mall'    ORDER BY p.geometry <-> pt.geom LIMIT 1) AS dist_mall_km
+    FROM pt
+)
+SELECT
+    n_colegios_1km,
+    dist_colegio_km,
+    dist_metro_km,
+    LEAST(100, (
+        LEAST(20, n_cafe * 4)
+        + LEAST(20, n_rest * 2)
+        + LEAST(10, n_bar  * 2)
+        + LEAST(15, n_gym  * 3)
+        + LEAST(15, n_colegios_1km * 2)
+        + CASE WHEN dist_parque_km IS NOT NULL AND dist_parque_km < 1.0 THEN 10 ELSE 0 END
+        + CASE WHEN dist_mall_km   IS NOT NULL AND dist_mall_km   < 1.5 THEN 10 ELSE 0 END
+    ))::int AS walk_score,
+    CASE WHEN dist_metro_km IS NULL THEN NULL
+         ELSE GREATEST(0, LEAST(100, ROUND(100 - dist_metro_km * 40)))::int END AS transit_score
+FROM facts
+"""
+
+
+@router.get("/{listing_id}/entorno")
+@limiter.limit("60/minute")
+async def get_listing_entorno(
+    request: Request,
+    listing_id: int,
+    current_user: Optional[dict] = Depends(get_optional_user),
+):
+    """POIs por radio desde las coords del listing (#1) — para inmuebles sin barrio_id.
+    Scores del entorno PÚBLICOS (estilo Zillow, gancho del usuario gratis). El
+    detalle (tiempos, servicios, obras) se gatea a registrado en el frontend."""
+    pool = get_pool()
+    row = await pool.fetchrow(_LISTING_ENTORNO_SQL, listing_id)
+    if row is None:  # sin coords válidas → no hay entorno que mostrar
+        return {"conectividad": None}
+    return {"conectividad": {
+        "walk_score": row["walk_score"],
+        "transit_score": row["transit_score"],
+        "n_colegios_1km": row["n_colegios_1km"],
+        "dist_colegio_km": float(row["dist_colegio_km"]) if row["dist_colegio_km"] is not None else None,
+        "dist_metro_km": float(row["dist_metro_km"]) if row["dist_metro_km"] is not None else None,
+    }}
+
+
 # ── Slots de visita disponibles (horario del agente de zona, sin Google) ──────
 _LISTING_AGENT_ID_SQL = """
 WITH lz AS (
@@ -1998,7 +2172,7 @@ async def registrar_vista(
 ):
     pool = get_pool()
     url_row = await pool.fetchrow(
-        """SELECT url FROM staging.stg_listings_unificado
+        """SELECT url, tipo_inmueble, tipo_operacion, barrio_id FROM staging.stg_listings_unificado
            WHERE ('x'||substr(md5(url),1,8))::bit(32)::int = $1
            LIMIT 1""",
         listing_id,
@@ -2026,16 +2200,20 @@ async def registrar_vista(
         return {"ok": True, "vistas": vistas or 0}
 
     try:
+        # Capa 2 (Interés): metadata normalizada. tipo_inmueble alimenta
+        # user_interests.tipo_inmueble_top y da dimensiones al funnel de listings.
         await pool.execute(
             """INSERT INTO public.user_events
-                   (usuario_id, session_id, event_type, entity_type, entity_id)
-               VALUES ($1, $2, 'listing_view', 'listing', $3)""",
+                   (usuario_id, session_id, event_type, entity_type, entity_id, barrio_id, metadata)
+               VALUES ($1, $2, 'listing_view', 'listing', $3, $4, $5::jsonb)""",
             usuario_id,
             session_id,
             listing_url,
+            url_row["barrio_id"],
+            json.dumps({"tipo_inmueble": url_row["tipo_inmueble"], "operacion": url_row["tipo_operacion"]}),
         )
     except Exception:
-        pass
+        logger.warning("listing_view insert falló (url=%s)", listing_url, exc_info=True)
 
     vistas = await pool.fetchval(
         """SELECT COUNT(*)::int FROM public.user_events

@@ -189,6 +189,8 @@ type AgentePerfil = {
   id: string; nombre: string; foto_url: string | null; bio: string | null;
   telefono: string | null; agencia_nombre: string | null; agencia_verificada: boolean;
   miembro_desde: string | null; rating_promedio: number | null; n_resenas: number;
+  responde_rapido?: boolean; mediana_resp_horas?: number | null;
+  n_leads?: number; tasa_respuesta?: number | null; tasa_oferta?: number | null; tasa_conversion?: number | null;
   zonas: PerfilZona[]; activos: PerfilListing[]; cierres: PerfilListing[];
   n_activos: number; n_cierres: number; precio_min: number | null; precio_max: number | null;
   resenas: PerfilResena[];
@@ -285,6 +287,15 @@ function AgentePerfilModal({ agentId, onClose }: { agentId: string; onClose: () 
                   <div className="mt-0.5 text-xs" style={{ color: K.muted }}>Sin reseñas aún</div>
                 )}
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {p.responde_rapido && (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                      style={{ background: K.tealLight, color: K.tealDeep }}
+                      title="Responde rápido a los interesados"
+                    >
+                      ⚡ Responde rápido{p.mediana_resp_horas != null ? ` (~${Math.round(p.mediana_resp_horas)}h)` : ""}
+                    </span>
+                  )}
                   {p.agencia_nombre && (
                     <span
                       className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold"
@@ -313,6 +324,18 @@ function AgentePerfilModal({ agentId, onClose }: { agentId: string; onClose: () 
               <Stat label="Cierres" value={String(p.n_cierres)} />
               <Stat label="Activos" value={String(p.n_activos)} />
             </div>
+            {/* #23 desempeño estilo Zillow — solo si hay >=3 contactos (back lo nulifica si no). */}
+            {p.tasa_respuesta != null && (
+              <>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <Stat label="Tasa de respuesta" value={`${Math.round(p.tasa_respuesta)}%`} />
+                  <Stat label="Tasa de conversión" value={`${Math.round(p.tasa_conversion ?? 0)}%`} />
+                </div>
+                <p className="mt-1 text-[11px]" style={{ color: K.muted }}>
+                  Sobre {p.n_leads} contacto{p.n_leads === 1 ? "" : "s"} de los últimos 6 meses · {Math.round(p.tasa_oferta ?? 0)}% llegó a oferta. Conversión = ventas cerradas atribuidas a un contacto.
+                </p>
+              </>
+            )}
             <div className="mt-2">
               <Stat label="Rango de precios" value={rango} />
             </div>

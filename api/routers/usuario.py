@@ -6,6 +6,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 
 from api.db import get_pool
 from api.dependencies import get_current_user
+from api.legal import HABEAS_DATA_VERSION
 from api.limiter import limiter
 
 logger = logging.getLogger(__name__)
@@ -192,6 +193,8 @@ class SuscribirseIn(BaseModel):
     barrio_id: Optional[int] = None
     intereses: Optional[str] = None
     newsletter_activo: bool = True
+    habeas_data: bool = False       # autorización tratamiento de datos (obligatoria)
+    consent_whatsapp: bool = False  # canal WhatsApp (opcional)
 
     @field_validator("email")
     @classmethod
@@ -207,6 +210,13 @@ class SuscribirseOut(BaseModel):
 @router.post("/suscribirse", response_model=SuscribirseOut)
 @limiter.limit("5/minute")
 async def suscribirse(request: Request, body: SuscribirseIn, pool=Depends(get_pool)):
+    # Ley 1581/2012: autorización previa y expresa. Fuera del try (HTTPException
+    # es Exception → el except de abajo la volvería un 500 genérico).
+    if not body.habeas_data:
+        raise HTTPException(
+            status_code=422,
+            detail="Debes aceptar la política de tratamiento de datos para suscribirte.",
+        )
     try:
         # Hash up front on every call so new-vs-existing email cost the same time.
         import bcrypt
@@ -229,6 +239,10 @@ async def suscribirse(request: Request, body: SuscribirseIn, pool=Depends(get_po
                     -- nombre/apellido de una cuenta ya existente (overwrite anónimo).
                     nombre               = COALESCE(nombre, $5),
                     apellido             = COALESCE(apellido, $6)
+                    -- Consentimiento NO se sella aquí: es un endpoint anónimo y
+                    -- sellar habeas_data sobre una cuenta ajena fabricaría una
+                    -- autorización (peor que no tenerla para una auditoría Ley 1581).
+                    -- El titular lo otorga en el alta nueva (INSERT) o logueado.
                 WHERE id = $1
                 """,
                 existing["id"], body.newsletter_activo, body.barrio_id,
@@ -240,14 +254,16 @@ async def suscribirse(request: Request, body: SuscribirseIn, pool=Depends(get_po
             """
             INSERT INTO public.usuarios
                 (email, password_hash, nombre, apellido, rol,
-                 newsletter_activo, newsletter_barrio_id, newsletter_intereses, fecha_suscripcion)
+                 newsletter_activo, newsletter_barrio_id, newsletter_intereses, fecha_suscripcion,
+                 habeas_data_aceptado, habeas_data_fecha, habeas_data_version, consent_whatsapp)
             VALUES ($1, $2, $3, $4, 'usuario', $5, $6,
                     CASE WHEN $7::text IS NOT NULL THEN ARRAY[$7::text] ELSE NULL END,
-                    NOW())
+                    NOW(), TRUE, NOW(), $8, $9)
             RETURNING id
             """,
             body.email, hashed, body.nombre, body.apellido,
             body.newsletter_activo, body.barrio_id, body.intereses,
+            HABEAS_DATA_VERSION, body.consent_whatsapp,
         )
         return SuscribirseOut(success=True)
     except Exception:

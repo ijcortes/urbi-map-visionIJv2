@@ -57,6 +57,8 @@ _MAX_ATTEMPTS = 3
 _RETRY_BACKOFF = 0.5          # seconds; doubles each attempt (patched to 0 in tests)
 _RETRY_AFTER_CAP = 5.0        # never sleep longer than this for a Retry-After header
 _IDEMPOTENT = {"GET", "PUT", "DELETE", "HEAD"}
+_ALLOWED_METHODS = {"POST", "PUT"}
+_ALLOWED_PATH_PREFIXES = ("/contacts/", "/businesses/", "/objects/", "/associations/relations", "/opportunities/upsert")
 _RETRY_STATUS_ALWAYS = {429, 502, 503, 504}   # request not processed (or safe to replay)
 _RETRY_STATUS_IDEMPOTENT = {500}
 
@@ -80,6 +82,9 @@ def _should_retry(method: str, exc: Optional[Exception], resp: Optional[httpx.Re
 async def _request(method: str, path: str, **kwargs) -> httpx.Response:
     """HTTP call to GHL with timeout + bounded retries (see _should_retry).
     Raises httpx.HTTPStatusError / httpx.TransportError after the last attempt."""
+    # Mínimo privilegio: el sitio solo ESCRIBE en GHL. Nunca lee ni borra.
+    if method.upper() not in _ALLOWED_METHODS or not path.startswith(_ALLOWED_PATH_PREFIXES):
+        raise PermissionError(f"GHL {method} {path} no permitido (solo escritura a rutas allowlist)")
     last_exc: Optional[Exception] = None
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         resp: Optional[httpx.Response] = None
@@ -130,13 +135,77 @@ def _push_lock(object_type: str, internal_id) -> asyncio.Lock:
     return _push_locks.setdefault((object_type, str(internal_id)), asyncio.Lock())
 
 
+def _split_nombre(nombre: str) -> tuple[str, str]:
+    parts = (nombre or "").strip().split(None, 1)
+    return (parts[0] if parts else ""), (parts[1] if len(parts) > 1 else "")
+
+
+async def upsert_contact(
+    *, email: Optional[str] = None, nombre: Optional[str] = None,
+    phone: Optional[str] = None, tags: Optional[list] = None, source: str = "medellinsocial.com",
+) -> str:
+    """POST /contacts/upsert (API estándar GHL v2): crea o actualiza por email/
+    teléfono dentro de la location -> sin duplicados. Solo campos estándar +
+    tags (no custom fields: sus nombres/picklists aún no los confirma Talal).
+    Devuelve el contact id. Levanta ValueError si no hay email ni teléfono."""
+    if not (email or phone):
+        raise ValueError("upsert_contact: se necesita email o teléfono")
+    first, last = _split_nombre(nombre or "")
+    body = {"locationId": _GHL_LOCATION_ID, "source": source}
+    for k, v in (("email", email), ("phone", phone), ("firstName", first), ("lastName", last)):
+        if v:
+            body[k] = v
+    if tags:
+        body["tags"] = list(tags)
+    resp = await _request("POST", "/contacts/upsert", json=body)
+    return resp.json()["contact"]["id"]
+
+
+# --- Opportunities (pipelines creados en GHL; IDs no son secretos) -------------
+PIPELINES = {
+    "realtors": ("iatpsNVgueTeBcwGuXP2", {
+        "new": "e505bf40-50a1-40b8-9ab4-79110e886ce9",
+        "paid": "96fb2746-744c-476a-984e-ebcb59838356"}),
+    "negocios": ("goKSiZ3P2CUzWGKv7wKW", {
+        "new": "2ec781cb-e050-4274-8f13-02059f07cd01"}),
+    "visitas": ("hMInmdsj7m5oDcp3cdK6", {
+        "new": "eb1022b4-7524-4196-8f8e-0afd55d99564"}),
+    "embajadores": ("u84Fv0YilZEYnwQjXCdd", {
+        "new": "01e2ec63-bdf3-4967-bc04-96ca6b80ad00"}),
+}
+
+
+async def upsert_opportunity(contact_id: str, pipeline: str, name: str, stage: str = "new") -> Optional[str]:
+    """POST /opportunities/upsert: una oportunidad por (contacto, pipeline), sin
+    duplicados. Best-effort: nunca levanta (el Contact ya quedó guardado)."""
+    try:
+        pid, stages = PIPELINES[pipeline]
+        r = await _request("POST", "/opportunities/upsert", json={
+            "locationId": _GHL_LOCATION_ID, "pipelineId": pid,
+            "pipelineStageId": stages[stage], "contactId": contact_id,
+            "name": name[:200], "status": "open",
+        })
+        return ((r.json() or {}).get("opportunity") or {}).get("id")
+    except Exception as e:
+        logger.error("upsert_opportunity(%s) falló: %s", pipeline, e)
+        return None
+
+
+async def add_contact_note(contact_id: str, body: str) -> None:
+    await _request("POST", f"/contacts/{contact_id}/notes", json={"body": body[:5000]})
+
+
 async def find_or_create_contact(usuario_id: int, email: str, nombre: str) -> Optional[str]:
-    """Should return a GHL contact_id, persisted by the caller onto
-    usuarios.ghl_contact_id — so the webhook can look up by that ID instead
-    of matching on email. Not implemented: needs the GHL API contract."""
-    raise NotImplementedError(
-        "ghl_client.find_or_create_contact: needs GHL API key/location + contacts API contract from Talal"
+    """Devuelve el GHL contact_id del usuario y lo persiste en
+    usuarios.ghl_contact_id (el webhook puede buscar por ese ID en vez de email).
+    None si GHL no está configurado."""
+    if not is_configured():
+        return None
+    contact_id = await upsert_contact(email=email, nombre=nombre, tags=["usuario"])
+    await get_pool().execute(
+        "UPDATE public.usuarios SET ghl_contact_id = $1 WHERE id = $2", contact_id, usuario_id
     )
+    return contact_id
 
 
 async def crear_checkout_session(
@@ -709,8 +778,129 @@ async def link_agency_to_listing(listing_id: str, agency_id: Optional[str]) -> N
     await _create_relation(_ASSOC_LISTING_AGENCY, ghl_business_id, listing_row["ghl_object_id"])
 
 
+# ── Evento → Custom Object "event" (§1 del contrato, bidireccional) ──────────
+# Custom object, como listing (no Business). Nombres de campo = §1 de
+# docs/GHL_CONTRATO_PROPUESTO.md — código y doc deben coincidir.
+#
+# categoria/tipo_audiencia son picklists NUESTROS (enums que definimos), por eso
+# se mandan en crudo sin _map_choice: a diferencia de los dropdowns de listing
+# (definidos por GHL), acá el contrato de valores lo ponemos nosotros y Talal
+# crea el picklist con esos keys. Ver §1 para la lista de valores.
+#
+# eventos NO tiene columna moneda → currency se manda constante "cop".
+# website_event_id / website_barrio_id: ids internos ocultos para que el inbound
+# (nombres→ids es lossy) pueda resolver barrio_id y el evento sin adivinar.
+_EVENTO_OBJECT_KEY = "custom_objects.event"  # propuesto; Talal confirma el key real
+
+
+def _evento_campos_to_properties(campos: dict, evento_id: int) -> dict:
+    props: dict = {}
+
+    def set_(key: str, value):
+        if isinstance(value, Decimal):
+            value = float(value)
+        if value is not None:
+            props[key] = value
+
+    set_("event_title", campos.get("titulo"))
+    set_("event_description", campos.get("descripcion"))
+    set_("category", campos.get("categoria"))
+    set_("audience_type", campos.get("tipo_audiencia"))
+    set_("municipality", campos.get("municipio"))
+    set_("neighborhood", campos.get("barrio_nombre"))
+    if campos.get("fecha_inicio") is not None:
+        fi = campos["fecha_inicio"]
+        props["start_date"] = fi.isoformat() if hasattr(fi, "isoformat") else fi
+    if campos.get("fecha_fin") is not None:
+        ff = campos["fecha_fin"]
+        props["end_date"] = ff.isoformat() if hasattr(ff, "isoformat") else ff
+    set_("price", campos.get("precio"))
+    props["currency"] = "cop"  # eventos no tiene columna moneda — siempre COP
+    set_("is_free", _yes_no(campos.get("gratuito")))
+    set_("external_url", campos.get("url_externo"))
+    set_("photo_url", campos.get("foto_url"))
+    set_("organizer", campos.get("organizador"))
+    set_("max_attendees", campos.get("max_asistentes"))
+    set_("is_active", _yes_no(campos.get("activo")))
+    set_("is_featured", _yes_no(campos.get("destacado")))
+    set_("featured_scope", campos.get("destacado_nivel"))
+    set_("featured_zone_code", campos.get("destacado_zona_codigo"))
+    set_("source", campos.get("fuente"))
+    props["website_event_id"] = str(evento_id)
+    if campos.get("barrio_id") is not None:
+        props["website_barrio_id"] = str(campos["barrio_id"])
+    return props
+
+
+@_serialized("evento")
 async def push_evento_to_ghl(evento_id: int, campos: dict) -> Optional[str]:
-    raise NotImplementedError("ghl_client.push_evento_to_ghl: falta contrato GHL para evento")
+    """evento_id = public.eventos.id (integer). Custom object custom_objects.event.
+    Best-effort, nunca lanza (mismo patrón que push_tienda/push_listing).
+
+    ⚠️ NO wireado a ningún call site todavía (submit/aprobar/editar): custom_objects.event
+    aún no existe del lado GHL — conectarlo ahora dispararía POSTs 400 contra la
+    location real (hay creds en .env → is_configured()=True). Wire cuando Talal
+    confirme el objeto creado (ver §1 del contrato y nota en ghl_client.py:216)."""
+    if not is_configured():
+        return None
+
+    pool = get_pool()
+    existing = await pool.fetchrow(
+        "SELECT ghl_object_id FROM public.ghl_object_mapping WHERE object_type = 'evento' AND internal_object_id = $1",
+        str(evento_id),
+    )
+    properties = _evento_campos_to_properties(campos, evento_id)
+
+    try:
+        if existing:
+            ghl_id = existing["ghl_object_id"]
+            await _request(
+                "PUT",
+                f"/objects/{_EVENTO_OBJECT_KEY}/records/{ghl_id}",
+                params={"locationId": _GHL_LOCATION_ID},
+                json={"properties": properties},
+            )
+        else:
+            resp = await _request(
+                "POST",
+                f"/objects/{_EVENTO_OBJECT_KEY}/records",
+                json={"locationId": _GHL_LOCATION_ID, "properties": properties},
+            )
+            ghl_id = resp.json()["record"]["id"]
+    except Exception as e:
+        logger.warning("push_evento_to_ghl(%s) falló: %s", evento_id, e)
+        if existing:
+            await _record_sync_result("evento", evento_id, existing["ghl_object_id"], "failed", str(e))
+        else:
+            await _record_push_failure("evento", evento_id, str(e))
+        return None
+
+    await _record_sync_result("evento", evento_id, ghl_id, "synced", None)
+    return ghl_id
+
+
+_EVENTO_SELECT = """
+    SELECT e.titulo, e.descripcion, e.categoria, e.tipo_audiencia, e.barrio_id,
+           e.fecha_inicio, e.fecha_fin, e.precio, e.gratuito, e.url_externo,
+           e.foto_url, e.organizador, e.max_asistentes, e.activo, e.destacado,
+           e.destacado_nivel, e.destacado_zona_codigo, e.fuente,
+           b.nombre AS barrio_nombre, b.municipio AS municipio
+    FROM public.eventos e
+    LEFT JOIN raw.barrios b ON b.id = e.barrio_id
+    WHERE e.id = $1
+"""
+
+
+async def sync_evento(evento_id: int) -> Optional[str]:
+    """Lee public.eventos (+ barrio/municipio) y lo empuja a GHL. Mismo patrón que
+    sync_tienda. NO wireado todavía (ver push_evento_to_ghl)."""
+    if not is_configured():
+        return None
+    pool = get_pool()
+    row = await pool.fetchrow(_EVENTO_SELECT, evento_id)
+    if row is None:
+        return None
+    return await push_evento_to_ghl(evento_id, dict(row))
 
 
 async def push_deal_to_ghl(deal_id: int, campos: dict) -> Optional[str]:
@@ -735,8 +925,25 @@ async def push_deal_to_ghl(deal_id: int, campos: dict) -> Optional[str]:
 #   - Si el `codigo` de referido se genera acá o lo asigna GHL
 
 async def push_referidor_to_ghl(referidor_id: int, campos: dict) -> Optional[str]:
-    """referidor_id = public.aplicacion_referidor.id. Target propuesto: Contact."""
-    raise NotImplementedError("ghl_client.push_referidor_to_ghl: falta contrato GHL para referidor (Contact)")
+    """aplicacion_referidor -> Contact en GHL (lead del programa), con tag por
+    tipo y una nota con la aplicación. La comisión/Referral object queda para
+    Affiliate Manager (contrato de Talal pendiente). Best-effort: no levanta."""
+    try:
+        tipo = campos.get("tipo") or "afiliado"
+        contact_id = await upsert_contact(
+            email=campos.get("email"), nombre=campos.get("nombre"),
+            phone=campos.get("telefono"), tags=["referidor", f"referidor-{tipo}"],
+        )
+        await add_contact_note(contact_id, (
+            f"Aplicación {tipo} #{referidor_id}\nCanal: {campos.get('canal')}\n"
+            f"Experiencia: {campos.get('experiencia')}\nMotivación: {campos.get('motivacion')}"
+        ))
+        await upsert_opportunity(contact_id, "embajadores", f"{tipo.capitalize()}: {campos.get('nombre') or referidor_id}")
+        return contact_id
+    except Exception as e:
+        logger.error("push_referidor_to_ghl(%s) falló: %s", referidor_id, e)
+        await _record_push_failure("referidor", referidor_id, str(e))
+        return None
 
 
 _REFERIDOR_SELECT = """
@@ -770,11 +977,25 @@ async def sync_referidor(referidor_id: int) -> Optional[str]:
 # la forma de los custom fields (mismo criterio que _map_choice).
 
 async def push_agent_to_ghl(agent_id: str, campos: dict) -> Optional[str]:
-    """agent_id = public.agent.id (uuid). Target: Contact. Stub hasta el JSON
-    de /contacts de Talal (ver find_or_create_contact)."""
-    raise NotImplementedError(
-        "ghl_client.push_agent_to_ghl: falta JSON de POST /contacts de Talal (find_or_create_contact)"
+    """public.agent -> Contact en GHL (confirmado por Talal). Solo campos
+    estándar + tags (agent, agent-<estado>); los custom fields agent_* se suman
+    cuando Talal confirme nombres/picklists. Best-effort: no levanta."""
+    try:
+        contact_id = await upsert_contact(
+            email=campos.get("email"), nombre=campos.get("nombre"),
+            phone=campos.get("telefono"),
+            tags=["agent", f"agent-{campos.get('estado') or 'pending'}"],
+        )
+    except Exception as e:
+        logger.error("push_agent_to_ghl(%s) falló: %s", agent_id, e)
+        await _record_push_failure("agent", agent_id, str(e))
+        return None
+    await upsert_opportunity(
+        contact_id, "realtors", f"Realtor: {campos.get('nombre') or agent_id}",
+        stage="paid" if campos.get("estado") == "activo" else "new",
     )
+    await _record_sync_result("agent", agent_id, contact_id, "synced", None)
+    return contact_id
 
 
 _AGENT_SELECT = """
@@ -805,13 +1026,49 @@ async def sync_agent(agent_id: str) -> Optional[str]:
 # con Talal. Sin contrato NO se arma mapeo de campos (a diferencia de evento/
 # deal/referidor, que sí tenían mapeo propuesto). Ver §7 Visita del contrato.
 
+async def push_negocio_lead_to_ghl(lead_id, campos: dict) -> Optional[str]:
+    """leads_negocio -> Contact (tag negocio-local) + nota + oportunidad en
+    pipeline "Local Businesses". Best-effort: no levanta."""
+    if not is_configured():
+        return None
+    try:
+        contact_id = await upsert_contact(
+            email=campos.get("email"), nombre=campos.get("nombre_negocio"),
+            phone=campos.get("telefono"), tags=["negocio-local"],
+        )
+        await add_contact_note(contact_id, (
+            f"Aplicación negocio #{lead_id}\nNegocio: {campos.get('nombre_negocio')}\n"
+            f"Categoría: {campos.get('categoria')}\nBarrio: {campos.get('barrio_id')}\n"
+            f"Plan: {campos.get('plan_tipo')}\nMensaje: {campos.get('mensaje')}"
+        ))
+        await upsert_opportunity(contact_id, "negocios", f"Negocio: {campos.get('nombre_negocio')}")
+        return contact_id
+    except Exception as e:
+        logger.error("push_negocio_lead_to_ghl(%s) falló: %s", lead_id, e)
+        await _record_push_failure("negocio", lead_id, str(e))
+        return None
+
+
 async def push_visita_to_ghl(visita_id: str, campos: dict) -> Optional[str]:
-    """visita_id = public.visita_solicitud.id (uuid). Target propuesto:
-    Appointment en el Calendar del agente. Stub: falta todo el contrato de
-    Calendars/Appointments de Talal (calendar por agente, endpoint, campos)."""
-    raise NotImplementedError(
-        "ghl_client.push_visita_to_ghl: falta contrato GHL Calendars/Appointments de Talal"
-    )
+    """visita_solicitud -> Contact (el comprador) con tag y nota de la visita
+    pedida. El Calendar/Appointment por agente sigue pendiente de Talal. Si la
+    solicitud no trae teléfono ni email no hay con qué crear el Contact. Best-effort."""
+    try:
+        contact_id = await upsert_contact(
+            email=campos.get("email"), nombre=campos.get("nombre"),
+            phone=campos.get("telefono"), tags=["visita-solicitada"],
+        )
+        await add_contact_note(contact_id, (
+            f"Solicitud de visita #{visita_id}\nListing: {campos.get('listing_url')}\n"
+            f"Fecha pedida: {campos.get('fecha_visita')}\nMensaje: {campos.get('mensaje')}\n"
+            f"Agente: {campos.get('agent_id')}"
+        ))
+        await upsert_opportunity(contact_id, "visitas", f"Visita: {campos.get('listing_url') or visita_id}")
+        return contact_id
+    except Exception as e:
+        logger.error("push_visita_to_ghl(%s) falló: %s", visita_id, e)
+        await _record_push_failure("visita", visita_id, str(e))
+        return None
 
 
 _VISITA_SELECT = """

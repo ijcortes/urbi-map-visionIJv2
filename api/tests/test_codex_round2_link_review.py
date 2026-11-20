@@ -120,6 +120,7 @@ async def test_digest_links_carry_the_current_generation(conn):
 
 async def _arm(conn, url, **cols):
     base = dict(first_notified_at=datetime.now(timezone.utc) - timedelta(days=20), last_result="gone",
+                first_gone_at=datetime.now(timezone.utc) - timedelta(days=20),
                 last_gone_confirmed_at=datetime.now(timezone.utc) - timedelta(hours=2))
     base.update(cols)
     sets = ", ".join(f"{k} = ${i + 2}" for i, k in enumerate(base))
@@ -163,15 +164,17 @@ async def test_auto_retire_skips_braked_sources(conn, monkeypatch):
 
 @db
 @pytest.mark.asyncio
-async def test_auto_retire_grace_counts_from_first_notification_not_first_gone(conn, monkeypatch):
+async def test_auto_retire_grace_counts_from_first_gone_not_notification(conn, monkeypatch):
     monkeypatch.setenv("LINK_AUTO_RETIRE_AFTER_DAYS", "14")
-    old_gone = datetime.now(timezone.utc) - timedelta(days=60)
-    await _seed(conn, U_P1, first_gone=old_gone)                         # failing for 60 days, never notified
-    await _arm(conn, U_P1, first_notified_at=None)
+    await _seed(conn, U_P1)
+    # recent first_gone -> inside the grace window -> NOT retired, even though a digest was delivered 30 days ago
+    await _arm(conn, U_P1, first_gone_at=datetime.now(timezone.utc) - timedelta(days=3),
+               first_notified_at=datetime.now(timezone.utc) - timedelta(days=30))
     assert await lr.auto_retire(conn) == 0
-    await _arm(conn, U_P1, first_notified_at=datetime.now(timezone.utc) - timedelta(days=1))   # notified yesterday
-    assert await lr.auto_retire(conn) == 0
-    await _arm(conn, U_P1, first_notified_at=datetime.now(timezone.utc) - timedelta(days=15))
+    # old first_gone past the grace window -> retired on checker evidence alone, even though the digest was
+    # NEVER delivered (first_notified_at NULL): a dead link must not live forever because e-mail is unwired.
+    await _arm(conn, U_P1, first_gone_at=datetime.now(timezone.utc) - timedelta(days=20),
+               first_notified_at=None)
     assert await lr.auto_retire(conn) == 1
 
 

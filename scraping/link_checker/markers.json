@@ -30,7 +30,7 @@
     "metrocuadrado.com": {
       "label": "metrocuadrado",
       "needs_body": true,
-      "gone_text": ["inmueble no disponible", "este inmueble ya no esta disponible", "no encontramos el inmueble"],
+      "gone_text": ["inmueble no disponible", "este inmueble no esta disponible", "este inmueble ya no esta disponible", "no encontramos el inmueble"],
       "index_path_regex": ["^/(apartamento|casa|inmueble|oficina|local)s?(-en-(venta|arriendo))?/?$", "^/inmuebles?/?$"]
     },
     "fincaraiz.com.co": {

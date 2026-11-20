@@ -1,6 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { realtorApi, type ItemPool, type ZonaNivel } from "@/lib/realtorApi";
+import { apiFetch } from "@/lib/apiClient";
+import { API_BASE_URL } from "@/config/api";
+
+export type EmbudoZona = {
+  zona_codigo: string; zona_nombre: string; nivel: string;
+  vistas_mapa: number; aperturas_detalle: number; favoritos: number; visitas: number;
+};
+export type Embudo = {
+  vistas_mapa: number; aperturas_detalle: number; favoritos: number; visitas: number;
+  zonas: EmbudoZona[];
+};
+
+/** Embudo de demanda (30d) de las zonas patrocinadas: vistas→detalle→favoritos→visitas. */
+export function useEmbudo() {
+  return useQuery({
+    queryKey: ["realtor", "embudo"],
+    queryFn: () => apiFetch<Embudo>(`${API_BASE_URL}/realtor/embudo`),
+    staleTime: 5 * 60 * 1000,
+  });
+}
 
 export function useRealtorPerfil() {
   return useQuery({
@@ -146,6 +166,30 @@ export function useEditarListing() {
       qc.invalidateQueries({ queryKey: ["realtor", "listings"] });
     },
     onError: () => toast.error("No se pudo guardar la ficha"),
+  });
+}
+
+export function useCerrarListing() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ listingId, input }: { listingId: string; input: import("@/lib/realtorApi").CerrarListingInput }) =>
+      realtorApi.cerrarListing(listingId, input),
+    onSuccess: () => {
+      // Reportar el cierre: cambia listings, sube standing y DESBLOQUEA comparables.
+      qc.invalidateQueries({ queryKey: ["realtor", "listings"] });
+      qc.invalidateQueries({ queryKey: ["realtor", "desempeno"] });
+      qc.invalidateQueries({ queryKey: ["realtor", "comparables"] });
+      toast.success("Cierre reportado. Desbloqueaste los comparables de cierre.");
+    },
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "No se pudo reportar el cierre"),
+  });
+}
+
+export function useComparables(params?: { barrioId?: number; tipoInmueble?: string; operacion?: string; meses?: number }) {
+  return useQuery({
+    queryKey: ["realtor", "comparables", params ?? null],
+    queryFn: () => realtorApi.getComparables(params),
+    staleTime: 60 * 1000,
   });
 }
 

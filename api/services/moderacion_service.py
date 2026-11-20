@@ -9,8 +9,13 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+import logging
+
+from api.cache import insert_listing_into_cache
 from api.services.listing_service import transition
 from api.utils import ghl_client
+
+logger = logging.getLogger(__name__)
 
 
 async def aprobar(listing: Any, moderador_id: str, pool: Any) -> None:
@@ -27,6 +32,11 @@ async def aprobar(listing: Any, moderador_id: str, pool: Any) -> None:
             "VALUES ($1, $2, 'aprobado', $3)",
             str(uuid.uuid4()), listing.id, moderador_id,
         )
+    # Aprobado → al mapa al instante (sin esperar el refresh horario).
+    try:
+        await insert_listing_into_cache(pool, listing.id)
+    except Exception:
+        logger.exception("aprobar: insert_listing_into_cache falló para %s", listing.id)
     await ghl_client.sync_listing(listing.id)
 
 

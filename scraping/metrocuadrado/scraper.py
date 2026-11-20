@@ -68,16 +68,38 @@ log = logging.getLogger(__name__)
 # Configuración API
 # ---------------------------------------------------------------------------
 API_URL = "https://www.metrocuadrado.com"
-# Extraído del HTML embebido: env.apiKey en config de Next.js RSC
-API_KEY = os.getenv("METROCUADRADO_API_KEY", "").strip()  # never hard-code; see .env.example
+# La X-Api-Key es una key PÚBLICA de web-client: metrocuadrado la embebe en el HTML de su
+# home (`"apiKey":"..."`), su propio frontend la usa en cada request. NO es un secreto.
+API_KEY = os.getenv("METROCUADRADO_API_KEY", "").strip()  # opcional; si falta, se auto-extrae
+_EXTRACTED_KEY: str | None = None
 
 
 def _require_api_key() -> str:
-    if not API_KEY:
-        raise RuntimeError(
-            "METROCUADRADO_API_KEY is not set. Export it (see .env.example) before running the Metrocuadrado scraper."
-        )
-    return API_KEY
+    """Prioridad: env var si está; si no, auto-extrae la key pública del HTML del portal.
+    Así el scraper no depende de configurar un env ni de hardcodear un valor que el portal
+    puede rotar (se auto-cura). Cache por proceso.
+    """
+    global _EXTRACTED_KEY
+    if API_KEY:
+        return API_KEY
+    if _EXTRACTED_KEY:
+        return _EXTRACTED_KEY
+    import re
+    try:
+        html = requests.get(API_URL, headers={"User-Agent": scraper_user_agent()}, timeout=20).text
+        # el HTML trae la key en JSON escapado dentro de un string JS: \"apiKey\":\"...\".
+        # Tolerar comillas/backslashes/espacios entre 'apiKey' y el valor.
+        m = re.search(r'apiKey[\\"\':\s]+([A-Za-z0-9]{30,})', html)
+        if m:
+            _EXTRACTED_KEY = m.group(1)
+            log.info("[metrocuadrado] X-Api-Key auto-extraída del HTML del portal")
+            return _EXTRACTED_KEY
+    except Exception as exc:
+        log.warning("[metrocuadrado] no pude auto-extraer la api key: %s", exc)
+    raise RuntimeError(
+        "METROCUADRADO_API_KEY no está en el env y no se pudo auto-extraer del HTML del "
+        "portal (¿cambió metrocuadrado.com?). Setear el env var como fallback."
+    )
 PAGE_SIZE = 50  # n.L=50, obligatorio — otras sizes retornan 0 resultados
 
 # Municipios del Valle de Aburrá — slug URL → nombre display

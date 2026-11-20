@@ -1,10 +1,10 @@
 import { seo } from "@/lib/seo";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { motion } from "framer-motion";
 import { apiFetch } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
-import { AuthShell } from "./login";
+import { AuthShell, Field, ErrorBanner, AuthButton, inputStyle } from "./login";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/forgot-password")({
   head: () => seo({ title: "Recuperar contraseña · Medellín Social", description: "Recupera el acceso a tu cuenta.", noindex: true }),
@@ -12,6 +12,7 @@ export const Route = createFileRoute("/forgot-password")({
 });
 
 function ForgotPasswordPage() {
+  const t = useT();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -38,18 +39,18 @@ function ForgotPasswordPage() {
   if (sent) {
     return (
       <AuthShell title="Revisa tu correo" subtitle="Te enviamos instrucciones para recuperar tu contraseña">
-        <div className="space-y-4">
-          <div className="rounded-lg border border-primary/40 bg-primary/10 p-4">
-            <p className="text-sm text-foreground">
-              Si <span className="font-semibold">{email}</span> está registrado, recibirás un correo con un enlace para
-              restablecer tu contraseña. Válido por 1 hora.
-            </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ borderRadius: 10, border: "1px solid #0F8A4F", background: "#E7F4EC", padding: 16, fontSize: 14, color: "#0A5C36", fontFamily: "'Inter', system-ui, sans-serif", lineHeight: 1.6 }}>
+            {t(
+              `Si ${email} está registrado, recibirás un correo con un enlace para restablecer tu contraseña. Válido por 1 hora.`,
+              `If ${email} is registered, you'll receive an email with a link to reset your password. Valid for 1 hour.`,
+            )}
           </div>
           <Link
             to="/login"
-            className="block w-full rounded-md bg-primary py-2.5 text-center text-sm font-semibold text-primary-foreground glow-cyan"
+            style={{ display: "block", width: "100%", background: "#0F8A4F", color: "#fff", padding: "13px", borderRadius: 999, textAlign: "center", fontSize: 14, fontWeight: 800, textDecoration: "none", fontFamily: "'Inter', system-ui, sans-serif" }}
           >
-            Volver al login
+            {t("Volver al login", "Back to login")}
           </Link>
         </div>
       </AuthShell>
@@ -58,31 +59,24 @@ function ForgotPasswordPage() {
 
   return (
     <AuthShell title="¿Olvidaste tu contraseña?" subtitle="Te enviaremos instrucciones para recuperarla">
-      <form onSubmit={submit} className="space-y-4">
-        <div>
-          <label className="block text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
-            Correo registrado
-          </label>
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <Field label="Correo registrado">
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full rounded-md border border-border bg-background/40 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+            className="auth-input"
+            style={inputStyle}
             placeholder="tu@correo.com"
+            autoFocus
           />
-        </div>
-        {error && <p className="text-xs text-danger">{error}</p>}
-        <motion.button
-          whileHover={{ scale: 1.01 }}
-          whileTap={{ scale: 0.99 }}
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-md bg-primary py-2.5 text-sm font-semibold text-primary-foreground glow-cyan disabled:opacity-60"
-        >
+        </Field>
+        {error && <ErrorBanner message={error} />}
+        <AuthButton disabled={loading}>
           {loading ? "Enviando…" : "Enviar instrucciones"}
-        </motion.button>
-        <p className="text-center text-xs text-muted-foreground">
-          <Link to="/login" className="text-primary hover:underline">
+        </AuthButton>
+        <p style={{ textAlign: "center", fontSize: 13, fontFamily: "'Inter', system-ui, sans-serif", color: "#5B5F5C", margin: 0 }}>
+          <Link to="/login" style={{ color: "#0F8A4F", fontWeight: 700, textDecoration: "none" }}>
             Volver al login
           </Link>
         </p>

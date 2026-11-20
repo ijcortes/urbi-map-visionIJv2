@@ -32,6 +32,10 @@ def main() -> int:
             "--detail-limit", "50",  # reducido de 150 — Playwright crashea en runs largos en contenedor
         ]),
         ("scrape_vrbo", [sys.executable, "scraping/vrbo/vrbo_scraper.py"]),
+        # medellinliving va tras vrbo a propósito: vrbo.ensure_table() crea el trigger
+        # trg_precio_cambio_premium en raw.listings_premium, que es lo que captura el
+        # historial de precio del UPSERT de medellinliving (requests, no Playwright → liviano).
+        ("scrape_medellinliving", [sys.executable, "scripts/scrape_medellinliving.py"]),
         ("scrape_nomadbarrio", [sys.executable, "scraping/renta_media/nomadbarrio_scraper.py"]),
         ("scrape_flatio", [sys.executable, "scraping/renta_media/flatio_scraper.py"]),
         ("scrape_booking", [sys.executable, "scraping/renta_media/booking_scraper.py", "--max-pages", "3"]),

@@ -38,9 +38,11 @@ export const Route = createFileRoute("/comparador")({
       throw redirect({ to: "/login" });
     }
     const u = JSON.parse(raw);
-    if (u.plan !== "agente" && u.esAgente !== true) {
-      throw redirect({ to: "/planes", search: { audiencia: "agente" } });
+    // El comparador vive ahora DENTRO del centro de agente (tab), no como página suelta.
+    if (u.plan === "agente" || u.esAgente === true) {
+      throw redirect({ href: "/realtor/dashboard?tab=comparador" });
     }
+    throw redirect({ to: "/planes", search: { audiencia: "agente" } });
   },
   component: ComparadorPage,
 });

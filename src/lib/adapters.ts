@@ -16,6 +16,8 @@ export type Neighborhood = {
   cd_comuna?: number | null;
   municipio: string;
   estrato: number;
+  poblacionComuna?: number | null;
+  poblacionMunicipio?: number | null;
   precio_m2: number;
   arriendo: number;
   yield: number | null;
@@ -102,6 +104,8 @@ export type ApiBarrio = {
   comuna: string | null;
   municipio: string | null;
   estrato: number | null;
+  poblacion_comuna?: number | null;
+  poblacion_municipio?: number | null;
   cd_comuna?: number | null;
   geometry: { type: string; coordinates: unknown } | null;
   color_hex: string | null;
@@ -443,6 +447,8 @@ export function barrioToNeighborhood(b: ApiBarrio): Neighborhood {
     cd_comuna: b.cd_comuna ?? null,
     municipio: b.municipio ?? "Medellín",
     estrato: b.estrato ?? 3,
+    poblacionComuna: b.poblacion_comuna ?? null,
+    poblacionMunicipio: b.poblacion_municipio ?? null,
     precio_m2: b.mercado.precio_m2_cop ?? 5_000_000,
     arriendo: b.mercado.arriendo_p50_cop ?? 2_000_000,
     yield: b.mercado.yield_bruto_pct ?? null,

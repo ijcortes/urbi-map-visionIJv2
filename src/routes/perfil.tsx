@@ -1,12 +1,14 @@
 import { seo } from "@/lib/seo";
 import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { ComunidadLayout } from "@/components/comunidad/ComunidadLayout";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
+  Building2,
   Camera,
   Check,
   Heart,
@@ -29,7 +31,9 @@ import {
 } from "@/lib/auth";
 import { useUpdateAuthPerfil, logout } from "@/hooks/useAuth";
 import { useTarget } from "@/contexts/TargetContext";
+import { useT } from "@/lib/i18n";
 import { useFavoritos, useToggleFavorito, useHistorial } from "@/hooks/useUser";
+import { useFavoritosListings, useFavoritosListingsFull } from "@/hooks/useFavoritosListings";
 import { formatCOP } from "@/lib/format";
 
 export const Route = createFileRoute("/perfil")({
@@ -42,20 +46,21 @@ export const Route = createFileRoute("/perfil")({
   component: PerfilRoute,
 });
 
-// Envuelto en ComunidadLayout (compact) → mismo navbar/footer que el resto del
-// sitio, en vez de una página suelta sin barra de navegación.
+// Mismo navbar/footer que el home (ComunidadLayout sin compact: masthead + barra
+// + ticker), no la versión slim.
 function PerfilRoute() {
   return (
-    <ComunidadLayout compact>
+    <ComunidadLayout initialSlug="todos">
       <PerfilPage />
     </ComunidadLayout>
   );
 }
 
-type Tab = "cuenta" | "busqueda" | "inversor" | "favoritos" | "historial";
+type Tab = "cuenta" | "inmuebles" | "busqueda" | "inversor" | "favoritos" | "historial";
 
 const TABS: { id: Tab; label: string; Icon: typeof UserIcon }[] = [
   { id: "cuenta", label: "Cuenta", Icon: UserIcon },
+  { id: "inmuebles", label: "Tus inmuebles", Icon: Building2 },
   { id: "busqueda", label: "Perfil de búsqueda", Icon: Search },
   { id: "inversor", label: "Perfil inversor", Icon: TrendingUp },
   { id: "favoritos", label: "Favoritos", Icon: Heart },
@@ -127,6 +132,7 @@ function PerfilPage() {
                 transition={{ duration: 0.18 }}
               >
                 {tab === "cuenta" && <CuentaTab user={user} />}
+                {tab === "inmuebles" && <InmueblesTab />}
                 {tab === "busqueda" && <BusquedaTab user={user} />}
                 {tab === "inversor" && <InversorTab user={user} />}
                 {tab === "favoritos" && <FavoritosTab user={user} />}
@@ -244,13 +250,18 @@ function StatBlock({ label, value }: { label: string; value: number }) {
 
 /* ---------------- Cuenta ---------------- */
 
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
 function CuentaTab({ user }: { user: UrbiUser }) {
+  const t = useT();
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
-  const [pwd, setPwd] = useState("");
-  const [pwd2, setPwd2] = useState("");
   const [avatar, setAvatar] = useState<string | undefined>(user.avatar);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const [emailNote, setEmailNote] = useState(false);
+  const [reset, setReset] = useState<"idle" | "sending" | "sent">("idle");
   const fileRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
@@ -263,18 +274,43 @@ function CuentaTab({ user }: { user: UrbiUser }) {
     reader.readAsDataURL(file);
   };
 
-  const save = () => {
-    if (pwd && pwd !== pwd2) return alert("Las contraseñas no coinciden");
-    auth.patch({
-      name: name.trim(),
-      email: email.trim(),
-      avatar,
-      ...(pwd ? { password: pwd } : {}),
-    });
-    setPwd("");
-    setPwd2("");
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1800);
+  // Persiste de verdad en el backend (antes solo tocaba localStorage → "✓ Guardado"
+  // mentía). El avatar sigue siendo local al dispositivo (ver nota debajo).
+  const save = async () => {
+    setErr("");
+    const nm = name.trim();
+    const em = email.trim().toLowerCase();
+    if (!nm) return setErr(t("El nombre no puede estar vacío.", "Name can't be empty."));
+    if (!EMAIL_RE.test(em)) return setErr(t("Correo inválido.", "Invalid email."));
+    setSaving(true);
+    try {
+      const res = await apiFetch<{ ok: boolean; email_verificacion_enviada?: boolean }>(
+        API_ENDPOINTS.authPerfil,
+        { method: "PATCH", body: JSON.stringify({ nombre: nm, email: em }) },
+      );
+      auth.patch({ name: nm, email: em, avatar });
+      setEmailNote(!!res?.email_verificacion_enviada);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1800);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : t("No se pudo guardar. Intenta de nuevo.", "Couldn't save. Please try again."));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Cambio de contraseña = flujo seguro por correo (el mismo /forgot-password).
+  // No hay endpoint de cambio-logueado y falsear uno inline sería otra mentira.
+  const sendPasswordReset = async () => {
+    setReset("sending");
+    try {
+      await apiFetch(API_ENDPOINTS.forgotPassword, {
+        method: "POST",
+        body: JSON.stringify({ email: user.email }),
+        skipAuth: true,
+      });
+    } catch { /* forgot-password responde 200 aunque el correo no exista; da igual */ }
+    setReset("sent");
   };
 
   return (
@@ -322,23 +358,65 @@ function CuentaTab({ user }: { user: UrbiUser }) {
         <Field label="Correo">
           <input className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         </Field>
-        <Field label="Nueva contraseña">
-          <input className={inputCls} type="password" value={pwd} onChange={(e) => setPwd(e.target.value)} placeholder="Dejar en blanco para no cambiar" />
-        </Field>
-        <Field label="Confirmar contraseña">
-          <input className={inputCls} type="password" value={pwd2} onChange={(e) => setPwd2(e.target.value)} />
-        </Field>
       </div>
 
+      {err && (
+        <div className="rounded-md border border-[#CE1126]/40 bg-[#FCE8EA] px-3 py-2 text-xs text-[#8B2A10]">
+          {err}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-3">
-        <button onClick={save} className="rounded-md bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 glow-cyan">
-          Guardar cambios
+        <button
+          onClick={save}
+          disabled={saving}
+          className="rounded-md bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 glow-cyan disabled:opacity-60"
+        >
+          {saving ? "Guardando…" : "Guardar cambios"}
         </button>
         {saved && (
           <motion.span initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} className="text-xs text-success">
             ✓ Guardado
           </motion.span>
         )}
+      </div>
+
+      {emailNote && (
+        <div className="rounded-md border border-[#0F8A4F]/40 bg-[#E7F4EC] px-3 py-2 text-xs text-[#0A5C36]">
+          {t(
+            `Cambiaste tu correo. Te enviamos un enlace a ${email.trim().toLowerCase()} para confirmarlo. Tu sesión actual sigue activa.`,
+            `You changed your email. We sent a confirmation link to ${email.trim().toLowerCase()}. Your current session stays active.`,
+          )}
+        </div>
+      )}
+
+      {/* Contraseña — flujo seguro por correo, no un campo que miente */}
+      <div className="rounded-xl border border-[#E5E0D5] bg-[#FDFBF7] p-4">
+        <div className="text-sm font-semibold text-[#111418]">{t("Contraseña", "Password")}</div>
+        {reset === "sent" ? (
+          <p className="mt-1 text-xs text-[#5B5F5C]">
+            {t(
+              `Te enviamos un enlace a ${user.email} para cambiar tu contraseña. Es válido por 1 hora.`,
+              `We sent a link to ${user.email} to change your password. It's valid for 1 hour.`,
+            )}
+          </p>
+        ) : (
+          <>
+            <p className="mt-1 text-xs text-[#5B5F5C]">
+              {t("Por seguridad, la contraseña se cambia con un enlace que te enviamos a tu correo.", "For security, your password is changed through a link we email you.")}
+            </p>
+            <button
+              onClick={sendPasswordReset}
+              disabled={reset === "sending"}
+              className="mt-3 rounded-md border border-[#0F8A4F] px-4 py-1.5 text-xs font-semibold text-[#0A5C36] transition hover:bg-[#E7F4EC] disabled:opacity-60"
+            >
+              {reset === "sending" ? t("Enviando…", "Sending…") : t("Enviar enlace para cambiar contraseña", "Send link to change password")}
+            </button>
+          </>
+        )}
+      </div>
+
+      <div className="flex justify-end">
         <button
           onClick={() => {
             if (confirm("¿Cerrar sesión?")) {
@@ -346,7 +424,7 @@ function CuentaTab({ user }: { user: UrbiUser }) {
               navigate({ to: "/login" });
             }
           }}
-          className="ml-auto text-xs text-muted-foreground hover:text-danger"
+          className="text-xs text-muted-foreground hover:text-danger"
         >
           Cerrar sesión
         </button>
@@ -540,71 +618,211 @@ function InversorTab({ user }: { user: UrbiUser }) {
 
 /* ---------------- Favoritos ---------------- */
 
-function FavoritosTab({ user: _user }: { user: UrbiUser }) {
-  const { data: favs = [], isLoading, isError } = useFavoritos();
-  const { remove } = useToggleFavorito();
+const TIPO_LABEL: Record<string, string> = { arriendo: "Arriendo", venta: "Venta" };
+
+/* ---------------- Tus inmuebles (propiedades publicadas por el usuario) ---------------- */
+
+type MisListing = {
+  id: string;
+  tipo_operacion: string | null;
+  tipo_inmueble: string | null;
+  precio_cop: number | null;
+  area_m2: number | null;
+  habitaciones: number | null;
+  estado: string | null;
+  verificado: boolean | null;
+  destacado: boolean | null;
+  fotos: string[];
+  barrio: string | null;
+  municipio: string | null;
+  vistas_total: number | null;
+  vistas_30d: number | null;
+  favoritos: number | null;
+};
+
+const ESTADO_BADGE: Record<string, { label: string; bg: string; color: string }> = {
+  borrador:    { label: "Borrador",    bg: "#F3F0E8", color: "#6E726E" },
+  en_revision: { label: "En revisión", bg: "#FFF4D6", color: "#8A6D1D" },
+  publicado:   { label: "Publicado",   bg: "#E7F4EC", color: "#0A5C36" },
+  activo:      { label: "Activo",       bg: "#E7F4EC", color: "#0A5C36" },
+  pausado:     { label: "Pausado",      bg: "#F3F0E8", color: "#6E726E" },
+  rechazado:   { label: "Rechazado",    bg: "#FCE8EA", color: "#8B2A10" },
+};
+
+function InmueblesTab() {
+  const { data: listings = [], isLoading, isError } = useQuery<MisListing[]>({
+    queryKey: ["mis-listings"],
+    queryFn: () => apiFetch<MisListing[]>(API_ENDPOINTS.listingsPropiosMis),
+    staleTime: 60_000,
+  });
 
   return (
     <div className="space-y-5">
-      <SectionTitle title="Favoritos" hint="Barrios guardados con tu configuración exacta." />
+      <SectionTitle title="Tus inmuebles" hint="Las propiedades que publicaste en Medellín Social." />
       {isLoading ? (
-        <div className="py-8 text-center text-sm text-muted-foreground">Cargando favoritos...</div>
+        <div className="py-8 text-center text-sm text-muted-foreground">Cargando…</div>
       ) : isError ? (
-        <div className="rounded-xl border border-danger/40 bg-danger/10 p-4 text-sm text-danger">
-          Error al cargar favoritos. Verifica tu conexión.
-        </div>
-      ) : favs.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          Sin favoritos aún. Toca el ⭐ en un barrio para guardarlo.
+        <div className="rounded-xl border border-danger/40 bg-danger/10 p-4 text-sm text-danger">Error al cargar. Verifica tu conexión.</div>
+      ) : listings.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-[#E5E0D5] p-8 text-center">
+          <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-[#E7F4EC] text-[#0F8A4F]"><Building2 className="h-6 w-6" /></div>
+          <p className="text-sm font-semibold text-[#111418]">Aún no has publicado inmuebles</p>
+          <p className="mx-auto mt-1 max-w-xs text-xs text-[#6E726E]">Publica tu propiedad gratis y aparecerá en el mapa de Medellín Social frente a miles de compradores.</p>
+          <a href="/publicar" className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-[#0F8A4F] px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90">
+            Publicar una propiedad →
+          </a>
         </div>
       ) : (
-        <div className="grid gap-3.5 sm:grid-cols-2">
-          {favs.map((f) => (
-            <div
-              key={f.id}
-              className="overflow-hidden rounded-2xl border border-[#E5E0D5] bg-white transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-[#111418]/5"
-            >
-              <div className="p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="text-[10px] uppercase tracking-widest text-[#6E726E]">
-                      {f.municipio ?? "Barrio"}
-                    </div>
-                    <div className="mt-0.5 truncate font-display text-lg font-semibold text-[#111418]">
-                      {f.nombre ?? `Barrio ${f.barrio_id}`}
-                    </div>
-                    {f.comuna && (
-                      <div className="text-[11px] text-[#5B5F5C]">{f.comuna}</div>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => remove.mutate(f.barrio_id)}
-                    disabled={remove.isPending}
-                    title="Quitar de favoritos"
-                    className="shrink-0 text-[#CE1126] transition hover:scale-110 disabled:opacity-50"
-                  >
-                    <Star className="h-[18px] w-[18px] fill-current" />
-                  </button>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {listings.map((l) => {
+            const est = l.estado ? ESTADO_BADGE[l.estado] : null;
+            return (
+              <div key={l.id} className="overflow-hidden rounded-2xl border border-[#E5E0D5] bg-white transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-[#111418]/5">
+                <div className="relative h-36 overflow-hidden bg-[#E7F4EC]">
+                  {l.fotos?.[0] ? (
+                    <img src={l.fotos[0]} alt="" className="h-full w-full object-cover" loading="lazy" />
+                  ) : (
+                    <div className="grid h-full w-full place-items-center text-[#0F8A4F]/40"><Building2 className="h-8 w-8" /></div>
+                  )}
+                  {est && (
+                    <span className="absolute left-2 top-2 rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider" style={{ background: est.bg, color: est.color }}>
+                      {est.label}
+                    </span>
+                  )}
+                  {l.verificado && (
+                    <span className="absolute right-2 top-2 rounded px-2 py-0.5 text-[10px] font-bold text-white" style={{ background: "#0A5C36" }}>✓ Verificado</span>
+                  )}
                 </div>
-                <div className="mt-3 flex items-center justify-between rounded-lg bg-[#F3F0E8] px-3 py-2">
-                  <span className="text-[11px] font-medium text-[#5B5F5C]">Yield bruto</span>
-                  <span className="font-display text-sm font-bold text-[#0F8A4F]">
-                    {f.yield_bruto != null ? `${f.yield_bruto.toFixed(1)}%` : "—"}
-                  </span>
+                <div className="p-3.5">
+                  <div className="font-display text-lg font-bold text-[#111418]">{l.precio_cop != null ? formatCOP(l.precio_cop) : "—"}</div>
+                  <div className="mt-0.5 text-[12px] text-[#5B5F5C]">
+                    {[l.tipo_inmueble && titleCaseEs(l.tipo_inmueble), l.habitaciones != null && `${l.habitaciones} hab`, l.area_m2 != null && `${Math.round(l.area_m2)} m²`].filter(Boolean).join(" · ") || "—"}
+                  </div>
+                  {(l.barrio || l.municipio) && (
+                    <div className="mt-1 truncate text-[11px] text-[#6E726E]">{[l.barrio && titleCaseEs(l.barrio), l.municipio && titleCaseEs(l.municipio)].filter(Boolean).join(", ")}</div>
+                  )}
+                  <div className="mt-3 flex items-center gap-4 border-t border-[#F3F0E8] pt-2.5 text-[11px] text-[#5B5F5C]">
+                    <span><strong className="text-[#111418]">{l.vistas_30d ?? 0}</strong> vistas (30d)</span>
+                    <span><strong className="text-[#111418]">{l.favoritos ?? 0}</strong> guardados</span>
+                  </div>
                 </div>
               </div>
-              <Link
-                to="/map"
-                className="block border-t border-[#E5E0D5] px-4 py-2.5 text-center text-[11px] font-semibold text-[#0F8A4F] transition hover:bg-[#E7F4EC]"
-              >
-                Ver en el mapa →
-              </Link>
-            </div>
-          ))}
+            );
+          })}
+          <a href="/publicar" className="grid place-items-center rounded-2xl border border-dashed border-[#0F8A4F]/40 p-6 text-center text-sm font-semibold text-[#0F8A4F] transition hover:bg-[#E7F4EC]">
+            + Publicar otra propiedad
+          </a>
         </div>
       )}
     </div>
   );
+}
+
+function FavoritosTab({ user: _user }: { user: UrbiUser }) {
+  const { data: inmuebles = [], isLoading: loadingInm, isError: errorInm } = useFavoritosListingsFull();
+  const { toggle } = useFavoritosListings();
+  const { data: barrios = [], isLoading: loadingBar } = useFavoritos();
+  const { remove } = useToggleFavorito();
+
+  return (
+    <div className="space-y-8">
+      {/* ── Inmuebles guardados (el corazón ❤ del mapa/drawer) ── */}
+      <div className="space-y-4">
+        <SectionTitle title="Inmuebles guardados" hint="Las propiedades que marcaste con ❤ en el mapa." />
+        {loadingInm ? (
+          <div className="py-8 text-center text-sm text-muted-foreground">Cargando inmuebles…</div>
+        ) : errorInm ? (
+          <div className="rounded-xl border border-danger/40 bg-danger/10 p-4 text-sm text-danger">Error al cargar. Verifica tu conexión.</div>
+        ) : inmuebles.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-[#E5E0D5] p-8 text-center text-sm text-[#6E726E]">
+            Aún no guardas inmuebles. Toca el <span className="text-[#CE1126]">❤</span> en una propiedad del mapa para guardarla aquí.
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {inmuebles.map((f) => (
+              <div key={f.url} className="group overflow-hidden rounded-2xl border border-[#E5E0D5] bg-white transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-[#111418]/5">
+                <div className="relative h-36 overflow-hidden bg-[#E7F4EC]">
+                  {f.foto ? (
+                    <img src={f.foto} alt="" className="h-full w-full object-cover" loading="lazy" />
+                  ) : (
+                    <div className="grid h-full w-full place-items-center text-[#0F8A4F]/40"><Building2 className="h-8 w-8" /></div>
+                  )}
+                  {f.tipo_operacion && (
+                    <span className="absolute left-2 top-2 rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+                      style={{ background: f.tipo_operacion === "arriendo" ? "#E7F4EC" : "#FCE8EA", color: f.tipo_operacion === "arriendo" ? "#0F8A4F" : "#CE1126" }}>
+                      {TIPO_LABEL[f.tipo_operacion] ?? f.tipo_operacion}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => toggle(f.url)}
+                    title="Quitar de guardados"
+                    className="absolute right-2 top-2 grid h-9 w-9 place-items-center rounded-full bg-white/95 shadow-sm transition hover:scale-110"
+                  >
+                    <Heart className="h-[18px] w-[18px]" style={{ color: "#CE1126" }} fill="#CE1126" />
+                  </button>
+                </div>
+                <div className="p-3.5">
+                  <div className="font-display text-lg font-bold text-[#111418]">
+                    {f.precio_cop != null ? formatCOP(f.precio_cop) : "Precio no disponible"}
+                  </div>
+                  <div className="mt-0.5 text-[12px] text-[#5B5F5C]">
+                    {[f.habitaciones != null && `${f.habitaciones} hab`, f.banos != null && `${Math.round(f.banos)} baños`, f.area_m2 != null && `${Math.round(f.area_m2)} m²`].filter(Boolean).join(" · ") || "—"}
+                  </div>
+                  {(f.barrio_nombre || f.municipio) && (
+                    <div className="mt-1 truncate text-[11px] text-[#6E726E]">
+                      {[f.barrio_nombre && titleCaseEs(f.barrio_nombre), f.municipio && titleCaseEs(f.municipio)].filter(Boolean).join(", ")}
+                    </div>
+                  )}
+                  <a href={`/map?listing=${f.listing_id}`}
+                    className="mt-3 block rounded-lg border border-[#E5E0D5] py-2 text-center text-[11px] font-semibold text-[#0F8A4F] transition hover:bg-[#E7F4EC]">
+                    Ver en el mapa →
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Barrios guardados (⭐) ── */}
+      {(loadingBar || barrios.length > 0) && (
+        <div className="space-y-4">
+          <SectionTitle title="Barrios guardados" hint="Zonas que marcaste con ⭐ con tu configuración exacta." />
+          <div className="grid gap-3.5 sm:grid-cols-2">
+            {barrios.map((f) => (
+              <div key={f.id} className="overflow-hidden rounded-2xl border border-[#E5E0D5] bg-white transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-[#111418]/5">
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[10px] uppercase tracking-widest text-[#6E726E]">{f.municipio ?? "Barrio"}</div>
+                      <div className="mt-0.5 truncate font-display text-lg font-semibold text-[#111418]">{f.nombre ?? `Barrio ${f.barrio_id}`}</div>
+                      {f.comuna && <div className="text-[11px] text-[#5B5F5C]">{f.comuna}</div>}
+                    </div>
+                    <button onClick={() => remove.mutate(f.barrio_id)} disabled={remove.isPending} title="Quitar de favoritos"
+                      className="shrink-0 text-[#CE1126] transition hover:scale-110 disabled:opacity-50">
+                      <Star className="h-[18px] w-[18px] fill-current" />
+                    </button>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between rounded-lg bg-[#F3F0E8] px-3 py-2">
+                    <span className="text-[11px] font-medium text-[#5B5F5C]">Yield bruto</span>
+                    <span className="font-display text-sm font-bold text-[#0F8A4F]">{f.yield_bruto != null ? `${f.yield_bruto.toFixed(1)}%` : "—"}</span>
+                  </div>
+                </div>
+                <Link to="/map" className="block border-t border-[#E5E0D5] px-4 py-2.5 text-center text-[11px] font-semibold text-[#0F8A4F] transition hover:bg-[#E7F4EC]">
+                  Ver en el mapa →
+                </Link>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Barrio names come ALL CAPS ("EL CHOCHO"); sentence-case for display.
+function titleCaseEs(s: string): string {
+  return s.toLowerCase().replace(/(^|\s)\p{L}/gu, (c) => c.toUpperCase());
 }
 
 /* ---------------- Historial ---------------- */

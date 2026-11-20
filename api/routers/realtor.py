@@ -5,10 +5,11 @@ public.user_events (event_type='listing_view', entity_id = listing.id::text | sl
 """
 from __future__ import annotations
 
+import logging
 from datetime import date, time as _time
 from types import SimpleNamespace
 
-from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from api.db import get_pool
@@ -21,10 +22,27 @@ from api.utils.storage import read_upload_bounded, upload_file
 
 from api.services.trm_service import get_usd_rate
 
+log = logging.getLogger(__name__)
+
 router = APIRouter()
 
 # claves del cuestionario que el dashboard muestra en "declarado"
 _DECL_KEYS = ("tiene_escritura", "al_dia_predial", "al_dia_administracion", "tiene_hipoteca")
+
+# ── Incentivos del realtor — parámetros de PRODUCTO (PLACEHOLDER, ajustar con negocio) ──
+# NO son decisiones técnicas: definen el comportamiento que premiamos. Tunéalos acá.
+# Pesos del puntaje de standing (0..1, deben sumar 1.0).
+_PUNTAJE_PESOS = {"contribucion": 0.30, "velocidad": 0.30, "show_rate": 0.20, "aceptacion": 0.20}
+_CONTRIB_CAP = 5             # cierres (12m) que topan el componente de contribución
+_RANKING_MIN_ACTIVIDAD = 3   # actividad mínima (visitas resp + intakes + cierres, 90d/12m) para
+                             # tener puntaje/ranking; por debajo → "datos insuficientes" (no inventamos señal)
+# Reciprocidad: cierres reportados (12m) para desbloquear los comparables de cierre.
+# Cuenta DISTINCT matrícula (anti-farm). Mitigación de integridad construida (punto
+# medio): unlock instantáneo con autoreporte, pero comparables marcan verificado vs
+# sin-verificar + dedup prioriza verificado → el cierre falso es inútil para engañar.
+# Cold-start: con pocos cierres el gate abre una sala fina (crece con los reportes).
+# Futuro: cruce SNR por matrícula (falta dato nivel-matrícula). Ver docs/FLUJO_REALTOR.md.
+_COMPARABLES_MIN_CIERRES = 1
 
 _ZONAS_SQL = """
     SELECT s.zona_codigo, s.zona_nivel::text AS nivel, s.tier, s.precio_mensual,
@@ -49,8 +67,13 @@ _VISTAS_JOIN = "e.event_type = 'listing_view' AND e.entity_id IN (l.id::text, l.
 
 async def _agent_del_usuario(user: dict, pool, exigir_activo: bool = True) -> SimpleNamespace:
     async with pool.acquire() as conn:
+        # Determinista: si un usuario tuviera >1 fila agent, TODOS los endpoints
+        # realtor deben resolver a la MISMA (si no, /pool/tomar escribe en una y
+        # /asignados lee de otra → el lead tomado "desaparece"). Canónica = la
+        # más vieja; activa gana sobre inactiva.
         row = await conn.fetchrow(
-            "SELECT id, estado, usuario_id, nombre, foto_url, bio FROM agent WHERE usuario_id = $1",
+            "SELECT id, estado, usuario_id, nombre, foto_url, bio FROM agent "
+            "WHERE usuario_id = $1 ORDER BY (estado = 'activo') DESC, created_at ASC LIMIT 1",
             user.get("id"),
         )
     if not row:
@@ -284,6 +307,16 @@ class ListingPatchRequest(BaseModel):
     habitaciones: int | None = None
     banos: int | None = None
     direccion_aprox: str | None = None
+    # Ficha completa (reclamar/editar todo): ubicación + resto de campos
+    lat: float | None = None
+    lon: float | None = None
+    tipo_inmueble: str | None = None
+    estrato: int | None = None
+    parqueaderos: int | None = None
+    antiguedad_anios: int | None = None
+    nombre_edificio: str | None = None
+    administracion: float | None = None
+    amenidades: list[str] | None = None
 
 
 @router.patch("/listings/{listing_id}")
@@ -293,25 +326,36 @@ async def editar_listing(
     user: dict = Depends(get_current_user),
     pool=Depends(get_pool),
 ):
-    """Edita la ficha de un listing propio (campos básicos, no el estado)."""
+    """Edita la ficha de un listing propio (campos básicos + ubicación, no el estado)."""
     agent = await _agent_del_usuario(user, pool)
-    campos = {k: v for k, v in req.model_dump().items() if v is not None}
-    if not campos:
-        raise HTTPException(status_code=400, detail="Nada que actualizar")
+    data = req.model_dump()
+    # Ubicación va aparte: 'listing' guarda geom (Point), no columnas lat/lon.
+    lat = data.pop("lat", None)
+    lon = data.pop("lon", None)
+    campos = {k: v for k, v in data.items() if v is not None}
     if "precio" in campos and campos["precio"] <= 0:
         raise HTTPException(status_code=400, detail="Precio inválido")
 
-    sets = ", ".join(f"{k} = ${i + 3}" for i, k in enumerate(campos))
+    set_parts = [f"{k} = ${i + 3}" for i, k in enumerate(campos)]
+    valores = list(campos.values())
+    if lat is not None and lon is not None:
+        n = len(valores)
+        set_parts.append(f"geom = ST_SetSRID(ST_MakePoint(${n + 3}, ${n + 4}), 4326)")
+        valores.extend([lon, lat])  # MakePoint(x=lon, y=lat)
+    if not set_parts:
+        raise HTTPException(status_code=400, detail="Nada que actualizar")
+
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            f"UPDATE listing SET {sets}, updated_at = NOW() "
+            f"UPDATE listing SET {', '.join(set_parts)}, updated_at = NOW() "
             "WHERE id = $1 AND agent_id = $2 RETURNING id",
-            listing_id, agent.id, *campos.values(),
+            listing_id, agent.id, *valores,
         )
     if not row:
         raise HTTPException(status_code=404, detail="Listing no encontrado o no es tuyo")
     await ghl_client.sync_listing(listing_id)
-    return {"id": listing_id, "actualizado": sorted(campos)}
+    actualizado = sorted(campos) + (["ubicacion"] if lat is not None and lon is not None else [])
+    return {"id": listing_id, "actualizado": actualizado}
 
 
 class CerrarListingRequest(BaseModel):
@@ -352,6 +396,9 @@ async def cerrar_listing(
             # llaves: las del request mandan; si no, las que ya tenía el listing
             matricula = (req.matricula_inmobiliaria or lst["matricula_inmobiliaria"] or "").strip() or None
             catastral = (req.cedula_catastral or lst["cedula_catastral"] or "").strip() or None
+            # #11: matrícula obligatoria en cierres (llave del evento de propiedad durable).
+            if not matricula:
+                raise HTTPException(status_code=400, detail="La matrícula inmobiliaria es obligatoria para reportar el cierre")
 
             await conn.execute(
                 "UPDATE listing SET estado = 'cerrado', "
@@ -360,15 +407,128 @@ async def cerrar_listing(
                 "updated_at = NOW() WHERE id = $1",
                 listing_id, matricula, catastral,
             )
+            # #23 conversión real: atribuir la venta al lead que la originó — de las
+            # visitas del agente sobre este listing, la que llegó a oferta (o la más
+            # reciente). NULL si la venta no vino de un lead de la plataforma, para no
+            # inflar la tasa con cierres off-platform.
+            lead_id = await conn.fetchval(
+                "SELECT id FROM visita_solicitud "
+                "WHERE agent_id = $1 AND listing_url = $2 "
+                "ORDER BY (resultado = 'oferta') DESC NULLS LAST, created_at DESC LIMIT 1",
+                agent.id, listing_id,
+            )
             await conn.execute(
                 "INSERT INTO propiedad_evento "
                 "(matricula_inmobiliaria, cedula_catastral, listing_id, tipo_evento, "
-                " precio, fecha, agent_id) "
-                "VALUES ($1, $2, $3, 'venta', $4, COALESCE($5, CURRENT_DATE), $6)",
-                matricula, catastral, listing_id, req.precio_cierre, req.fecha_cierre, agent.id,
+                " precio, fecha, agent_id, visita_solicitud_id) "
+                "VALUES ($1, $2, $3, 'venta', $4, COALESCE($5, CURRENT_DATE), $6, $7)",
+                matricula, catastral, listing_id, req.precio_cierre, req.fecha_cierre, agent.id, lead_id,
             )
+    # Conversión (capa 5 del funnel): el cierre real. Best-effort y FUERA de la
+    # transacción del cierre para no arriesgarlo. from_lead=True si la venta se
+    # atribuyó a un lead de la plataforma (no infla la tasa con cierres off-platform).
+    # Ver docs/FUNNEL_B2B.md.
+    try:
+        import json
+        await pool.execute(
+            """INSERT INTO public.user_events
+                   (usuario_id, session_id, event_type, entity_type, entity_id, metadata)
+               VALUES (NULL, $1, 'conversion', 'listing', $2, $3::jsonb)""",
+            f"cerrar-{listing_id}",
+            listing_id,
+            json.dumps({"from_lead": lead_id is not None, "precio_cierre": req.precio_cierre}, default=str),
+        )
+    except Exception:
+        log.warning("conversion event insert falló (listing=%s)", listing_id, exc_info=True)
     await ghl_client.sync_listing(listing_id)
     return {"id": listing_id, "estado": "cerrado", "precio_cierre": req.precio_cierre}
+
+
+# Comparables de CIERRE: NO expone matrícula / dirección / agente / listing_id de
+# otros — solo precio/fecha/zona/tipo/área/$m2. listing_id del ledger solo sirve
+# para el JOIN de zona/tipo, no se devuelve.
+# Dedup por matrícula (una propiedad = un cierre; si hay autoreportado + verificado
+# de la misma, gana el verificado). Verificados primero: un cierre falso queda
+# abajo y marcado "sin verificar" → no engaña a nadie y solo ensucia el bucket
+# descartable. (SNR cross flipearía verificado=true cuando exista el dato.)
+_COMPARABLES_SQL = """
+    SELECT precio, fecha, verificado, moneda, area_m2, barrio, tipo_inmueble, operacion, precio_m2
+    FROM (
+        SELECT DISTINCT ON (pe.matricula_inmobiliaria)
+               pe.precio, pe.fecha, pe.verificado, pe.moneda,
+               l.area_m2, l.barrio, l.tipo_inmueble::text AS tipo_inmueble,
+               l.operacion::text AS operacion,
+               CASE WHEN l.area_m2 IS NOT NULL AND l.area_m2 > 0
+                    THEN ROUND(pe.precio / l.area_m2) END AS precio_m2
+        FROM public.propiedad_evento pe
+        JOIN public.listing l ON l.id = pe.listing_id
+        WHERE pe.tipo_evento = 'venta'
+          AND pe.matricula_inmobiliaria IS NOT NULL
+          AND pe.fecha > CURRENT_DATE - make_interval(months => $1)
+          AND ($2::int  IS NULL OR l.barrio_id = $2)
+          AND ($3::text IS NULL OR l.tipo_inmueble::text = $3)
+          AND ($4::text IS NULL OR l.operacion::text = $4)
+        ORDER BY pe.matricula_inmobiliaria, pe.verificado DESC, pe.fecha DESC
+    ) d
+    ORDER BY d.verificado DESC, d.fecha DESC
+    LIMIT 50
+"""
+
+
+@router.get("/comparables")
+async def comparables_cierre(
+    barrio_id: int | None = Query(default=None),
+    tipo_inmueble: str | None = Query(default=None),
+    operacion: str | None = Query(default=None),
+    meses: int = Query(default=12, ge=1, le=60),
+    user: dict = Depends(get_current_user),
+    pool=Depends(get_pool),
+):
+    """Comparables de precio de CIERRE (no de aviso) — el dato más valioso para
+    tasar. Reciprocidad estilo MLS: solo los ve quien contribuye (reportó cierres).
+    Ese gate ES el incentivo para teclear el cierre. NO expone matrícula/dirección/
+    agente de otros (solo precio/fecha/zona/tipo/área/$m2)."""
+    agent = await _agent_del_usuario(user, pool)
+    # DISTINCT matrícula: reportar la misma matrícula N veces NO farmea el unlock
+    # (una propiedad se vende una vez). Anti-abuso barato del gate autoreportado.
+    cierres = int(await pool.fetchval(
+        "SELECT count(DISTINCT matricula_inmobiliaria) FROM public.propiedad_evento "
+        "WHERE agent_id = $1 AND tipo_evento = 'venta' "
+        "AND matricula_inmobiliaria IS NOT NULL "
+        "AND fecha > CURRENT_DATE - INTERVAL '12 months'",
+        agent.id,
+    ) or 0)
+    if cierres < _COMPARABLES_MIN_CIERRES:
+        return {
+            "acceso": False,
+            "cierres_reportados": cierres,
+            "cierres_necesarios": _COMPARABLES_MIN_CIERRES,
+            "motivo": (f"Reporta al menos {_COMPARABLES_MIN_CIERRES} cierre en los últimos 12 meses "
+                       "para desbloquear los comparables de cierre. Contribuyes, accedes."),
+            "comparables": [],
+        }
+    rows = await pool.fetch(_COMPARABLES_SQL, meses, barrio_id, tipo_inmueble, operacion)
+    n_verif = sum(1 for r in rows if r["verificado"])
+    return {
+        "acceso": True,
+        "cierres_reportados": cierres,
+        "verificados": n_verif,
+        "autoreportados": len(rows) - n_verif,
+        "comparables": [
+            {
+                "precio": float(r["precio"]) if r["precio"] is not None else None,
+                "precio_m2": int(r["precio_m2"]) if r["precio_m2"] is not None else None,
+                "moneda": r["moneda"],
+                "fecha": r["fecha"].isoformat(),
+                "area_m2": float(r["area_m2"]) if r["area_m2"] is not None else None,
+                "barrio": r["barrio"],
+                "tipo_inmueble": r["tipo_inmueble"],
+                "operacion": r["operacion"],
+                "verificado": r["verificado"],
+            }
+            for r in rows
+        ],
+    }
 
 
 @router.post("/listings/{listing_id}/fotos", status_code=201)
@@ -458,6 +618,102 @@ def _grado_servicio(med_horas: float | None) -> tuple[str, str]:
     return ("D", "Respondes lento — los leads se enfrían antes de que llames")
 
 
+def _componente_velocidad(resp_med: float | None) -> float:
+    """0..100 por mediana de horas de respuesta. None (sin visitas respondidas) = 0."""
+    if resp_med is None:
+        return 0.0
+    if resp_med <= 4:
+        return 100.0
+    if resp_med <= 12:
+        return 75.0
+    if resp_med <= 24:
+        return 50.0
+    return 25.0
+
+
+def _puntaje_standing(row) -> int:
+    """Puntaje 0..100 del agente a partir de sus 4 componentes. Pesos en
+    _PUNTAJE_PESOS (decisión de producto). Solo se llama para agentes con
+    actividad >= umbral — no se infla con ceros."""
+    contrib = min(int(row["cierres"]), _CONTRIB_CAP) / _CONTRIB_CAP * 100.0
+    vel = _componente_velocidad(float(row["resp_med"]) if row["resp_med"] is not None else None)
+    show = float(row["show_rate"] or 0) * 100.0
+    acep = float(row["aceptacion"] or 0) * 100.0
+    p = (_PUNTAJE_PESOS["contribucion"] * contrib
+         + _PUNTAJE_PESOS["velocidad"] * vel
+         + _PUNTAJE_PESOS["show_rate"] * show
+         + _PUNTAJE_PESOS["aceptacion"] * acep)
+    return round(p)
+
+
+# Componentes por agente activo (scope agent_id, comparable entre agentes).
+# `actividad` = visitas respondidas 90d + intakes 90d + cierres 12m → umbral de
+# "¿hay suficiente para rankear?". Pocos agentes → subqueries OK.
+# ponytail: fan-out de subqueries sobre TODOS los agentes activos en cada
+# /desempeno. Techo: a decenas de agentes sigue barato; materializar/cachear
+# (tabla analytics o cache 5min) cuando sean cientos.
+_STANDING_COMPONENTS_SQL = """
+    SELECT a.id::text AS agent_id,
+      (SELECT count(DISTINCT pe.matricula_inmobiliaria) FROM public.propiedad_evento pe
+         WHERE pe.agent_id = a.id AND pe.tipo_evento = 'venta'
+           AND pe.matricula_inmobiliaria IS NOT NULL
+           AND pe.fecha > CURRENT_DATE - INTERVAL '12 months')                       AS cierres,
+      (SELECT percentile_cont(0.5) WITHIN GROUP (
+                 ORDER BY EXTRACT(EPOCH FROM (v.updated_at - v.created_at)) / 3600.0)
+         FROM public.visita_solicitud v
+         WHERE v.agent_id = a.id AND v.estado <> 'pendiente'
+           AND v.created_at > NOW() - INTERVAL '90 days')                            AS resp_med,
+      (SELECT count(*) FILTER (WHERE v.estado = 'realizada')::numeric
+              / NULLIF(count(*) FILTER (WHERE v.estado IN ('realizada','no_asistio')), 0)
+         FROM public.visita_solicitud v
+         WHERE v.agent_id = a.id AND v.created_at > NOW() - INTERVAL '90 days')       AS show_rate,
+      (SELECT count(*) FILTER (WHERE estado IN ('en_verificacion','aceptado') OR listing_id IS NOT NULL)::numeric
+              / NULLIF(count(*), 0)
+         FROM public.intake WHERE agent_id = a.id
+           AND created_at > NOW() - INTERVAL '90 days')                              AS aceptacion,
+      (SELECT count(*) FROM public.visita_solicitud v WHERE v.agent_id = a.id
+           AND v.estado <> 'pendiente' AND v.created_at > NOW() - INTERVAL '90 days')
+      + (SELECT count(*) FROM public.intake WHERE agent_id = a.id
+           AND created_at > NOW() - INTERVAL '90 days')
+      + (SELECT count(DISTINCT pe.matricula_inmobiliaria) FROM public.propiedad_evento pe
+           WHERE pe.agent_id = a.id AND pe.tipo_evento = 'venta'
+             AND pe.matricula_inmobiliaria IS NOT NULL
+             AND pe.fecha > CURRENT_DATE - INTERVAL '12 months')
+                                                                                     AS actividad
+    FROM public.agent a
+    WHERE a.estado = 'activo'
+"""
+
+
+def _standing_de(rows, agent_id: str) -> dict:
+    """Arma el bloque standing para `agent_id` a partir de los componentes de
+    TODOS los agentes activos. Degrada honesto: sin actividad suficiente →
+    puntaje/ranking None (no inventamos un 'puesto 3 de 8' sobre ceros)."""
+    me = next((r for r in rows if r["agent_id"] == agent_id), None)
+    cierres = int(me["cierres"]) if me else 0
+    actividad = int(me["actividad"]) if me else 0
+    if not me or actividad < _RANKING_MIN_ACTIVIDAD:
+        return {
+            "puntaje": None,
+            "cierres_reportados_12m": cierres,
+            "ranking": None,
+            "nota": "Datos insuficientes para tu puntaje y ranking — trabaja leads y reporta cierres.",
+        }
+    puntaje = _puntaje_standing(me)
+    qualifying = [r for r in rows if int(r["actividad"]) >= _RANKING_MIN_ACTIVIDAD]
+    ranking = None
+    if len(qualifying) >= 2:
+        ranked = sorted(qualifying, key=_puntaje_standing, reverse=True)
+        posicion = next(i for i, r in enumerate(ranked, 1) if r["agent_id"] == agent_id)
+        ranking = {"posicion": posicion, "total": len(ranked)}
+    return {
+        "puntaje": puntaje,
+        "cierres_reportados_12m": cierres,
+        "ranking": ranking,
+        "nota": "Reportar cierres y responder rápido sube tu puntaje.",
+    }
+
+
 @router.get("/desempeno")
 async def desempeno(user: dict = Depends(get_current_user), pool=Depends(get_pool)):
     """Métricas estilo Zillow (tasa de aceptación, velocidad) + ROI por zona patrocinada."""
@@ -509,6 +765,9 @@ async def desempeno(user: dict = Depends(get_current_user), pool=Depends(get_poo
             """,
             agent.id, user.get("id"),
         )
+        # Standing/ranking (incentivo): componentes de TODOS los agentes activos,
+        # puntaje+ranking se arma en Python (pesos en _PUNTAJE_PESOS).
+        standing_rows = await conn.fetch(_STANDING_COMPONENTS_SQL)
         zonas = await conn.fetch(_ZONAS_SQL, agent.id)
 
         roi = []
@@ -605,8 +864,94 @@ async def desempeno(user: dict = Depends(get_current_user), pool=Depends(get_poo
         ) if (int(visitas_stats["realizadas"]) + int(visitas_stats["no_shows"])) > 0 else None,
         "ofertas_90d": int(visitas_stats["ofertas"]),
         "interesados_90d": int(visitas_stats["interesados"]),
+        "standing": _standing_de(standing_rows, str(agent.id)),
         "zonas": roi,
     }
+
+
+# ── Embudo de demanda por zona patrocinada (vistas→detalle→favoritos→visitas) ──
+# Mismo cálculo que el modelo dbt analytics.embudo_zona pero INLINE (no depende de que
+# la vista exista en el env) y acotado a las zonas que patrocina el realtor.
+class EmbudoZonaItem(BaseModel):
+    zona_codigo: str
+    zona_nombre: str
+    nivel: str
+    vistas_mapa: int
+    aperturas_detalle: int
+    favoritos: int
+    visitas: int
+
+
+class EmbudoResponse(BaseModel):
+    vistas_mapa: int
+    aperturas_detalle: int
+    favoritos: int
+    visitas: int
+    zonas: list[EmbudoZonaItem]
+
+
+_EMBUDO_SQL = (
+    "WITH zonas AS (" + _ZONAS_SQL + "),\n"
+    """
+    zona_barrios AS (
+        SELECT z.zona_codigo, z.nombre, z.nivel, b.id AS barrio_id
+        FROM zonas z JOIN raw.barrios b ON z.nivel = 'barrio' AND b.id::text = z.zona_codigo
+        UNION
+        SELECT z.zona_codigo, z.nombre, z.nivel, bc.barrio_id
+        FROM zonas z JOIN analytics.barrios_cd bc ON z.nivel = 'comuna' AND bc.cd_comuna::text = z.zona_codigo
+    ),
+    ev AS (
+        SELECT COALESCE(e.barrio_id, sl.barrio_id) AS barrio_id, e.event_type
+        FROM public.user_events e
+        LEFT JOIN staging.stg_listings_unificado sl ON sl.url = e.entity_id
+        WHERE e.created_at > now() - interval '30 days'
+          AND e.event_type IN ('listing_preview', 'listing_view')
+    ),
+    ev_agg AS (
+        SELECT barrio_id,
+               count(*) FILTER (WHERE event_type = 'listing_preview') AS vistas_mapa,
+               count(*) FILTER (WHERE event_type = 'listing_view')    AS aperturas_detalle
+        FROM ev WHERE barrio_id IS NOT NULL GROUP BY barrio_id
+    ),
+    fav AS (
+        SELECT barrio_id, count(*) n FROM raw.favoritos_listings
+        WHERE created_at > now() - interval '30 days' AND barrio_id IS NOT NULL GROUP BY barrio_id
+    ),
+    vis AS (
+        SELECT sl.barrio_id, count(*) n
+        FROM public.visita_solicitud v
+        JOIN staging.stg_listings_unificado sl ON sl.url = v.listing_url
+        WHERE v.created_at > now() - interval '30 days' AND sl.barrio_id IS NOT NULL GROUP BY sl.barrio_id
+    )
+    SELECT zb.zona_codigo, zb.nombre AS zona_nombre, zb.nivel,
+           COALESCE(SUM(ea.vistas_mapa), 0)::int       AS vistas_mapa,
+           COALESCE(SUM(ea.aperturas_detalle), 0)::int AS aperturas_detalle,
+           COALESCE(SUM(f.n), 0)::int                  AS favoritos,
+           COALESCE(SUM(vv.n), 0)::int                 AS visitas
+    FROM zona_barrios zb
+    LEFT JOIN ev_agg ea ON ea.barrio_id = zb.barrio_id
+    LEFT JOIN fav    f  ON f.barrio_id  = zb.barrio_id
+    LEFT JOIN vis    vv ON vv.barrio_id = zb.barrio_id
+    GROUP BY zb.zona_codigo, zb.nombre, zb.nivel
+    ORDER BY vistas_mapa DESC
+    """
+)
+
+
+@router.get("/embudo", response_model=EmbudoResponse)
+async def embudo(user: dict = Depends(get_current_user), pool=Depends(get_pool)):
+    """Embudo de demanda (30d) de las zonas que patrocina el realtor:
+    vistas en mapa → aperturas de detalle → favoritos → visitas agendadas."""
+    agent = await _agent_del_usuario(user, pool, exigir_activo=False)
+    rows = await pool.fetch(_EMBUDO_SQL, agent.id)
+    zonas = [EmbudoZonaItem(**dict(r)) for r in rows]
+    return EmbudoResponse(
+        vistas_mapa=sum(z.vistas_mapa for z in zonas),
+        aperturas_detalle=sum(z.aperturas_detalle for z in zonas),
+        favoritos=sum(z.favoritos for z in zonas),
+        visitas=sum(z.visitas for z in zonas),
+        zonas=zonas,
+    )
 
 
 # urls que identifican los listings del agente en user_events/favoritos/visitas:

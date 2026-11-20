@@ -7,6 +7,7 @@ import { useBarrio } from '@/components/comunidad/BarrioContext'
 import { EventCardMini, EventCardFeatured, type EventoData } from '@/components/comunidad/EventCard'
 import { API_BASE_URL } from '@/config/api'
 import { CATEGORIAS_EVENTOS } from '@/lib/categorias_comunidad'
+import { FilterDropdown, FilterToggle } from '@/components/comunidad/FilterDropdown'
 import { K as TOKENS } from "@/design/tokens";
 
 export const Route = createFileRoute('/eventos/$barrio_slug')({
@@ -54,16 +55,6 @@ function Pill({ active, onClick, label }: { active: boolean; onClick: () => void
       borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit',
       whiteSpace: 'nowrap', flexShrink: 0, transition: 'border-color .12s, background .12s, color .12s',
     }}>{label}</button>
-  )
-}
-
-function GroupLabel({ children }: { children: string }) {
-  return (
-    <span style={{
-      fontSize: '.68rem', fontWeight: 700, color: K.tealDeep,
-      textTransform: 'uppercase', letterSpacing: '.07em',
-      marginBottom: 8, display: 'block',
-    }}>{children}</span>
   )
 }
 
@@ -147,7 +138,7 @@ function EventosPage() {
             </p>
           </div>
           <a
-            href="/negocios/unirse"
+            href="/eventos/crear"
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               background: K.coral, color: '#fff',
@@ -187,15 +178,10 @@ function EventosPage() {
           {t('Todos los eventos', 'All events')}
         </h2>
 
-        {/* Filtros */}
-        <div style={{
-          background: '#fff', border: `1px solid ${K.line}`, borderRadius: 14,
-          padding: '18px 20px', marginBottom: 32,
-          display: 'flex', flexDirection: 'column', gap: 16,
-        }}>
-          {/* Categoría — fila scrolleable, sin wrap feo */}
-          <div>
-            <GroupLabel>{t('Categoría', 'Category')}</GroupLabel>
+        {/* Filtros — una sola barra: riel de categoría + controles compactos */}
+        <div style={{ background: '#fff', border: `1px solid ${K.line}`, borderRadius: 14, marginBottom: 32 }}>
+          {/* Riel de categoría — faceta principal, scroll horizontal con desvanecido */}
+          <div className="flt-fade" style={{ padding: '14px 16px 12px', borderBottom: `1px solid ${K.line}` }}>
             <div className="filtros-tabs" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
               <Pill active={categoria === 'all'} onClick={() => { setCategoria('all'); reset() }} label={t('Todas', 'All')} />
               {CATEGORIAS_EVENTOS.map(c => (
@@ -204,39 +190,32 @@ function EventosPage() {
             </div>
           </div>
 
-          {/* Cuándo — fila propia, ancho completo */}
-          <div>
-            <GroupLabel>{t('Cuándo', 'When')}</GroupLabel>
-            <div className="filtros-tabs" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {FILTROS_FECHA.map(f => (
-                <Pill key={f.id} active={fecha === f.id} onClick={() => { setFecha(f.id); reset() }} label={lang === 'es' ? f.es : f.en} />
-              ))}
-            </div>
-          </div>
-
-          {/* Para quién — fila propia, ancho completo */}
-          <div>
-            <GroupLabel>{t('Para quién', 'For who')}</GroupLabel>
-            <div className="filtros-tabs" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {FILTROS_AUDIENCIA.map(a => (
-                <Pill key={a.id} active={audiencia === a.id} onClick={() => { setAudiencia(a.id); reset() }} label={lang === 'es' ? a.es : a.en} />
-              ))}
-            </div>
-          </div>
-
-          {/* Solo gratis + limpiar — separados del resto por su naturaleza (toggle vs. selección) */}
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10,
-            paddingTop: 14, borderTop: `1px solid ${K.line}`,
-          }}>
-            <Pill active={gratuito} onClick={() => { setGratuito(g => !g); reset() }} label={`🎟️ ${t('Solo gratis', 'Free only')}`} />
+          {/* Controles compactos — Cuándo/Para quién en menú, Gratis toggle, conteo + limpiar a la derecha */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '12px 16px' }}>
+            <FilterDropdown
+              icon="📅" placeholder={t('Cuándo', 'When')} value={fecha}
+              options={FILTROS_FECHA.map(f => ({ value: f.id, label: lang === 'es' ? f.es : f.en }))}
+              onChange={v => { setFecha(v); reset() }}
+            />
+            <FilterDropdown
+              icon="👥" placeholder={t('Para quién', 'For who')} value={audiencia}
+              options={FILTROS_AUDIENCIA.map(a => ({ value: a.id, label: lang === 'es' ? a.es : a.en }))}
+              onChange={v => { setAudiencia(v); reset() }}
+            />
+            <FilterToggle on={gratuito} onClick={() => { setGratuito(g => !g); reset() }} label={`🎟️ ${t('Gratis', 'Free')}`} />
+            <span style={{ flex: '1 1 auto', minWidth: 8 }} />
+            {total > 0 && (
+              <span style={{ fontSize: 13, color: K.muted, fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                {total} {total === 1 ? t('evento', 'event') : t('eventos', 'events')}
+              </span>
+            )}
             {anyFilterActive && (
               <button onClick={clearAllFilters} style={{
                 border: 'none', background: 'none', color: K.coral,
-                fontWeight: 700, fontSize: '.8rem', cursor: 'pointer', fontFamily: 'inherit',
-                padding: '4px 2px',
+                fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+                padding: '4px 2px', whiteSpace: 'nowrap',
               }}>
-                {t('Limpiar filtros ✕', 'Clear filters ✕')}
+                {t('Limpiar ✕', 'Clear ✕')}
               </button>
             )}
           </div>
@@ -258,7 +237,7 @@ function EventosPage() {
               <p style={{ color: K.muted, fontSize: '1.05rem', marginBottom: 12 }}>
                 {t('Aún no hay eventos aquí.', 'No events here yet.')}
               </p>
-              <a href="/publicar" style={{ color: K.coral, fontWeight: 700, textDecoration: 'none' }}>
+              <a href="/eventos/crear" style={{ color: K.coral, fontWeight: 700, textDecoration: 'none' }}>
                 {t('¿Tienes uno? Publícalo →', 'Have one? Publish it →')}
               </a>
             </div>

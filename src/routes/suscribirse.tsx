@@ -7,6 +7,7 @@ import { ComunidadLayout } from '@/components/comunidad/ComunidadLayout'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { K as TOKENS } from "@/design/tokens";
 import { Wordmark } from "@/components/Wordmark";
+import { ConsentFields } from "@/components/ConsentFields";
 
 export const Route = createFileRoute('/suscribirse')({
   component: SuscribirsePage,
@@ -63,9 +64,15 @@ function SuscribirsePage() {
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
+  const [habeasData, setHabeasData] = useState(false)
+  const [consentWhatsapp, setConsentWhatsapp] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!habeasData) {
+      setError('Debes aceptar la política de tratamiento de datos.')
+      return
+    }
     setLoading(true)
     setError('')
     try {
@@ -79,6 +86,8 @@ function SuscribirsePage() {
           barrio_id: barrioId,
           intereses: interes || null,
           newsletter_activo: true,
+          habeas_data: habeasData,
+          consent_whatsapp: consentWhatsapp,
         }),
       })
       if (!res.ok) throw new Error('Error al suscribirte')
@@ -371,16 +380,24 @@ function SuscribirsePage() {
                         {INTERESES.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
                       </select>
                     </div>
+                    <div style={{ gridColumn: '1 / -1', marginTop: 8, textAlign: 'left' }}>
+                      <ConsentFields
+                        habeasData={habeasData}
+                        setHabeasData={setHabeasData}
+                        consentWhatsapp={consentWhatsapp}
+                        setConsentWhatsapp={setConsentWhatsapp}
+                      />
+                    </div>
                     <div style={{ gridColumn: '1 / -1', textAlign: 'center', marginTop: 8 }}>
                       {error && <p style={{ color: K.coral, fontSize: '.88rem', marginBottom: 12 }}>{error}</p>}
                       <button
-                        type="submit" disabled={loading}
+                        type="submit" disabled={loading || !habeasData}
                         style={{
-                          background: loading ? K.muted : K.coral, color: '#fff',
+                          background: (loading || !habeasData) ? K.muted : K.coral, color: '#fff',
                           border: 'none', fontWeight: 800, padding: '18px 48px',
-                          borderRadius: 10, cursor: loading ? 'not-allowed' : 'pointer',
+                          borderRadius: 10, cursor: (loading || !habeasData) ? 'not-allowed' : 'pointer',
                           fontSize: '1.05rem', fontFamily: 'inherit',
-                          boxShadow: loading ? 'none' : '0 8px 24px rgba(216,90,48,.28)',
+                          boxShadow: (loading || !habeasData) ? 'none' : '0 8px 24px rgba(216,90,48,.28)',
                         }}
                       >
                         {loading ? 'Registrando…' : 'Suscribirme gratis →'}

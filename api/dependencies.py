@@ -18,6 +18,13 @@ if not JWT_SECRET or len(JWT_SECRET) < 32:
     raise RuntimeError("JWT_SECRET env var requerida (mín 32 caracteres)")
 JWT_ALGORITHM = "HS256"
 
+# Exigir correo verificado para iniciar sesión / usar la cuenta. OFF por defecto:
+# todavía no hay un flujo de verificación de email funcionando en prod, así que
+# exigirlo bloquearía a todos (nadie puede verificarse). Encender
+# (REQUIRE_EMAIL_VERIFICATION=true) cuando el envío de correo de verificación esté
+# operativo. El resto del hardening (token_version, jti, google_sub) sigue activo.
+REQUIRE_EMAIL_VERIFICATION = os.getenv("REQUIRE_EMAIL_VERIFICATION", "false").lower() in ("true", "1", "yes")
+
 
 def _canonical_token(token: str) -> str:
     """Canonical base64url form of the signature segment. PyJWT decodes the signature leniently
@@ -83,7 +90,7 @@ async def _get_user_from_token(token: str) -> dict:
     if (row["token_version"] or 0) != token_version:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revocado")
     # An account whose email was never proven is not a usable account (see auth.register).
-    if not row["email_verificado"]:
+    if REQUIRE_EMAIL_VERIFICATION and not row["email_verificado"]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Correo no verificado")
 
     return dict(row)

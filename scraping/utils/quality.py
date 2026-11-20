@@ -201,7 +201,11 @@ def implausible_reason(precio, area_m2, tipo_inmueble: str | None, tipo_operacio
 
 # ── Geography ────────────────────────────────────────────────────────────────
 
-BARRIO_MAX_DISTANCE_M = float(os.getenv("BARRIO_MAX_DISTANCE_M", "300"))
+# 80 m (~1 cuadra): tolera imprecisión del polígono en el borde sin pegar un punto
+# al otro lado del límite municipal. A 300 m un listing en Envigado/Itagüí se pegaba
+# a un barrio de Poblado y aparecía bajo el filtro de Poblado (pin fuera del polígono).
+# Override con env si un loader necesita otro margen.
+BARRIO_MAX_DISTANCE_M = float(os.getenv("BARRIO_MAX_DISTANCE_M", "80"))
 
 # Containment first; otherwise the nearest polygon only if it is within the cap
 # (a coordinate 3 km outside any barrio used to be assigned to "the nearest").

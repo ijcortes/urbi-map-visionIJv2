@@ -15,7 +15,7 @@ export function OriginalListingLink({
   onClick,
 }: {
   listing: OriginalListingSource | null | undefined;
-  variant?: "primary" | "compact";
+  variant?: "primary" | "secondary" | "compact";
   className?: string;
   onClick?: (e: React.MouseEvent) => void;
 }) {
@@ -39,6 +39,8 @@ export function OriginalListingLink({
   const style: React.CSSProperties =
     variant === "primary"
       ? { background: "#0F8A4F", color: "#FFFFFF", border: "1px solid #0F8A4F", minHeight: 44, padding: "0 16px", borderRadius: 12, fontSize: 14 }
+      : variant === "secondary"
+      ? { background: "#FFFFFF", color: "#0A5C36", border: "1px solid #0F8A4F", minHeight: 44, padding: "0 16px", borderRadius: 12, fontSize: 14 }
       : { background: "#FFFFFF", color: "#0A5C36", border: "1px solid #0F8A4F", minHeight: 32, padding: "0 10px", borderRadius: 8, fontSize: 11 };
   return (
     <span className="contents">
@@ -51,9 +53,9 @@ export function OriginalListingLink({
       className={`${base} ${className}`}
       style={style}
     >
-      <ExternalLink className={variant === "primary" ? "h-4 w-4" : "h-3 w-3"} />
+      <ExternalLink className={variant === "compact" ? "h-3 w-3" : "h-4 w-4"} />
       <span>Ver publicación original</span>
-      {portal && variant === "primary" && <span data-i18n-skip style={{ opacity: 0.85, fontWeight: 500 }}>· {portal}</span>}
+      {portal && variant !== "compact" && <span data-i18n-skip style={{ opacity: 0.85, fontWeight: 500 }}>· {portal}</span>}
     </a>
     {listing?.id != null && (
       <span data-testid="report-broken-link-wrap" className="block" style={{ fontSize: 11, marginTop: 4 }} onClick={(e) => e.stopPropagation()}>

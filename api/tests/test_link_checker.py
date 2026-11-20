@@ -70,6 +70,20 @@ async def test_200_with_not_available_marker_is_gone_accent_insensitive():
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_metrocuadrado_soft_404_real_tombstone_is_gone():
+    # Verified against a live dead metrocuadrado listing (HTTP 200 soft-404, bot UA): the exact copy is
+    # "Parece que este inmueble no está disponible." — the OLD markers ("...ya no esta...", "inmueble no
+    # disponible") did NOT substring-match it, so every dead metrocuadrado listing scored 'ok' and lived
+    # on the map forever. This asserts the real phrase classifies GONE.
+    respx.get(MC).respond(200, text='<h3>Error 404 - Detalle</h3>'
+                          '<h3>Parece que este inmueble no está disponible.</h3>'
+                          '<div>O está en proceso de publicación</div>')
+    v, _ = await check(MC)
+    assert v.result == "gone" and "marker" in v.reason
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_redirect_to_homepage_or_index_is_gone():
     respx.get(MC).respond(302, headers={"location": "https://www.metrocuadrado.com/"})
     respx.get("https://www.metrocuadrado.com/").respond(200, text="home page " * 20)

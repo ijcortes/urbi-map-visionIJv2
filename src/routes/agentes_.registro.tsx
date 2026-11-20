@@ -1,10 +1,9 @@
 import { seo } from "@/lib/seo";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { useState } from "react";
-import { motion } from "framer-motion";
 import { apiFetch } from "@/lib/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
-import { AuthShell } from "./login";
+import { AuthShell, Field, ErrorBanner, AuthButton, inputStyle } from "./login";
 
 export const Route = createFileRoute("/agentes_/registro")({
   head: () => seo({ title: "Registro de agentes · Medellín Social", description: "Regístrate como agente inmobiliario en Medellín Social.", path: "/agentes/registro" }),
@@ -52,13 +51,13 @@ function AgenteRegistroPage() {
       : "Recibimos tu aplicación. La revisamos y te contactamos en 48 horas.";
     return (
       <AuthShell title="Aplicación de agente" subtitle="Estado de tu solicitud">
-        <div className="space-y-4">
-          <div className="rounded-lg border border-primary/40 bg-primary/10 p-4">
-            <p className="text-sm text-foreground">{mensaje}</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ borderRadius: 10, border: "1px solid #0F8A4F", background: "#E7F4EC", padding: 16, fontSize: 14, color: "#0A5C36", fontFamily: "'Inter', system-ui, sans-serif", lineHeight: 1.6 }}>
+            {mensaje}
           </div>
           <Link
             to="/planes"
-            className="block w-full rounded-md bg-primary py-2.5 text-center text-sm font-semibold text-primary-foreground glow-cyan"
+            style={{ display: "block", width: "100%", background: "#0F8A4F", color: "#fff", padding: "13px", borderRadius: 999, textAlign: "center", fontSize: 14, fontWeight: 800, textDecoration: "none", fontFamily: "'Inter', system-ui, sans-serif" }}
           >
             Volver a planes
           </Link>
@@ -69,39 +68,30 @@ function AgenteRegistroPage() {
 
   return (
     <AuthShell title="Regístrate como agente" subtitle="Cuéntanos quién eres para activar tu plan Agente">
-      <form onSubmit={submit} className="space-y-4">
-        <div>
-          <label className="block text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
-            Nombre completo
-          </label>
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <Field label="Nombre completo">
           <input
             value={nombre}
             onChange={(e) => setNombre(e.target.value)}
-            className="mt-1 w-full rounded-md border border-border bg-background/40 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+            className="auth-input"
+            style={inputStyle}
             placeholder="Tu nombre"
           />
-        </div>
-        <div>
-          <label className="block text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
-            Teléfono (WhatsApp)
-          </label>
+        </Field>
+        <Field label="Teléfono (WhatsApp)">
           <input
+            type="tel"
             value={telefono}
             onChange={(e) => setTelefono(e.target.value)}
-            className="mt-1 w-full rounded-md border border-border bg-background/40 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+            className="auth-input"
+            style={inputStyle}
             placeholder="300 000 0000"
           />
-        </div>
-        {error && <p className="text-xs text-danger">{error}</p>}
-        <motion.button
-          whileHover={{ scale: 1.01 }}
-          whileTap={{ scale: 0.99 }}
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-md bg-primary py-2.5 text-sm font-semibold text-primary-foreground glow-cyan disabled:opacity-60"
-        >
+        </Field>
+        {error && <ErrorBanner message={error} />}
+        <AuthButton disabled={loading}>
           {loading ? "Enviando…" : "Enviar aplicación"}
-        </motion.button>
+        </AuthButton>
       </form>
     </AuthShell>
   );

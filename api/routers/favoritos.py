@@ -34,9 +34,29 @@ async def fav_listing_ids(request: Request, current_user: dict = Depends(get_cur
 @router.get("/listings")
 @limiter.limit("100/minute")
 async def list_fav_listings(request: Request, current_user: dict = Depends(get_current_user)):
+    """Favoritos de inmuebles ENRIQUECIDOS para el perfil (foto, precio, specs,
+    barrio, id para 'ver en el mapa'). LATERAL LIMIT 1 porque un mismo url puede
+    duplicarse en staging (colisión de hash). Propio sin match en staging → datos
+    NULL (fallback: barrio del favorito)."""
     pool = get_pool()
     rows = await pool.fetch(
-        "SELECT id, url, barrio_id, created_at FROM raw.favoritos_listings WHERE usuario_id = $1 ORDER BY created_at DESC",
+        """
+        SELECT fl.url, fl.created_at,
+               ('x'||substr(md5(fl.url),1,8))::bit(32)::int AS listing_id,
+               l.precio_cop, l.area_m2, l.habitaciones, l.banos, l.foto,
+               l.tipo_operacion, l.tipo_inmueble,
+               COALESCE(l.barrio_id, fl.barrio_id) AS barrio_id,
+               b.nombre AS barrio_nombre, b.municipio
+        FROM raw.favoritos_listings fl
+        LEFT JOIN LATERAL (
+            SELECT precio_cop, area_m2, NULLIF(habitaciones, -1) AS habitaciones, banos,
+                   fotos[1] AS foto, tipo_operacion, tipo_inmueble, barrio_id
+            FROM staging.stg_listings_unificado WHERE url = fl.url LIMIT 1
+        ) l ON TRUE
+        LEFT JOIN raw.barrios b ON b.id = COALESCE(l.barrio_id, fl.barrio_id)
+        WHERE fl.usuario_id = $1
+        ORDER BY fl.created_at DESC
+        """,
         current_user["id"],
     )
     return [dict(r) for r in rows]

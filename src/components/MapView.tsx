@@ -533,6 +533,7 @@ export function MapView({
     }
 
     map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true, showCompass: true }), "bottom-right");
+    map.addControl(new mapboxgl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: true, showUserLocation: true }), "bottom-right");
     // Atribución compacta: solo una ⓘ que expande al tocar (colapsa "OpenStreetMap ·
     // Improve this map"). Mapbox/OSM exigen mostrarla — compact es el mínimo permitido.
     map.addControl(new mapboxgl.AttributionControl({ compact: true }), "bottom-right");

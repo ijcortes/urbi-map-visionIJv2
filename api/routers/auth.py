@@ -11,7 +11,8 @@ import jwt
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from api.db import get_pool
-from api.dependencies import JWT_ALGORITHM, JWT_SECRET, current_token, get_current_user, token_key
+from api.dependencies import JWT_ALGORITHM, JWT_SECRET, REQUIRE_EMAIL_VERIFICATION, current_token, get_current_user, token_key
+from api.legal import HABEAS_DATA_VERSION
 from api.limiter import email_throttle, limiter, login_fail_throttle
 
 _APP_URL = os.getenv("APP_URL", "https://medellinsocial.com")
@@ -57,6 +58,8 @@ class RegisterRequest(BaseModel):
     apellido: Optional[str] = None
     telefono: Optional[str] = None
     origen: Optional[str] = None  # 'mls' | 'comunidad'
+    habeas_data: bool = False     # autorización tratamiento de datos (obligatoria)
+    consent_whatsapp: bool = False  # canal WhatsApp (opcional)
 
     _normalizar_email = field_validator("email")(_normalizar_email)
 
@@ -76,6 +79,8 @@ class LoginRequest(BaseModel):
 
 class GoogleAuthRequest(BaseModel):
     id_token: str
+    habeas_data: bool = False       # solo lo manda /register (no /login)
+    consent_whatsapp: bool = False
 
 
 class UserBasic(BaseModel):
@@ -218,6 +223,15 @@ async def register(request: Request, background: BackgroundTasks, req: RegisterR
     clicked. The response is identical whether the email is new, already
     registered, or reserved, so it is not an account oracle and an attacker
     cannot pre-register a victim's address into something usable."""
+    # Ley 1581/2012: la autorización de tratamiento de datos debe ser previa y
+    # expresa. Se rechaza antes de tocar la DB — no filtra nada del email, así que
+    # no rompe la protección anti-oracle de abajo.
+    if not req.habeas_data:
+        raise HTTPException(
+            status_code=422,
+            detail="Debes aceptar la política de tratamiento de datos para crear tu cuenta.",
+        )
+
     pool = get_pool()
     # Always hash: equalises timing between the new-email and existing-email paths.
     password_hash = _hash_password(req.password)
@@ -230,12 +244,14 @@ async def register(request: Request, background: BackgroundTasks, req: RegisterR
 
     user_id = await pool.fetchval(
         """
-        INSERT INTO usuarios (email, password_hash, nombre, apellido, telefono, origen_registro, email_verificado)
-        VALUES ($1, $2, $3, $4, $5, $6, FALSE)
+        INSERT INTO usuarios (email, password_hash, nombre, apellido, telefono, origen_registro, email_verificado,
+                              habeas_data_aceptado, habeas_data_fecha, habeas_data_version, consent_whatsapp)
+        VALUES ($1, $2, $3, $4, $5, $6, FALSE, TRUE, NOW(), $7, $8)
         ON CONFLICT (email) DO NOTHING
         RETURNING id
         """,
         req.email, password_hash, req.nombre, req.apellido, req.telefono, req.origen,
+        HABEAS_DATA_VERSION, req.consent_whatsapp,
     )
     if user_id is not None and await email_throttle.allow_shared(pool, f"verify:{req.email}"):
         background.add_task(_issue_verification, pool, user_id, req.email, req.nombre or "")
@@ -292,7 +308,7 @@ async def login(request: Request, req: LoginRequest = Body(...)):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
     if not row["activo"]:
         raise HTTPException(status_code=403, detail="Cuenta desactivada")
-    if not row["email_verificado"]:
+    if REQUIRE_EMAIL_VERIFICATION and not row["email_verificado"]:
         # Only reachable by someone who knows the password, so it leaks nothing.
         raise HTTPException(
             status_code=403,
@@ -413,14 +429,20 @@ async def google_login(
         return JSONResponse(
             status_code=202, content={"challenge": "email", "message": _GOOGLE_CHALLENGE_MSG})
 
+    # Consent only when it came from /register's checkbox; a brand-new Google
+    # account via /login (no checkbox) lands with habeas_data_aceptado=FALSE and
+    # simply receives no marketing until it consents.
     user_id = await pool.fetchval(
         """
-        INSERT INTO usuarios (email, password_hash, nombre, apellido, origen_registro, email_verificado, google_sub)
-        VALUES ($1, $2, $3, $4, 'google', TRUE, $5)
+        INSERT INTO usuarios (email, password_hash, nombre, apellido, origen_registro, email_verificado, google_sub,
+                              habeas_data_aceptado, habeas_data_fecha, habeas_data_version, consent_whatsapp)
+        VALUES ($1, $2, $3, $4, 'google', TRUE, $5,
+                $6, CASE WHEN $6 THEN NOW() ELSE NULL END, $7, $8)
         ON CONFLICT DO NOTHING
         RETURNING id
         """,
         email, _hash_password(secrets.token_urlsafe(32)), claims.get("given_name"), claims.get("family_name"), sub,
+        req.habeas_data, (HABEAS_DATA_VERSION if req.habeas_data else None), req.consent_whatsapp,
     )
     if user_id is None:  # lost a race against another sign-in for the same identity: use the challenge
         await _issue_magic_link(pool, background, email)
@@ -449,10 +471,18 @@ class PerfilOnboardingRequest(BaseModel):
     perfil_busqueda: Optional[str] = None
     onboarding_completado: Optional[bool] = None
     origen_registro: Optional[str] = None
+    nombre: Optional[str] = None
+    email: Optional[EmailStr] = None
+
+    @field_validator("email")
+    @classmethod
+    def _norm_email(cls, v):
+        return _normalizar_email(v) if v else v
 
 
 @router.patch("/perfil", status_code=200)
 async def update_onboarding_perfil(
+    background: BackgroundTasks,
     req: PerfilOnboardingRequest = Body(...),
     current_user: dict = Depends(get_current_user),
 ):
@@ -467,13 +497,45 @@ async def update_onboarding_perfil(
     if req.origen_registro is not None:
         params.append(req.origen_registro)
         fields.append(f"origen_registro = ${len(params)}")
+    if req.nombre is not None:
+        # El front manda el nombre completo en un solo campo; lo guardamos en
+        # `nombre` y limpiamos `apellido` para que el display (nombre+apellido)
+        # no quede duplicado/desfasado.
+        params.append(req.nombre.strip())
+        fields.append(f"nombre = ${len(params)}")
+        fields.append("apellido = NULL")
+    email_cambiado = req.email is not None and req.email != (current_user.get("email") or "").strip().lower()
+    if email_cambiado:
+        # Mismo guardia que /register: nadie reclama ADMIN_EMAIL / RESERVED_EMAILS
+        # por string — admin se concede por email==ADMIN_EMAIL + email_verificado
+        # (api/routers/admin.py), así que sin esto un usuario verificado podría
+        # PATCHear su correo al del admin y escalar privilegios.
+        if req.email in _reserved_emails():
+            raise HTTPException(status_code=403, detail="Ese correo no está disponible.")
+        taken = await pool.fetchval(
+            "SELECT 1 FROM usuarios WHERE email = $1 AND id <> $2",
+            req.email, current_user["id"],
+        )
+        if taken:
+            raise HTTPException(status_code=409, detail="Ese correo ya está en uso.")
+        params.append(req.email)
+        fields.append(f"email = ${len(params)}")
+        # El correo nuevo no está probado: baja email_verificado y manda enlace de
+        # confirmación. La sesión actual sigue viva (token por id), pero un login
+        # nuevo exigirá el correo confirmado si REQUIRE_EMAIL_VERIFICATION está on.
+        fields.append("email_verificado = FALSE")
     if not fields:
         return {"ok": True}
     await pool.execute(
         f"UPDATE usuarios SET {', '.join(fields)} WHERE id = $1",
         *params,
     )
-    return {"ok": True}
+    if email_cambiado:
+        background.add_task(
+            _issue_verification, pool, current_user["id"], req.email,
+            (current_user.get("nombre") or ""),
+        )
+    return {"ok": True, "email_verificacion_enviada": email_cambiado}
 
 
 @router.post("/logout", status_code=204)

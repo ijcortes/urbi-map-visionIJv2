@@ -73,7 +73,24 @@ const SITEMAP_PATHS = [
   '/pasantias', '/afiliado', '/embajador', '/planes/listing-member', '/planes/featured-realtor',
   '/planes/hot-spot', '/planes/deal',
 ];
+// Bots de IA / data-scrapers con bloqueo total. Los buscadores (Googlebot,
+// Bingbot) NO están aquí: se permiten para indexación (ver "User-agent: *").
+// robots.txt es solo un aviso; la barrera real la aplica la API
+// (api/utils/anti_scrape.py) + los rate limits por ruta (slowapi).
+const AI_SCRAPER_BOTS = [
+  'GPTBot', 'OAI-SearchBot', 'ChatGPT-User', 'ClaudeBot', 'Claude-Web',
+  'anthropic-ai', 'Google-Extended', 'CCBot', 'Bytespider', 'Amazonbot',
+  'PerplexityBot', 'Diffbot', 'Omgili', 'FacebookBot', 'meta-externalagent',
+  'Applebot-Extended', 'cohere-ai', 'Scrapy', 'ImagesiftBot', 'YouBot',
+  'Timpibot', 'VelenPublicWebCrawler', 'DataForSeoBot',
+];
 const ROBOTS_TXT = [
+  '# Medellín Social — robots.txt',
+  '# Prohibida la extracción automatizada (web scraping), minería o reutilización',
+  '# de los datos de este sitio sin autorización escrita. El contenido está protegido',
+  '# por los Terminos de Servicio y la Ley 1581 de 2012 (proteccion de datos, Colombia).',
+  '# El acceso de buscadores (Google, Bing) se permite solo para indexacion.',
+  '',
   'User-agent: *',
   'Allow: /',
   'Disallow: /panel-x9k2',
@@ -86,6 +103,9 @@ const ROBOTS_TXT = [
   'Disallow: /reset-password',
   'Disallow: /verify-email',
   'Disallow: /login/verificar',
+  '',
+  // Bloqueo total para bots de IA / scrapers de datos.
+  ...AI_SCRAPER_BOTS.flatMap((b) => [`User-agent: ${b}`, 'Disallow: /', '']),
   `Sitemap: ${SITE_URL}/sitemap.xml`,
   '',
 ].join('\n');

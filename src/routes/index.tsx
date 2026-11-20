@@ -1,4 +1,5 @@
 import { AutoTranslate, Name, useT, useLang } from "@/lib/i18n";
+import { observeImpression } from "@/lib/impressions";
 import { seo } from "@/lib/seo";
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState, useCallback } from 'react'
@@ -318,7 +319,10 @@ function HomeContent() {
                 </a>
               </div>
             ) : deals.map((deal, i) => (
-              <div key={deal.id ?? i} style={{
+              <div
+                key={deal.id ?? i}
+                ref={(el) => observeImpression(el, { entity_type: 'deal', entity_id: String(deal.id ?? i), categoria: deal.categoria })}
+                style={{
                 background: K.paper,
                 borderRadius: 14,
                 overflow: 'hidden',
